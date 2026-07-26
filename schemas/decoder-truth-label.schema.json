@@ -1,0 +1,43 @@
+{
+  "$id": "urn:cape-loop:schema:decoder-truth-label:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A latent truth row joined to blinded decoder requests only after external judgments are collected.",
+  "properties": {
+    "evaluation_split": {
+      "enum": [
+        "train",
+        "development",
+        "test"
+      ]
+    },
+    "pseudonymous_state_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "theta": {
+      "items": {
+        "enum": [
+          -2,
+          -1,
+          1,
+          2
+        ]
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "pseudonymous_state_id",
+    "theta",
+    "evaluation_split"
+  ],
+  "title": "CAPE-Loop separately retained decoder truth label",
+  "type": "object"
+}

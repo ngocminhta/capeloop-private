@@ -1,0 +1,132 @@
+{
+  "$id": "urn:cape-loop:schema:heldout-paraphrase-criterion:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A nullable verification result: null means the required external or paired evaluation records are incomplete.",
+  "properties": {
+    "complete": {
+      "type": "boolean"
+    },
+    "covered_domains": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "covered_template_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "criterion_id": {
+      "const": "held-out-paraphrase-transfer"
+    },
+    "expected_template_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "gate_1_argument": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "material_gap": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "mean_gaps": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "domain_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "family_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "full_context_minus_aware_brier": {
+            "type": "number"
+          },
+          "mechanism": {
+            "enum": [
+              "balanced",
+              "restricted",
+              "default",
+              "suggested"
+            ]
+          }
+        },
+        "required": [
+          "family_id",
+          "domain_id",
+          "mechanism",
+          "full_context_minus_aware_brier"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "missing_pairs": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "qualifying_mechanisms": {
+      "items": {
+        "enum": [
+          "balanced",
+          "restricted",
+          "default",
+          "suggested"
+        ]
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_mechanisms": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "verified": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "criterion_id",
+    "verified",
+    "complete",
+    "material_gap",
+    "required_mechanisms",
+    "covered_domains",
+    "covered_template_ids",
+    "expected_template_ids",
+    "qualifying_mechanisms",
+    "mean_gaps",
+    "missing_pairs",
+    "gate_1_argument"
+  ],
+  "title": "CAPE-Loop Gate 1 held-out paraphrase criterion",
+  "type": "object"
+}

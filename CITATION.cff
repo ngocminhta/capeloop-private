@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: >-
+  If you use CAPE-Loop, cite the software using this metadata. Citation
+  metadata for the associated paper will be added when it is available.
+title: "CAPE-Loop: Causal Attribution of Preference Evidence in Closed-Loop Agents"
+type: software
+authors:
+  - name: "CAPE-Loop contributors"
+abstract: >-
+  CAPE-Loop is a controlled evaluation framework for studying whether
+  persistent agent profiles account for the causal provenance of user
+  responses and whether profile-conditioned interaction can create
+  self-confirming user models.
+keywords:
+  - causal inference
+  - language-model agents
+  - personalization
+  - persistent profiles
+  - user modeling
+license: Apache-2.0

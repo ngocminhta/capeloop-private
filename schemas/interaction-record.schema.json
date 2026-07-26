@@ -1,0 +1,256 @@
+{
+  "$id": "urn:cape-loop:schema:interaction-record:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The visible context and internal policy provenance are sibling records so their causal roles cannot be conflated.",
+  "properties": {
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "context_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "type": "string"
+              },
+              "features": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "label": {
+                "type": "string"
+              },
+              "option_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "features",
+              "label",
+              "domain"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "question_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ranking": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "scenario_id": {
+          "type": "string"
+        },
+        "suggested_option": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_attribute": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "wording_template": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "context_id",
+        "domain",
+        "scenario_id",
+        "turn_id",
+        "options",
+        "ranking",
+        "default",
+        "suggested_option",
+        "wording_template",
+        "question_type",
+        "target_attribute"
+      ],
+      "type": "object"
+    },
+    "observation": {
+      "additionalProperties": false,
+      "properties": {
+        "choice_noise_key": {
+          "type": "string"
+        },
+        "selected_option": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "surface_response": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "selected_option",
+        "surface_response",
+        "choice_noise_key"
+      ],
+      "type": "object"
+    },
+    "policy_provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "config_digest": {
+          "type": "string"
+        },
+        "policy_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentation_mechanism": {
+          "enum": [
+            "none",
+            "balanced",
+            "ranking",
+            "default",
+            "suggestion",
+            "restriction",
+            "target_selection"
+          ]
+        },
+        "profile_conditioned": {
+          "type": "boolean"
+        },
+        "profile_snapshot": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "random_seed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "policy_id",
+        "policy_version",
+        "profile_snapshot",
+        "random_seed",
+        "config_digest",
+        "presentation_mechanism",
+        "profile_conditioned"
+      ],
+      "type": "object"
+    },
+    "profile_update": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "belief_after": {
+              "items": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "belief_before": {
+              "items": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "native_memory_after": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "native_memory_before": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "updater_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "written_delta": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "updater_id",
+            "belief_before",
+            "belief_after",
+            "native_memory_before",
+            "native_memory_after",
+            "written_delta"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "record_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "context",
+    "policy_provenance",
+    "observation",
+    "profile_update"
+  ],
+  "title": "CAPE-Loop causal interaction record",
+  "type": "object"
+}

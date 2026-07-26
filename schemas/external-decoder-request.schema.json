@@ -1,0 +1,59 @@
+{
+  "$id": "urn:cape-loop:schema:external-decoder-request:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A content-addressed request payload for an external decoder. Runtime parsing additionally rejects recursively nested leakage keys and verifies request_sha256.",
+  "properties": {
+    "evaluation_split": {
+      "enum": [
+        "train",
+        "development",
+        "test"
+      ]
+    },
+    "instruction": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "payload": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "pseudonymous_state_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "representation_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "rubric_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "pseudonymous_state_id",
+    "representation_id",
+    "evaluation_split",
+    "rubric_version",
+    "payload",
+    "instruction",
+    "request_sha256"
+  ],
+  "title": "CAPE-Loop blinded external decoder request",
+  "type": "object"
+}

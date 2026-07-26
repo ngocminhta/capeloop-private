@@ -1,0 +1,101 @@
+"""Executable CAPE-Loop experiment families.
+
+The public functions are deliberately small and dependency-free so the top-level
+runner can serialize their immutable result objects without owning scientific
+logic.
+"""
+
+from .closed_loop import (
+    ClosedLoopTrajectory,
+    ClosedLoopTurn,
+    DecompositionRow,
+    ExperimentBResult,
+    SelfConfirmationAssessment,
+    assess_self_confirmation,
+    initial_profile_belief,
+    reportable_self_confirming_cases,
+    run_closed_loop_experiment,
+    run_experiment_b,
+    run_trajectory,
+)
+from .closed_loop_inference import (
+    DEFAULT_MINIMUM_USER_CLUSTERS,
+    ExperimentBInference,
+    ExperimentBInterval,
+    analyze_experiment_b_inference,
+)
+from .evaluation import (
+    ClusteredRankingSamples,
+    EvaluationRow,
+    ExperimentCResult,
+    FixedHistory,
+    NativeDecoderEvaluation,
+    RankingAnalysis,
+    ReplayResult,
+    TerminalBattery,
+    TerminalBatteryScore,
+    analyze_rankings,
+    build_clustered_ranking_samples,
+    build_terminal_battery,
+    evaluate_terminal_battery,
+    evaluate_native_decoders,
+    generate_fixed_history,
+    replay_history,
+    run_evaluation_validity_experiment,
+    run_experiment_c,
+    summarize_terminal_calibration,
+)
+from .provenance import (
+    ExperimentAControlBattery,
+    ExperimentAControlCase,
+    ExperimentAResult,
+    ExperimentARow,
+    build_experiment_a_control_battery,
+    run_experiment_a,
+    run_provenance_audit,
+)
+
+
+__all__ = [
+    "ClosedLoopTrajectory",
+    "ClosedLoopTurn",
+    "ClusteredRankingSamples",
+    "DecompositionRow",
+    "DEFAULT_MINIMUM_USER_CLUSTERS",
+    "EvaluationRow",
+    "ExperimentAResult",
+    "ExperimentARow",
+    "ExperimentAControlBattery",
+    "ExperimentAControlCase",
+    "ExperimentBResult",
+    "ExperimentBInference",
+    "ExperimentBInterval",
+    "ExperimentCResult",
+    "FixedHistory",
+    "NativeDecoderEvaluation",
+    "RankingAnalysis",
+    "ReplayResult",
+    "SelfConfirmationAssessment",
+    "TerminalBattery",
+    "TerminalBatteryScore",
+    "analyze_rankings",
+    "assess_self_confirmation",
+    "analyze_experiment_b_inference",
+    "build_terminal_battery",
+    "build_experiment_a_control_battery",
+    "build_clustered_ranking_samples",
+    "evaluate_terminal_battery",
+    "evaluate_native_decoders",
+    "generate_fixed_history",
+    "initial_profile_belief",
+    "replay_history",
+    "reportable_self_confirming_cases",
+    "run_closed_loop_experiment",
+    "run_evaluation_validity_experiment",
+    "run_experiment_a",
+    "run_experiment_b",
+    "run_experiment_c",
+    "summarize_terminal_calibration",
+    "run_provenance_audit",
+    "run_trajectory",
+]

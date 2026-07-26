@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "api": "responses",
+  "endpoint": "/v1/responses",
+  "resolved_on": "2026-07-26",
+  "official_references": [
+    "https://developers.openai.com/api/docs/guides/latest-model",
+    "https://developers.openai.com/api/docs/models",
+    "https://developers.openai.com/api/docs/guides/structured-outputs"
+  ],
+  "roles": [
+    {
+      "role": "primary",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "medium",
+      "purpose": "Confirmatory profile-writer evaluation. Hold this model fixed across response-only, full-context, and provenance-aware updater views."
+    },
+    {
+      "role": "replication",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "purpose": "Cost-balanced GPT-5.6 model-variant/tier replication. Hold this model fixed across the same updater views. This does not establish distinct-family robustness."
+    },
+    {
+      "role": "decoder",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "low",
+      "purpose": "High-volume blinded decoder and pilot workloads. Do not mix this role into within-model profile-writer comparisons."
+    }
+  ],
+  "invariants": {
+    "structured_outputs": true,
+    "store": false,
+    "same_model_across_information_views": true,
+    "development_only_temperature_calibration": true,
+    "api_key_source": "environment"
+  }
+}

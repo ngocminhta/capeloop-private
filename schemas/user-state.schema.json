@@ -1,0 +1,91 @@
+{
+  "$id": "urn:cape-loop:schema:user-state:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "domain": {
+      "enum": [
+        "travel",
+        "writing"
+      ]
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "split": {
+      "enum": [
+        "train",
+        "development",
+        "test"
+      ]
+    },
+    "susceptibility": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "ranking": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "suggestion": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "ranking",
+        "default",
+        "suggestion"
+      ],
+      "type": "object"
+    },
+    "theta": {
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "enum": [
+            -2,
+            -1,
+            1,
+            2
+          ]
+        },
+        {
+          "enum": [
+            -2,
+            -1,
+            1,
+            2
+          ]
+        },
+        {
+          "enum": [
+            -2,
+            -1,
+            1,
+            2
+          ]
+        }
+      ],
+      "type": "array"
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "user_id",
+    "domain",
+    "theta",
+    "susceptibility",
+    "split"
+  ],
+  "title": "CAPE-Loop latent user state",
+  "type": "object"
+}

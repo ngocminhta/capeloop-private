@@ -1,0 +1,60 @@
+schema_version = 1
+
+[run]
+name = "simulator-sensitivity"
+seed = 1729
+output_root = "runs"
+deterministic = true
+
+[experiment]
+kind = "sensitivity"
+domains = ["travel", "writing"]
+mechanisms = ["ranking", "default", "suggestion"]
+response_modes = ["naturally_sampled"]
+prior_strengths = [0.0]
+policies = ["balanced", "soft_profile_conditioned"]
+updaters = [
+  "fitted_action_aware",
+  "fitted_action_unaware",
+  "full_context_blind",
+  "provenance_aware",
+]
+users = 8
+trajectories_per_cell = 2
+turns = 1
+bootstrap_replicates = 0
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 1024
+fit_steps = 800
+learning_rate = 0.03
+l2 = 0.001
+calibration = "temperature"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[sensitivity]
+decision_noise_values = [0.6, 1.0, 1.6]
+presentation_multipliers = [0.5, 1.0, 1.5]
+profile_strength_values = [0.65, 0.80, 0.90]
+trajectory_lengths = [4, 8, 12]
+
+[artifacts]
+retain_events = true
+retain_prompts = false
+checksum_manifest = true

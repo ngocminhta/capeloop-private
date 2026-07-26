@@ -1,0 +1,52 @@
+name: Scientific or reproducibility issue
+description: Report a concern about methodology, validity, leakage, or reproducibility.
+title: "[Scientific issue]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for scientific correctness and reproducibility concerns. Do not use it for security or private-data disclosures.
+  - type: textarea
+    id: claim
+    attributes:
+      label: Affected claim or procedure
+      description: Identify the proposal section, component, experiment, metric, or artifact.
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: Explain the validity, leakage, identifiability, statistical, or reproducibility problem.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or minimal example
+      description: Provide a small example, derivation, or artifact reference that makes the issue testable.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential impact
+      description: Which conclusions, rankings, stage gates, or released artifacts might change?
+    validations:
+      required: true
+  - type: textarea
+    id: resolution
+    attributes:
+      label: Suggested resolution
+      description: Optional. Suggest a diagnostic, test, or correction without fabricating a result.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and documentation for this concern.
+          required: true
+        - label: This report contains no secrets, private data, or embargoed results.
+          required: true
+        - label: I have read and agree to follow the Code of Conduct.
+          required: true

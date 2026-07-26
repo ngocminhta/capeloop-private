@@ -1,0 +1,82 @@
+{
+  "$id": "urn:cape-loop:schema:heldout-paraphrase-case:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "binding_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "context_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "domain_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "family_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "mechanism": {
+      "enum": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested"
+      ]
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "selected_option_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_trial_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "split": {
+      "enum": [
+        "train",
+        "development",
+        "test"
+      ]
+    },
+    "surface_response": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "template_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "template_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "source_trial_id",
+    "domain_id",
+    "mechanism",
+    "selected_option_id",
+    "template_id",
+    "family_id",
+    "split",
+    "template_sha256",
+    "context_sha256",
+    "surface_response",
+    "binding_sha256"
+  ],
+  "title": "CAPE-Loop held-out surface paraphrase case",
+  "type": "object"
+}

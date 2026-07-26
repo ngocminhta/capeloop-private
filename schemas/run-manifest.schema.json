@@ -1,0 +1,107 @@
+{
+  "$id": "urn:cape-loop:schema:run-manifest:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "config_origin": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "config_sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "descriptor": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "programmatic"
+            }
+          },
+          "required": [
+            "kind",
+            "descriptor",
+            "config_sha256"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "config_sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "kind": {
+              "const": "toml_file"
+            },
+            "retained_file": {
+              "const": "config.source.toml"
+            },
+            "source_filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "source_sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "retained_file",
+            "source_filename",
+            "source_sha256",
+            "config_sha256"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "config_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "deterministic": {
+      "type": "boolean"
+    },
+    "git_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "complete",
+        "failed"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "config_sha256",
+    "config_origin",
+    "git_revision",
+    "source_sha256",
+    "deterministic",
+    "status"
+  ],
+  "title": "CAPE-Loop run manifest",
+  "type": "object"
+}

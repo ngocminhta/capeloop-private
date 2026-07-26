@@ -1,0 +1,70 @@
+{
+  "$id": "urn:cape-loop:schema:human-collection:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A collection contract carrying consent, blinding, and comprehension metadata. It makes no claim of ethics approval or completed recruitment.",
+  "properties": {
+    "assignment_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "assignment_protocol_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "blinding_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "comprehension_check_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "comprehension_passed": {
+      "type": "boolean"
+    },
+    "consent_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "consented": {
+      "type": "boolean"
+    },
+    "display_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "participant_code": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "rating": {
+      "maximum": 7,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "response_time_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "participant_code",
+    "assignment_id",
+    "assignment_protocol_id",
+    "display_id",
+    "rating",
+    "response_time_ms",
+    "consent_version",
+    "consented",
+    "blinding_version",
+    "comprehension_check_id",
+    "comprehension_passed"
+  ],
+  "title": "CAPE-Loop de-identified human collection record",
+  "type": "object"
+}

@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible problem in CAPE-Loop.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include secrets, private data, or unredacted provider responses. Report security issues privately as described in SECURITY.md.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong, and which component is affected?
+      placeholder: A concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest configuration, command, or code sample that reproduces the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include the complete error text after removing sensitive information.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: CAPE-Loop revision
+      description: Provide a release identifier or commit hash when available.
+      placeholder: Release or commit hash
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "For example: 3.11.9"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      placeholder: Operating system and architecture
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: Reproducibility
+      options:
+        - Every run
+        - Intermittent
+        - Once
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: scientific_impact
+    attributes:
+      label: Scientific impact
+      description: Could this affect an estimand, metric, comparison, stage gate, or retained artifact?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets, personal data, and non-redistributable content.
+          required: true
+        - label: I have read and agree to follow the Code of Conduct.
+          required: true

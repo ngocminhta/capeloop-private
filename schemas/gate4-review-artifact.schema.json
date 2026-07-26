@@ -1,0 +1,228 @@
+{
+  "$id": "urn:cape-loop:schema:gate4-review-artifact:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "artifact_kind": {
+      "const": "gate4-native-evidence-review"
+    },
+    "claim_status": {
+      "const": "not_claimed"
+    },
+    "gate_4": {
+      "type": "object"
+    },
+    "inputs": {
+      "additionalProperties": false,
+      "properties": {
+        "decoder_judgments": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "decoder_requests": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "decoder_source_review": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "decoder_truth_labels": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "native_terminal_actions": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "decoder_requests",
+        "decoder_judgments",
+        "decoder_truth_labels",
+        "native_terminal_actions",
+        "decoder_source_review"
+      ],
+      "type": "object"
+    },
+    "interpretation_boundary": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_run": {
+      "additionalProperties": false,
+      "properties": {
+        "config_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_checksum_manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "run_manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "verified_complete": {
+          "const": true
+        }
+      },
+      "required": [
+        "run_id",
+        "run_manifest_sha256",
+        "run_checksum_manifest_sha256",
+        "config_sha256",
+        "source_sha256",
+        "verified_complete"
+      ],
+      "type": "object"
+    },
+    "validation_summary": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "artifact_id",
+    "claim_status",
+    "source_run",
+    "inputs",
+    "validation_summary",
+    "gate_4",
+    "interpretation_boundary"
+  ],
+  "title": "CAPE-Loop immutable Gate 4 evidence review",
+  "type": "object"
+}

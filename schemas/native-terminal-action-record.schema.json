@@ -1,0 +1,160 @@
+{
+  "$id": "urn:cape-loop:schema:native-terminal-action-record:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A content-addressed recorded live/replay action set. Runtime validation binds it to a verified Experiment B trajectory and the exact retained held-out terminal suite.",
+  "properties": {
+    "action_execution_mode": {
+      "enum": [
+        "recorded_live",
+        "recorded_replay"
+      ]
+    },
+    "actions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "declared_direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  -1,
+                  1
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "item_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "item_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "question_type": {
+            "enum": [
+              "forced_choice",
+              "counterfactual_choice",
+              "direct_preference_probe",
+              "cross_context_choice"
+            ]
+          },
+          "selected_option_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wording_template_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "item_sha256",
+          "wording_template_id",
+          "question_type",
+          "selected_option_id",
+          "declared_direction"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "adapter_kind": {
+      "const": "native_end_to_end_recorded"
+    },
+    "domain_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evaluation_split": {
+      "const": "test"
+    },
+    "evidence_origin": {
+      "const": "imported_native_system"
+    },
+    "execution_trace_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "native_state_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "native_system_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "native_system_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "record_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "record_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "recording_attestation": {
+      "const": "actions_emitted_by_named_native_system_not_reference_projection"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "suite_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "suite_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "trajectory_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "updater_id": {
+      "enum": [
+        "episodic_memory",
+        "semantic_memory",
+        "provenance_linked_memory"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "record_id",
+    "trajectory_id",
+    "domain_id",
+    "updater_id",
+    "evaluation_split",
+    "adapter_kind",
+    "evidence_origin",
+    "native_state_id",
+    "native_system_id",
+    "native_system_version",
+    "suite_id",
+    "suite_sha256",
+    "action_execution_mode",
+    "execution_trace_sha256",
+    "recorded_at",
+    "recording_attestation",
+    "actions",
+    "record_sha256"
+  ],
+  "title": "CAPE-Loop recorded native terminal action record",
+  "type": "object"
+}

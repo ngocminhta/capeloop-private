@@ -1,0 +1,149 @@
+{
+  "$id": "urn:cape-loop:schema:llm-response:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "beliefs": {
+      "additionalProperties": false,
+      "properties": {
+        "attribute_1": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_2": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_3": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "attribute_1",
+        "attribute_2",
+        "attribute_3"
+      ],
+      "type": "object"
+    },
+    "model_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "raw_response_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "prompt_sha256",
+    "model_id",
+    "beliefs"
+  ],
+  "title": "CAPE-Loop LLM structured profile response",
+  "type": "object"
+}

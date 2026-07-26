@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a focused improvement to CAPE-Loop.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the need before prescribing an implementation. New dependencies, public interfaces, and experiment-design changes need explicit reproducibility and scope justification.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What research or engineering task is currently difficult or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the behavior, interface, or documentation you would add.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Schemas and records
+        - Domains and simulation
+        - Inference and updaters
+        - Policies and trajectories
+        - Evaluation and experiments
+        - Reporting and artifacts
+        - Command-line interface
+        - Documentation and governance
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: scientific_effect
+    attributes:
+      label: Scientific and compatibility impact
+      description: Explain any effect on estimands, information boundaries, schemas, defaults, or existing artifacts.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducibility
+    attributes:
+      label: Reproducibility plan
+      description: How will this remain deterministic, offline-testable, and auditable?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What smaller or dependency-free alternatives did you consider?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: I have read and agree to follow the Code of Conduct.
+          required: true

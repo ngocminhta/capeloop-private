@@ -1,0 +1,128 @@
+{
+  "$id": "urn:cape-loop:schema:decoder-source-review:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A hash-bound eligibility determination. It records review of source dependencies and does not itself prove independent errors.",
+  "properties": {
+    "decision": {
+      "enum": [
+        "eligible_distinct_sources",
+        "not_eligible"
+      ]
+    },
+    "judgments_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "pair_assessments": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "genuinely_distinct_for_claimed_scope": {
+            "type": "boolean"
+          },
+          "left_decoder_instance_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "rationale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "right_decoder_instance_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "left_decoder_instance_id",
+          "right_decoder_instance_id",
+          "genuinely_distinct_for_claimed_scope",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "requests_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "responsible_researcher_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "review_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "review_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_assessments": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "decoder_family_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "decoder_instance_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "dependency_notes": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "eligible_for_gate4": {
+            "type": "boolean"
+          },
+          "judgment_origin": {
+            "enum": [
+              "external_model",
+              "human_annotator"
+            ]
+          },
+          "source_descriptor": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "decoder_instance_id",
+          "decoder_family_id",
+          "judgment_origin",
+          "source_descriptor",
+          "eligible_for_gate4",
+          "dependency_notes"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "review_id",
+    "responsible_researcher_id",
+    "reviewed_at",
+    "requests_sha256",
+    "judgments_sha256",
+    "decision",
+    "source_assessments",
+    "pair_assessments",
+    "review_sha256"
+  ],
+  "title": "CAPE-Loop responsible-researcher decoder source review",
+  "type": "object"
+}

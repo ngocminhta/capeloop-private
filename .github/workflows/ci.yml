@@ -1,0 +1,51 @@
+name: Offline CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  standard-library-core:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile source and tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m compileall -q src tests
+
+      - name: Check runtime
+        env:
+          PYTHONHASHSEED: "0"
+        run: PYTHONPATH=src python -m cape_loop doctor
+
+      - name: Run offline test suite
+        env:
+          PYTHONHASHSEED: "0"
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v

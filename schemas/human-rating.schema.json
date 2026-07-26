@@ -1,0 +1,27 @@
+{
+  "$id": "urn:cape-loop:schema:human-rating:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assignment_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "display_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "rating": {
+      "maximum": 7,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "assignment_id",
+    "display_id",
+    "rating"
+  ],
+  "title": "CAPE-Loop blinded pragmatic-evidence rating",
+  "type": "object"
+}

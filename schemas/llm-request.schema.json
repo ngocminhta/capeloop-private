@@ -1,0 +1,47 @@
+{
+  "$id": "urn:cape-loop:schema:llm-request:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "payload": {
+      "type": "object"
+    },
+    "prompt_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "system_instruction": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "updater_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "view": {
+      "enum": [
+        "response_only",
+        "full_context",
+        "provenance_aware"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "updater_id",
+    "view",
+    "system_instruction",
+    "payload",
+    "prompt_sha256"
+  ],
+  "title": "CAPE-Loop provider-neutral LLM request",
+  "type": "object"
+}

@@ -1,0 +1,56 @@
+schema_version = 1
+
+[run]
+name = "experiment-a-smoke"
+seed = 1729
+output_root = "runs"
+deterministic = true
+
+[experiment]
+kind = "provenance_audit"
+domains = ["travel", "writing"]
+mechanisms = ["balanced", "restricted", "default", "suggested"]
+response_modes = ["controlled_anchor", "naturally_sampled"]
+prior_strengths = [0.0, 0.35, 0.7]
+policies = ["balanced"]
+updaters = [
+  "no_update",
+  "exact_action_aware",
+  "fitted_action_aware",
+  "fitted_action_unaware",
+  "full_context_blind",
+  "provenance_discount",
+]
+users = 4
+trajectories_per_cell = 1
+turns = 1
+bootstrap_replicates = 0
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 256
+fit_steps = 400
+learning_rate = 0.04
+l2 = 0.001
+calibration = "temperature"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[artifacts]
+retain_events = true
+retain_prompts = false
+checksum_manifest = true

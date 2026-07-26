@@ -1,0 +1,94 @@
+{
+  "$id": "urn:cape-loop:schema:external-decoder-judgment:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A model- or human-supplied decoder judgment. This exchange record does not assert that any judgment has been collected or that distinct sources are statistically independent.",
+  "properties": {
+    "blind_to_latent_truth": {
+      "type": "boolean"
+    },
+    "blind_to_system_identity": {
+      "type": "boolean"
+    },
+    "decoder_family_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "decoder_instance_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "judgment_origin": {
+      "enum": [
+        "external_model",
+        "human_annotator"
+      ]
+    },
+    "probabilities": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "+1": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "+2": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "-1": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "-2": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "-2",
+          "-1",
+          "+1",
+          "+2"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_descriptor": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "request_sha256",
+    "decoder_instance_id",
+    "decoder_family_id",
+    "judgment_origin",
+    "source_descriptor",
+    "blind_to_system_identity",
+    "blind_to_latent_truth",
+    "probabilities"
+  ],
+  "title": "CAPE-Loop external decoder judgment",
+  "type": "object"
+}
