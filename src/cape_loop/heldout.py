@@ -21,7 +21,7 @@ import json
 import math
 
 from .domains import DomainSpec
-from .schemas import NUM_ATTRIBUTES, THETA_VALUES, Theta, validate_theta
+from .schemas import NUM_ATTRIBUTES, Theta, validate_theta
 
 
 SPLITS = ("train", "development", "test")

@@ -1,0 +1,530 @@
+{
+  "$id": "urn:cape-loop:schema:external-decoder-transport-attempt:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A durable started or settled physical HTTP-attempt event. The Python reader additionally enforces ordering, digest bindings, and outcome/audit consistency.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "attempt_ordinal": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "client_request_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "decoder_instance_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "estimated_max_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "event": {
+          "const": "started"
+        },
+        "kind": {
+          "const": "external-decoder-transport-attempt"
+        },
+        "model_requested": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "anthropic",
+            "google_gemini"
+          ]
+        },
+        "request_body_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "request_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "started_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "event",
+        "attempt_id",
+        "provider",
+        "request_id",
+        "request_sha256",
+        "prompt_sha256",
+        "decoder_instance_id",
+        "request_body_sha256",
+        "model_requested",
+        "client_request_id",
+        "estimated_max_tokens",
+        "attempt_ordinal",
+        "started_at"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "charged_tokens": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "const": "settled"
+        },
+        "http_status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "const": "external-decoder-transport-attempt"
+        },
+        "outcome": {
+          "enum": [
+            "transport_error",
+            "http_error",
+            "invalid_provider_metadata",
+            "invalid_response",
+            "identity_mismatch",
+            "success"
+          ]
+        },
+        "provider_audit": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "acceptance_status": {
+                  "enum": [
+                    "accepted",
+                    "rejected_identity_mismatch"
+                  ]
+                },
+                "attempts": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "client_request_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "completed_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "decoder_family_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "decoder_instance_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "estimated_max_tokens": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "judgment": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "blind_to_latent_truth": {
+                      "type": "boolean"
+                    },
+                    "blind_to_system_identity": {
+                      "type": "boolean"
+                    },
+                    "decoder_family_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "decoder_instance_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "judgment_origin": {
+                      "enum": [
+                        "external_model",
+                        "human_annotator"
+                      ]
+                    },
+                    "probabilities": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "+1": {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "+2": {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "-1": {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "-2": {
+                            "maximum": 1,
+                            "minimum": 0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "-2",
+                          "-1",
+                          "+1",
+                          "+2"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "request_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "request_sha256": {
+                      "pattern": "^[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "source_descriptor": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "request_id",
+                    "request_sha256",
+                    "decoder_instance_id",
+                    "decoder_family_id",
+                    "judgment_origin",
+                    "source_descriptor",
+                    "blind_to_system_identity",
+                    "blind_to_latent_truth",
+                    "probabilities"
+                  ],
+                  "type": "object"
+                },
+                "kind": {
+                  "const": "external-decoder-provider-audit"
+                },
+                "llm_response": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "beliefs": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "attribute_1": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "+1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "+2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "-2",
+                            "-1",
+                            "+1",
+                            "+2"
+                          ],
+                          "type": "object"
+                        },
+                        "attribute_2": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "+1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "+2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "-2",
+                            "-1",
+                            "+1",
+                            "+2"
+                          ],
+                          "type": "object"
+                        },
+                        "attribute_3": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "+1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "+2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-1": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "-2": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "-2",
+                            "-1",
+                            "+1",
+                            "+2"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "attribute_1",
+                        "attribute_2",
+                        "attribute_3"
+                      ],
+                      "type": "object"
+                    },
+                    "model_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "prompt_sha256": {
+                      "pattern": "^[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "raw_response_sha256": {
+                      "anyOf": [
+                        {
+                          "pattern": "^[0-9a-f]{64}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "request_id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  },
+                  "required": [
+                    "schema_version",
+                    "request_id",
+                    "prompt_sha256",
+                    "model_id",
+                    "beliefs"
+                  ],
+                  "type": "object"
+                },
+                "model_requested": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "model_returned": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "prompt_sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": [
+                    "anthropic",
+                    "google_gemini"
+                  ]
+                },
+                "provider_response_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "raw_response": {
+                  "type": "object"
+                },
+                "request_body_sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "request_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "request_sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "schema_version": {
+                  "const": 1
+                },
+                "server_request_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "source_descriptor": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "started_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "usage": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "schema_version",
+                "kind",
+                "acceptance_status",
+                "provider",
+                "request_id",
+                "request_sha256",
+                "prompt_sha256",
+                "decoder_instance_id",
+                "decoder_family_id",
+                "source_descriptor",
+                "request_body_sha256",
+                "model_requested",
+                "model_returned",
+                "provider_response_id",
+                "usage",
+                "started_at",
+                "completed_at",
+                "attempts",
+                "client_request_id",
+                "server_request_id",
+                "estimated_max_tokens",
+                "judgment",
+                "llm_response",
+                "raw_response"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "response_body_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "server_request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settled_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "event",
+        "attempt_id",
+        "settled_at",
+        "outcome",
+        "http_status",
+        "charged_tokens",
+        "server_request_id",
+        "response_body_sha256",
+        "provider_audit"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "CAPE-Loop external decoder transport attempt"
+}

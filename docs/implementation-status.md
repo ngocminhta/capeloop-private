@@ -35,6 +35,7 @@ paper hypothesis or scientific stage gate has passed.
 | Matched anchor contexts | Implemented | Balanced, restricted, default, and suggested |
 | Experiment A runner | Implemented | Controlled/naturally sampled modes, executable prior-strength strata, fixed six-case control protocol, oracle slopes, evidence ordering, raw/calibrated reliability, clustered contrasts/interactions, CR1 marginal OLS, Holm, and pilot power; control outcomes and result claims remain absent |
 | Experiment B runner and same-history shadow | Implemented | Four initial-profile conditions and configured policy/updater crossing; calibrated LLM runs retain cached same-request raw/calibrated terminal scores without claiming a recursively raw trajectory |
+| Confirmatory mixed-effects harness | Implemented optional analysis | Version-pinned R/lme4 pipeline implements both proposal formulas, maximal random effects, planned emmeans contrasts, pointwise intervals with Holm-adjusted p-values, canonical config/source validation, curvature-scaled gradient diagnostics, and checksum-bound JSON/CSV outputs; B is reconstructed one row per retained turn and no fit or claim is checked in |
 | Experiment C runner | Implemented | Fixed balanced, fixed biased, and endogenous regimes; stable-key alignment and complete-user clustered ranking bootstrap; cached raw/calibrated terminal diagnostics do not replace rankings |
 | Held-out paraphrase suite and Gate 1 adapter | Implemented | Test-only response families are content bound and leakage checked; completeness still depends on required updater/case pairs |
 | Held-out terminal v2 suite | Implemented | Shared B/C diagnostic uses new option IDs/features/scenarios/wording and all four question types; B also retains explicit action bindings |
@@ -49,12 +50,13 @@ paper hypothesis or scientific stage gate has passed.
 | Run manifests, source digest, and checksums | Implemented | Verification also checks complete status, run ID, resolved-config digest/schema, and summary presence |
 | Deterministic paper-artifact freeze/verify | Implemented | Requires a verified run plus retained TOML source or hash-bound programmatic config origin; writes normalized `.tar` plus a digest sidecar |
 | Public JSON Schema export | Implemented | CLI writes deterministic schema files |
-| LLM profile writers | Provider-capable | Strict replay plus explicit live Responses API execution, budgets, retry/audit journals, and resumability; no live study result is included |
+| LLM profile writers | Provider-capable | Strict replay plus explicit direct OpenAI Responses API or first-class OpenRouter Chat Completions execution, budgets, audit-first journals, and resumability; no live study result is included |
 | OpenAI primary/replication suite orchestration | Provider-capable | Credential-free planning and explicit two-role execution use immutable matched configs, distinct run/journal paths, per-role ledgers, and a combined index; Terra is not distinct-family robustness |
+| OpenRouter gateway execution | Provider-capable | Exact canonical model slugs, strict JSON Schema, cache disablement, router-metadata and selected-upstream validation, route/privacy controls, gateway/upstream audit schema, static/adaptive execution, and multi-model decoder collection are implemented; every record denies first-party provenance and decoder manifests deny strict Gate 4 eligibility and statistical independence |
 | LLM probability calibration | External-evidence-dependent | Per-updater temperature is fitted on development users and locked for test; raw/active responses are retained; `none` is an explicit ablation |
 | Human pragmatic-study packet, import, and analysis | External-evidence-dependent | Fixed vignettes, blinding/codebook, consent/comprehension metadata validation, summaries, and paired bootstrap contrasts; no participants were recruited |
 | Correction-debt protocol | Diagnostic reference | Stage-gated exact paired arms and recovery/debt metrics are implemented with a transparent log-odds adapter |
-| Gate 4 external-evidence ingestion | External-evidence-dependent | `gate-review import-native` binds a verified completed B run to exact retained decoder materials, reviewed distinct-source judgments, and recorded native actions; writes a separate checksum-bound review and never mutates the run |
+| Gate 4 external-evidence ingestion | External-evidence-dependent | `gate-review import-native` binds a verified completed B run to the complete selected Anthropic/Gemini and OpenAI collections, validates plans/journals/audits/manifests and every digest under collection locks, or explicitly labels a reviewed-generic decoder alternative; writes a separate checksum-bound review and never mutates the run |
 
 ## Known missing work
 
@@ -63,9 +65,9 @@ paper hypothesis or scientific stage gate has passed.
 | Live model evidence | No API keys, paid calls, provider responses, or live model results are checked in |
 | Complete Gate 1 evidence | Requires the declared full-context updater and complete held-out case pairs; structured-only smoke runs remain incomplete |
 | Executed Experiment A control outcomes | The six-case positive/negative protocol is frozen, but direct-statement, longitudinal, indifference, randomized-response, and real correction outcomes require their declared executors/evidence; the repository does not impute them from anchor choices |
-| Full confirmatory mixed-effects analysis | The wired OLS uses user-clustered CR1 covariance; the proposal's user-random-slope/scenario-random-intercept generalized mixed-effects model still requires an external statistical environment |
-| Native end-to-end natural-language terminal calls | Terminal v2 uses leakage-checked items and action contracts, but shipped structured/native adapters are transparent belief projections |
-| Genuinely distinct decoder evidence | Requests and analysis are ready; no external model/human judgments are included, and model/version metadata alone cannot prove independent errors |
+| Executed confirmatory mixed-effects result | The optional R harness is implemented, but no verified study run has been fitted and no model result or claim is checked in; current one-level Experiment A pilots lack the required `prior_strength` variation and are `not_estimable`, while ordinary multi-turn B runs supply within-trajectory `turn` variation |
+| Native end-to-end natural-language terminal evidence | The OpenAI provider path now implements keyless planning, explicit live authorization, origin/budget locks, durable physical-attempt journals, resumable audit-first collection, and source-safe outputs; no paid call or empirical native-action record is checked in, and transparent projections remain ineligible |
+| Genuinely distinct decoder evidence | Requests and analysis are ready; no external model/human judgments are included, and model/version or OpenRouter upstream-route metadata alone cannot prove independent errors |
 | Empirical LLM calibration result | Per-updater development-only temperature calibration is executable for replay and live responses, with `none` as an explicit ablation; no response corpus/result is included |
 | Human study execution | Ethics/IRB or exemption, approved consent, recruitment, compensation, survey hosting, privacy/retention policy, and collection remain external |
 | Native/LLM correction-debt result | Protocol and reference adapter exist; a real system adapter and prerequisite gate review are still required |
@@ -92,6 +94,9 @@ llm validate RESPONSES.jsonl
 llm models
 llm plan REQUESTS.jsonl
 llm execute-openai REQUESTS.jsonl RESPONSES.jsonl AUDIT.jsonl --execute-live
+llm plan-openrouter REQUESTS.jsonl
+llm execute-openrouter REQUESTS.jsonl RESPONSES.jsonl AUDIT.jsonl \
+  --execute-live
 llm evaluation-suite PRIMARY.toml REPLICATION.toml [--execute-live]
 artifact freeze RUN_DIR ARCHIVE.tar
 artifact verify ARCHIVE.tar
@@ -99,7 +104,16 @@ decoder-study validate REQUESTS.jsonl JUDGMENTS.jsonl
 decoder-study analyze REQUESTS.jsonl JUDGMENTS.jsonl TRUTH.jsonl
 decoder-study plan-openai REQUESTS.jsonl
 decoder-study execute-openai REQUESTS.jsonl OUTPUT_DIR --execute-live
-gate-review import-native RUN REQUESTS JUDGMENTS TRUTH ACTIONS SOURCE_REVIEW OUTPUT
+decoder-study plan-openrouter REQUESTS.jsonl [--additional-model MODEL]
+decoder-study execute-openrouter REQUESTS.jsonl OUTPUT_DIR \
+  [--additional-model MODEL] --execute-live
+decoder-study plan-distinct REQUESTS.jsonl [--output PLAN.json]
+decoder-study execute-distinct REQUESTS.jsonl OUTPUT_DIR --execute-live
+native-action plan-openai RUN_DIR [--output PLAN.json]
+native-action execute-openai RUN_DIR OUTPUT_DIR --execute-live
+gate-review import-native RUN REQUESTS JUDGMENTS TRUTH NATIVE_COLLECTION \
+  SOURCE_REVIEW OUTPUT \
+  (--external-collection-dir DIR | --allow-reviewed-generic-decoders)
 gate-review verify REVIEW_DIR
 human-study generate OUTPUT_DIR [--assignment-id ID] [--seed INTEGER]
 human-study analyze RESPONSES.jsonl CODEBOOK.json
@@ -125,7 +139,7 @@ evaluated by that run are explicitly incomplete.
 | Gate 1 — learnable provenance gap | Experiment A generates and scores leakage-checked test paraphrases. The criterion is complete only with all required domains/mechanisms and paired fitted-aware/`llm_full_context` scores; structured-only smoke runs remain incomplete |
 | Gate 2 — nontrivial soft self-confirmation | Experiment B targets only `llm_full_context`; response-only/provenance-aware LLM variants are controls. Computational passage also requires at least eight user clusters and 95% user-clustered intervals above zero for mean LCG and five-clause profile rate. The checked-in config lacks this updater, so the report is incomplete |
 | Gate 3 — attribution beyond evidence selection | Same `llm_full_context` boundary as Gate 2; computational passage requires an adequate 95% user-clustered same-history attribution interval above zero. No passage is claimed |
-| Gate 4 — native-system validity | Experiment B restricts to incorrect-seed, soft-profile-conditioned native trajectories with counter-profile alternatives and checks retained state plus the matched native failure; imported independent blinded decoders and genuine native end-to-end actions are mandatory incomplete prerequisites, and deterministic/reference proxies are ineligible |
+| Gate 4 — native-system validity | Experiment B restricts to incorrect-seed, soft-profile-conditioned native trajectories with counter-profile alternatives and checks retained state plus the matched native failure; imported independent blinded decoders and genuine native end-to-end actions are mandatory incomplete prerequisites. Strict provenance accepts only the complete direct first-party Anthropic/Gemini decoder and OpenAI native-action collections; deterministic projections, reference actions, and OpenRouter shared-gateway collections are ineligible |
 | Gate 5 — evaluation implication | Experiment C uses joint paired complete-user open/closed error differences for reversals and interval-supported top tiers plus paired test envelopes for ESR; descriptive tau, rank bands, and reversal probabilities cannot pass it alone |
 | Gate 6 — robustness | Sensitivity checks declared-grid completion and retains phase classifications/boundaries, but live-LLM confirmation and scientific review remain external |
 

@@ -5,15 +5,30 @@ from __future__ import annotations
 import argparse
 from hashlib import sha256
 from pathlib import Path
+from typing import Mapping
 import json
+import os
 import platform
 import sys
+import tempfile
 
 from . import __version__
 from .artifacts import verify_run
 from .config import ConfigError, load_config
 from .correction_debt import run_correction_debt_experiment
 from .evaluation_suite import orchestrate_openai_evaluation_suite
+from .external_decoder_providers import (
+    ANTHROPIC_DEFAULT_MODEL,
+    ANTHROPIC_OFFICIAL_ORIGIN,
+    GEMINI_DEFAULT_MODEL,
+    GEMINI_OFFICIAL_ORIGIN,
+    ExternalDecoderProvider,
+    ExternalDecoderProviderConfig,
+    ExternalDecoderProviderError,
+    _ExclusiveCollectionLock,
+    execute_external_decoder_collection,
+    plan_external_decoder_collection,
+)
 from .decoder_study import (
     analyze_external_decoders,
     analyze_human_evidence_strength,
@@ -42,6 +57,20 @@ from .openai_provider import (
     execute_jsonl,
     read_requests,
 )
+from .openrouter_provider import (
+    OPENROUTER_EXAMPLE_MODEL,
+    OPENROUTER_MODELS_URL,
+    OpenRouterChatProvider,
+    OpenRouterProviderConfig,
+    OpenRouterProviderError,
+    ResumableOpenRouterCompletionProvider,
+    execute_openrouter_jsonl,
+)
+from .native_action_provider import (
+    OpenAINativeActionProvider,
+    execute_openai_native_actions,
+    plan_openai_native_actions,
+)
 from .release import freeze_run, verify_frozen_artifact
 from .schema_export import export_schemas
 from .schema_export import SCHEMAS
@@ -49,6 +78,77 @@ from .schema_export import SCHEMAS
 
 def _json(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+
+def _atomic_write_text(path: Path, value: str) -> None:
+    """Replace one UTF-8 text file only after its complete content is durable."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+            newline="\n",
+        ) as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _containing_run(path: Path) -> Path | None:
+    """Identify a run-shaped ancestor without mutating or trusting its content."""
+
+    resolved = path.resolve()
+    anchor = resolved if resolved.is_dir() else resolved.parent
+    candidates = (anchor, *anchor.parents)
+    for candidate in candidates:
+        if all(
+            (candidate / filename).is_file()
+            for filename in (
+                "manifest.json",
+                "config.resolved.json",
+                "SHA256SUMS",
+            )
+        ):
+            return candidate
+    return None
+
+
+def _reject_output_inside_input_run(
+    input_path: Path,
+    output_path: Path,
+) -> None:
+    """Keep external collection plans and results outside immutable runs."""
+
+    resolved_input = input_path.resolve()
+    resolved_output = output_path.resolve()
+    if resolved_output == resolved_input:
+        raise ValueError(
+            "collection output cannot overwrite its input: "
+            f"{resolved_input}"
+        )
+    source_run = _containing_run(input_path)
+    if source_run is None:
+        return
+    if (
+        resolved_output == source_run
+        or source_run in resolved_output.parents
+    ):
+        raise ValueError(
+            "collection output must be outside the immutable source "
+            f"run: {source_run}"
+        )
 
 
 def _doctor(_: argparse.Namespace) -> int:
@@ -105,9 +205,13 @@ def _gate_review_import_native(args: argparse.Namespace) -> int:
         requests_path=args.requests,
         judgments_path=args.judgments,
         truth_labels_path=args.truth_labels,
-        actions_path=args.actions,
+        native_collection_dir=args.native_collection_dir,
         source_review_path=args.source_review,
         output_dir=args.output_dir,
+        external_collection_dir=args.external_collection_dir,
+        allow_reviewed_generic_decoders=(
+            args.allow_reviewed_generic_decoders
+        ),
     )
     print(_json(result))
     return 0
@@ -186,6 +290,33 @@ def _openai_cli_config(
     )
 
 
+def _openrouter_cli_config(
+    args: argparse.Namespace,
+    *,
+    live_execution: bool,
+) -> OpenRouterProviderConfig:
+    return OpenRouterProviderConfig(
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        api_key_env=args.api_key_env,
+        base_url=args.base_url,
+        allow_custom_base_url=args.allow_custom_base_url,
+        upstream_provider=args.upstream_provider,
+        allow_fallbacks=args.allow_fallbacks,
+        require_parameters=not args.allow_unsupported_parameters,
+        data_collection=args.data_collection,
+        zdr=args.zdr,
+        http_referer=args.http_referer,
+        app_title=args.app_title,
+        timeout_seconds=args.timeout_seconds,
+        max_retries=args.max_retries,
+        max_output_tokens=args.max_output_tokens,
+        max_requests=args.max_requests,
+        max_total_tokens=args.max_total_tokens,
+        live_execution=live_execution,
+    )
+
+
 def _llm_models(_: argparse.Namespace) -> int:
     print(
         _json(
@@ -204,6 +335,17 @@ def _llm_models(_: argparse.Namespace) -> int:
                     "Hold model and reasoning effort fixed across updater "
                     "information views."
                 ),
+                "openrouter": {
+                    "supported": True,
+                    "example_model": OPENROUTER_EXAMPLE_MODEL,
+                    "catalog": OPENROUTER_MODELS_URL,
+                    "selection_rule": (
+                        "Use one explicit author/model slug; aliases, "
+                        "openrouter/auto, and model fallback arrays are "
+                        "excluded from reproducible runs."
+                    ),
+                    "strict_gate4_first_party_origin": False,
+                },
             }
         )
     )
@@ -271,6 +413,91 @@ def _llm_execute(args: argparse.Namespace) -> int:
                 "`cape-loop llm plan` and increase budgets deliberately"
             )
     summary = execute_jsonl(
+        provider,
+        args.requests,
+        responses_path=args.responses,
+        audit_path=args.audit,
+    )
+    print(_json(summary.to_dict()))
+    return 0
+
+
+def _llm_plan_openrouter(args: argparse.Namespace) -> int:
+    requests = read_requests(args.requests)
+    config = _openrouter_cli_config(args, live_execution=False)
+    provider = OpenRouterChatProvider(config)
+    prepared = tuple(provider.prepare(request) for request in requests)
+    conservative_tokens = sum(
+        request.estimated_max_tokens for request in prepared
+    )
+    within_budget = (
+        len(prepared) <= config.max_requests
+        and conservative_tokens <= config.max_total_tokens
+    )
+    print(
+        _json(
+            {
+                "provider": "openrouter",
+                "gateway": "openrouter",
+                "live_execution": False,
+                "credential_read": False,
+                "request_count": len(prepared),
+                "model": config.model,
+                "reasoning_effort": config.reasoning_effort or None,
+                "api_key_env": config.api_key_env,
+                "endpoint": config.endpoint,
+                "upstream_provider_constraint": (
+                    config.upstream_provider or None
+                ),
+                "provider_preferences": config.provider_preferences(),
+                "response_cache_enabled": False,
+                "router_metadata_requested": True,
+                "router_transforms_accepted": False,
+                "first_party_origin_claimed": False,
+                "conservative_max_tokens": conservative_tokens,
+                "max_requests": config.max_requests,
+                "request_budget_unit": "physical_http_attempt",
+                "max_retries_per_logical_request": config.max_retries,
+                "max_total_tokens": config.max_total_tokens,
+                "within_declared_budget": within_budget,
+                "request_body_sha256": [
+                    {
+                        "request_id": request.request_id,
+                        "sha256": item.body_sha256,
+                    }
+                    for request, item in zip(requests, prepared)
+                ],
+            }
+        )
+    )
+    return 0 if within_budget else 1
+
+
+def _llm_execute_openrouter(args: argparse.Namespace) -> int:
+    if not args.execute_live:
+        raise ValueError(
+            "live OpenRouter execution requires the explicit "
+            "--execute-live flag"
+        )
+    provider = OpenRouterChatProvider(
+        _openrouter_cli_config(args, live_execution=True)
+    )
+    if not args.responses.exists() and not args.audit.exists():
+        requests = read_requests(args.requests)
+        conservative_tokens = sum(
+            provider.prepare(request).estimated_max_tokens
+            for request in requests
+        )
+        if (
+            len(requests) > provider.config.max_requests
+            or conservative_tokens > provider.config.max_total_tokens
+        ):
+            raise ValueError(
+                "fresh OpenRouter execution would exceed a declared hard "
+                "budget; run `cape-loop llm plan-openrouter` and increase "
+                "budgets deliberately"
+            )
+    summary = execute_openrouter_jsonl(
         provider,
         args.requests,
         responses_path=args.responses,
@@ -509,6 +736,431 @@ def _decoder_plan_openai(args: argparse.Namespace) -> int:
         )
     )
     return 0 if all_within_budget else 1
+
+
+def _openrouter_decoder_models(
+    args: argparse.Namespace,
+) -> tuple[str, ...]:
+    models = (args.model, *args.additional_model)
+    if len(models) != len(set(models)):
+        raise ValueError("OpenRouter decoder models must not contain duplicates")
+    return models
+
+
+def _openrouter_decoder_config(
+    args: argparse.Namespace,
+    *,
+    model: str,
+    live_execution: bool,
+) -> OpenRouterProviderConfig:
+    prepared = argparse.Namespace(**vars(args))
+    prepared.model = model
+    return _openrouter_cli_config(
+        prepared,
+        live_execution=live_execution,
+    )
+
+
+def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
+    requests = read_external_decoder_requests(args.requests)
+    sources = []
+    all_within_budget = True
+    for index, model in enumerate(_openrouter_decoder_models(args), start=1):
+        provider = OpenRouterChatProvider(
+            _openrouter_decoder_config(
+                args,
+                model=model,
+                live_execution=False,
+            )
+        )
+        prepared = tuple(
+            provider.prepare(
+                external_decoder_llm_request(
+                    request,
+                    decoder_instance_id=f"plan-openrouter-{index}",
+                )
+            )
+            for request in requests
+        )
+        conservative_tokens = sum(
+            request.estimated_max_tokens for request in prepared
+        )
+        within_budget = (
+            len(prepared) <= provider.config.max_requests
+            and conservative_tokens <= provider.config.max_total_tokens
+        )
+        all_within_budget = all_within_budget and within_budget
+        sources.append(
+            {
+                "gateway": "openrouter",
+                "model": model,
+                "reasoning_effort": (
+                    provider.config.reasoning_effort or None
+                ),
+                "upstream_provider_constraint": (
+                    provider.config.upstream_provider or None
+                ),
+                "provider_preferences": (
+                    provider.config.provider_preferences()
+                ),
+                "request_count": len(prepared),
+                "conservative_max_tokens": conservative_tokens,
+                "max_requests": provider.config.max_requests,
+                "request_budget_unit": "physical_http_attempt",
+                "max_retries_per_logical_request": (
+                    provider.config.max_retries
+                ),
+                "max_total_tokens": provider.config.max_total_tokens,
+                "within_declared_budget": within_budget,
+            }
+        )
+    print(
+        _json(
+            {
+                "provider": "openrouter",
+                "live_execution": False,
+                "credential_read": False,
+                "decoder_source_count": len(sources),
+                "sources": sources,
+                "all_within_declared_budget": all_within_budget,
+                "response_cache_enabled": False,
+                "router_metadata_requested": True,
+                "first_party_origin_claimed": False,
+                "strict_gate4_eligible": False,
+                "statistical_independence_claimed": False,
+            }
+        )
+    )
+    return 0 if all_within_budget else 1
+
+
+def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
+    if not args.execute_live:
+        raise ValueError(
+            "OpenRouter decoder execution requires the explicit "
+            "--execute-live flag"
+        )
+    requests = read_external_decoder_requests(args.requests)
+    output = Path(args.output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    judgments = []
+    manifests = []
+    for index, model in enumerate(_openrouter_decoder_models(args), start=1):
+        config = _openrouter_decoder_config(
+            args,
+            model=model,
+            live_execution=True,
+        )
+        provider = OpenRouterChatProvider(config)
+        model_digest = sha256(model.encode("utf-8")).hexdigest()[:12]
+        journal = output / "journals" / model_digest
+        if not journal.exists():
+            conservative_tokens = sum(
+                provider.prepare(
+                    external_decoder_llm_request(
+                        request,
+                        decoder_instance_id=(
+                            f"plan-openrouter-{index}"
+                        ),
+                    )
+                ).estimated_max_tokens
+                for request in requests
+            )
+            if (
+                len(requests) > config.max_requests
+                or conservative_tokens > config.max_total_tokens
+            ):
+                raise ValueError(
+                    f"OpenRouter decoder model {model!r} would exceed its "
+                    "hard budget before any request; run "
+                    "decoder-study plan-openrouter"
+                )
+        instance_id = f"openrouter-{model_digest}"
+        adapter = ResumableOpenRouterCompletionProvider(
+            provider,
+            responses_path=journal / "responses.jsonl",
+            audit_path=journal / "provider-audit.jsonl",
+        )
+        for request in requests:
+            response = adapter.complete(
+                external_decoder_llm_request(
+                    request,
+                    decoder_instance_id=instance_id,
+                )
+            )
+            judgments.append(
+                external_decoder_judgment_from_response(
+                    request,
+                    response,
+                    decoder_instance_id=instance_id,
+                    decoder_family_id=model,
+                    source_descriptor=(
+                        f"openrouter-chat:{model};"
+                        "first-party-origin=false"
+                    ),
+                )
+            )
+        manifests.append(
+            {
+                **adapter.to_manifest(),
+                "source_index": index,
+            }
+        )
+    judgment_path = output / "judgments.jsonl"
+    _atomic_write_text(
+        judgment_path,
+        "".join(
+            json.dumps(
+                judgment.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            + "\n"
+            for judgment in judgments
+        ),
+    )
+    design_audit = validate_external_decoder_import(requests, judgments)
+    _atomic_write_text(
+        output / "execution-manifest.json",
+        _json(
+            {
+                "schema_version": 1,
+                "gateway": "openrouter",
+                "request_count": len(requests),
+                "judgment_count": len(judgments),
+                "models": list(_openrouter_decoder_models(args)),
+                "provider_runs": manifests,
+                "source_design_audit": design_audit.to_dict(),
+                "response_cache_enabled": False,
+                "router_metadata_requested": True,
+                "first_party_origin_claimed": False,
+                "strict_gate4_eligible": False,
+                "statistical_independence_claimed": False,
+                "credentials_retained": False,
+            }
+        )
+        + "\n",
+    )
+    print(
+        _json(
+            {
+                "output_dir": str(output),
+                "judgments": len(judgments),
+                "source_design_eligible": (
+                    design_audit.source_design_eligible
+                ),
+                "strict_gate4_eligible": False,
+                "statistical_independence_claimed": False,
+            }
+        )
+    )
+    return 0
+
+
+def _external_decoder_configs(
+    args: argparse.Namespace,
+    *,
+    live_execution: bool,
+) -> tuple[ExternalDecoderProviderConfig, ...]:
+    shared = {
+        "timeout_seconds": args.timeout_seconds,
+        "max_retries": args.max_retries,
+        "max_output_tokens": args.max_output_tokens,
+        "max_requests": args.max_requests_per_source,
+        "max_total_tokens": args.max_total_tokens_per_source,
+        "live_execution": live_execution,
+    }
+    return (
+        ExternalDecoderProviderConfig(
+            provider="anthropic",
+            model=args.anthropic_model,
+            api_key_env=args.anthropic_api_key_env,
+            base_url=args.anthropic_base_url,
+            allow_custom_base_url=args.allow_custom_anthropic_base_url,
+            **shared,
+        ),
+        ExternalDecoderProviderConfig(
+            provider="google_gemini",
+            model=args.gemini_model,
+            api_key_env=args.gemini_api_key_env,
+            base_url=args.gemini_base_url,
+            allow_custom_base_url=args.allow_custom_gemini_base_url,
+            **shared,
+        ),
+    )
+
+
+def _decoder_plan_distinct(args: argparse.Namespace) -> int:
+    requests = read_external_decoder_requests(args.requests)
+    plan = plan_external_decoder_collection(
+        requests,
+        _external_decoder_configs(args, live_execution=False),
+    )
+    if args.output is not None:
+        _reject_output_inside_input_run(args.requests, args.output)
+        _atomic_write_text(args.output, _json(plan) + "\n")
+    print(_json(plan))
+    return 0
+
+
+def _decoder_execute_distinct(args: argparse.Namespace) -> int:
+    if not args.execute_live:
+        raise ValueError(
+            "distinct decoder execution requires the explicit "
+            "--execute-live flag"
+        )
+    _reject_output_inside_input_run(args.requests, args.output_dir)
+    requests = read_external_decoder_requests(args.requests)
+    planning_configs = _external_decoder_configs(
+        args,
+        live_execution=False,
+    )
+    plan = plan_external_decoder_collection(requests, planning_configs)
+    output = Path(args.output_dir)
+    with _ExclusiveCollectionLock(
+        output / ".external-decoder-command.lock"
+    ):
+        return _decoder_execute_distinct_locked(
+            args,
+            requests=requests,
+            plan=plan,
+            output=output,
+        )
+
+
+def _decoder_execute_distinct_locked(
+    args: argparse.Namespace,
+    *,
+    requests: tuple[object, ...],
+    plan: Mapping[str, object],
+    output: Path,
+) -> int:
+    """Run planning, provider collection, and manifesting under one lock."""
+
+    plan_path = output / "collection-plan.json"
+    plan_text = _json(plan) + "\n"
+    if plan_path.exists() and plan_path.read_text(
+        encoding="utf-8"
+    ) != plan_text:
+        raise ValueError(
+            "existing distinct-decoder plan has a different request, model, "
+            "origin, or budget identity"
+        )
+    _atomic_write_text(plan_path, plan_text)
+
+    providers = tuple(
+        ExternalDecoderProvider(config)
+        for config in _external_decoder_configs(
+            args,
+            live_execution=True,
+        )
+    )
+    judgments_path = output / "judgments.jsonl"
+    audit_path = output / "provider-audit.jsonl"
+    attempt_path = output / "transport-attempts.jsonl"
+    summary = execute_external_decoder_collection(
+        providers,
+        requests,
+        judgments_path=judgments_path,
+        audit_path=audit_path,
+        attempt_path=attempt_path,
+    )
+    judgments = read_external_decoder_judgments(judgments_path)
+    source_design = validate_external_decoder_import(
+        requests,
+        judgments,
+        minimum_sources_per_request=2,
+        require_distinct_families=True,
+    )
+    portable_summary = {
+        **summary.to_dict(),
+        "judgments_path": judgments_path.name,
+        "audit_path": audit_path.name,
+        "attempt_path": attempt_path.name,
+        "repaired_trailing_files": [
+            Path(path).name
+            for path in summary.repaired_trailing_files
+        ],
+    }
+    manifest = {
+        "schema_version": 1,
+        "kind": "distinct-external-decoder-collection",
+        "status": "complete",
+        "claim_status": "not_claimed",
+        "collection_plan_sha256": sha256(
+            plan_path.read_bytes()
+        ).hexdigest(),
+        "judgments_sha256": sha256(
+            judgments_path.read_bytes()
+        ).hexdigest(),
+        "provider_audit_sha256": sha256(
+            audit_path.read_bytes()
+        ).hexdigest(),
+        "transport_attempts_sha256": sha256(
+            attempt_path.read_bytes()
+        ).hexdigest(),
+        "execution_summary": portable_summary,
+        "source_design_audit": source_design.to_dict(),
+        "distinct_provider_model_families": True,
+        "statistical_independence_claimed": False,
+        "responsible_researcher_source_review_required": True,
+        "credentials_retained": False,
+    }
+    _atomic_write_text(
+        output / "execution-manifest.json",
+        _json(manifest) + "\n",
+    )
+    print(
+        _json(
+            {
+                **summary.to_dict(),
+                "output_dir": str(output),
+                "source_design_eligible": (
+                    source_design.source_design_eligible
+                ),
+                "statistical_independence_claimed": False,
+                "claim_status": "not_claimed",
+            }
+        )
+    )
+    return 0
+
+
+def _native_action_plan_openai(args: argparse.Namespace) -> int:
+    if args.output is not None:
+        _reject_output_inside_input_run(args.run_dir, args.output)
+    config = _openai_cli_config(
+        args,
+        live_execution=False,
+        role_name="primary",
+    )
+    plan = plan_openai_native_actions(args.run_dir, config)
+    if args.output is not None:
+        _atomic_write_text(args.output, _json(plan) + "\n")
+    print(_json(plan))
+    return 0 if plan["within_declared_budget"] else 1
+
+
+def _native_action_execute_openai(args: argparse.Namespace) -> int:
+    if not args.execute_live:
+        raise ValueError(
+            "native action execution requires the explicit --execute-live flag"
+        )
+    provider = OpenAINativeActionProvider(
+        _openai_cli_config(
+            args,
+            live_execution=True,
+            role_name="primary",
+        )
+    )
+    result = execute_openai_native_actions(
+        args.run_dir,
+        args.output_dir,
+        provider,
+    )
+    print(_json(result))
+    return 0
 
 
 def _load_assignment_codebooks(path: Path) -> dict[str, object]:
@@ -818,17 +1470,44 @@ def build_parser() -> argparse.ArgumentParser:
     import_native = gate_review_commands.add_parser(
         "import-native",
         help=(
-            "bind reviewed external decoders and recorded native actions to "
-            "a verified completed Experiment B run"
+            "bind reviewed external decoders and a fully validated OpenAI "
+            "native-action collection to a verified completed Experiment B run"
         ),
     )
     import_native.add_argument("run_dir", type=Path)
     import_native.add_argument("requests", type=Path)
     import_native.add_argument("judgments", type=Path)
     import_native.add_argument("truth_labels", type=Path)
-    import_native.add_argument("actions", type=Path)
+    import_native.add_argument(
+        "native_collection_dir",
+        type=Path,
+        help=(
+            "complete gpt-5.6-sol/medium OpenAI collection directory, not a "
+            "standalone native-actions.jsonl file"
+        ),
+    )
     import_native.add_argument("source_review", type=Path)
     import_native.add_argument("output_dir", type=Path)
+    external_provenance = import_native.add_mutually_exclusive_group(
+        required=True
+    )
+    external_provenance.add_argument(
+        "--external-collection-dir",
+        type=Path,
+        help=(
+            "complete official Anthropic/Gemini distinct-decoder collection; "
+            "its judgments must be byte-identical to JUDGMENTS"
+        ),
+    )
+    external_provenance.add_argument(
+        "--allow-reviewed-generic-decoders",
+        action="store_true",
+        help=(
+            "explicitly admit generic or manual judgments under the supplied "
+            "responsible-researcher source review without asserting official "
+            "provider-collection provenance"
+        ),
+    )
     import_native.set_defaults(handler=_gate_review_import_native)
     verify_review = gate_review_commands.add_parser(
         "verify",
@@ -892,6 +1571,95 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--max-requests", type=int, default=100)
         command.add_argument("--max-total-tokens", type=int, default=500_000)
 
+    def add_openrouter_arguments(
+        command: argparse.ArgumentParser,
+    ) -> None:
+        command.add_argument(
+            "--model",
+            default=OPENROUTER_EXAMPLE_MODEL,
+            help=(
+                "exact OpenRouter author/model slug; change this one value "
+                "to switch models"
+            ),
+        )
+        command.add_argument(
+            "--reasoning-effort",
+            choices=(
+                "",
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+            ),
+            default="",
+            help="omit by default so models without reasoning controls work",
+        )
+        command.add_argument(
+            "--upstream-provider",
+            default="",
+            help=(
+                "optional exact OpenRouter provider slug to place in both "
+                "provider.only and provider.order"
+            ),
+        )
+        command.add_argument(
+            "--allow-fallbacks",
+            action="store_true",
+            help="allow OpenRouter to try another endpoint for the same model",
+        )
+        command.add_argument(
+            "--allow-unsupported-parameters",
+            action="store_true",
+            help=(
+                "permit routes that may ignore requested parameters; "
+                "not recommended for research runs"
+            ),
+        )
+        command.add_argument(
+            "--data-collection",
+            choices=("deny", "allow"),
+            default="deny",
+        )
+        command.add_argument(
+            "--zdr",
+            action="store_true",
+            help="require an OpenRouter zero-data-retention endpoint",
+        )
+        command.add_argument(
+            "--http-referer",
+            default="",
+            help="optional public repository/site URL for app attribution",
+        )
+        command.add_argument(
+            "--app-title",
+            default="CAPE-Loop",
+            help="optional OpenRouter app-attribution title",
+        )
+        command.add_argument(
+            "--api-key-env",
+            default="OPENROUTER_API_KEY",
+        )
+        command.add_argument(
+            "--base-url",
+            default="https://openrouter.ai/api",
+        )
+        command.add_argument(
+            "--allow-custom-base-url",
+            action="store_true",
+            help=(
+                "allow sending a dedicated non-default credential to a "
+                "reviewed non-OpenRouter HTTPS endpoint"
+            ),
+        )
+        command.add_argument("--timeout-seconds", type=float, default=180.0)
+        command.add_argument("--max-retries", type=int, default=2)
+        command.add_argument("--max-output-tokens", type=int, default=4096)
+        command.add_argument("--max-requests", type=int, default=100)
+        command.add_argument("--max-total-tokens", type=int, default=500_000)
+
     plan_llm = llm_commands.add_parser(
         "plan",
         help="dry-run request bodies and conservative budgets without a key",
@@ -910,6 +1678,28 @@ def build_parser() -> argparse.ArgumentParser:
     execute_llm.add_argument("--execute-live", action="store_true")
     add_openai_arguments(execute_llm)
     execute_llm.set_defaults(handler=_llm_execute)
+
+    plan_openrouter = llm_commands.add_parser(
+        "plan-openrouter",
+        help=(
+            "dry-run OpenRouter request bodies, routes, and budgets without "
+            "reading a key"
+        ),
+    )
+    plan_openrouter.add_argument("requests", type=Path)
+    add_openrouter_arguments(plan_openrouter)
+    plan_openrouter.set_defaults(handler=_llm_plan_openrouter)
+
+    execute_openrouter = llm_commands.add_parser(
+        "execute-openrouter",
+        help="resumably execute static request JSONL through OpenRouter",
+    )
+    execute_openrouter.add_argument("requests", type=Path)
+    execute_openrouter.add_argument("responses", type=Path)
+    execute_openrouter.add_argument("audit", type=Path)
+    execute_openrouter.add_argument("--execute-live", action="store_true")
+    add_openrouter_arguments(execute_openrouter)
+    execute_openrouter.set_defaults(handler=_llm_execute_openrouter)
 
     evaluation_suite = llm_commands.add_parser(
         "evaluation-suite",
@@ -1012,6 +1802,200 @@ def build_parser() -> argparse.ArgumentParser:
     add_openai_arguments(execute_decoder, include_role=False)
     execute_decoder.set_defaults(handler=_decoder_execute_openai)
 
+    plan_openrouter_decoder = decoder_commands.add_parser(
+        "plan-openrouter",
+        help=(
+            "dry-run routed OpenRouter decoder sources without reading a key"
+        ),
+    )
+    plan_openrouter_decoder.add_argument("requests", type=Path)
+    add_openrouter_arguments(plan_openrouter_decoder)
+    plan_openrouter_decoder.add_argument(
+        "--additional-model",
+        action="append",
+        default=[],
+        help=(
+            "add another exact OpenRouter model as a separately journaled "
+            "decoder source; repeat as needed"
+        ),
+    )
+    plan_openrouter_decoder.set_defaults(
+        handler=_decoder_plan_openrouter
+    )
+
+    execute_openrouter_decoder = decoder_commands.add_parser(
+        "execute-openrouter",
+        help=(
+            "collect routed OpenRouter decoder sources; these remain "
+            "ineligible for strict first-party Gate 4 provenance"
+        ),
+    )
+    execute_openrouter_decoder.add_argument("requests", type=Path)
+    execute_openrouter_decoder.add_argument("output_dir", type=Path)
+    execute_openrouter_decoder.add_argument(
+        "--execute-live",
+        action="store_true",
+    )
+    add_openrouter_arguments(execute_openrouter_decoder)
+    execute_openrouter_decoder.add_argument(
+        "--additional-model",
+        action="append",
+        default=[],
+        help=(
+            "add another exact OpenRouter model as a separately journaled "
+            "decoder source; repeat as needed"
+        ),
+    )
+    execute_openrouter_decoder.set_defaults(
+        handler=_decoder_execute_openrouter
+    )
+
+    def add_distinct_decoder_arguments(
+        command: argparse.ArgumentParser,
+    ) -> None:
+        command.add_argument(
+            "--anthropic-model",
+            default=ANTHROPIC_DEFAULT_MODEL,
+        )
+        command.add_argument(
+            "--gemini-model",
+            default=GEMINI_DEFAULT_MODEL,
+        )
+        command.add_argument(
+            "--anthropic-api-key-env",
+            default="ANTHROPIC_API_KEY",
+        )
+        command.add_argument(
+            "--gemini-api-key-env",
+            default="GEMINI_API_KEY",
+        )
+        command.add_argument(
+            "--anthropic-base-url",
+            default=ANTHROPIC_OFFICIAL_ORIGIN,
+        )
+        command.add_argument(
+            "--gemini-base-url",
+            default=GEMINI_OFFICIAL_ORIGIN,
+        )
+        command.add_argument(
+            "--allow-custom-anthropic-base-url",
+            action="store_true",
+            help=(
+                "allow a reviewed non-Anthropic HTTPS origin; also requires "
+                "a dedicated non-default credential environment variable"
+            ),
+        )
+        command.add_argument(
+            "--allow-custom-gemini-base-url",
+            action="store_true",
+            help=(
+                "allow a reviewed non-Google HTTPS origin; also requires a "
+                "dedicated non-default credential environment variable"
+            ),
+        )
+        command.add_argument("--timeout-seconds", type=float, default=180.0)
+        command.add_argument("--max-retries", type=int, default=4)
+        command.add_argument("--max-output-tokens", type=int, default=1024)
+        command.add_argument(
+            "--max-requests-per-source",
+            type=int,
+            default=900,
+        )
+        command.add_argument(
+            "--max-total-tokens-per-source",
+            type=int,
+            default=6_000_000,
+        )
+
+    plan_distinct_decoder = decoder_commands.add_parser(
+        "plan-distinct",
+        help=(
+            "plan the Anthropic Sonnet and Google Gemini decoder pair "
+            "without reading either key"
+        ),
+    )
+    plan_distinct_decoder.add_argument("requests", type=Path)
+    plan_distinct_decoder.add_argument("--output", type=Path)
+    add_distinct_decoder_arguments(plan_distinct_decoder)
+    plan_distinct_decoder.set_defaults(handler=_decoder_plan_distinct)
+
+    execute_distinct_decoder = decoder_commands.add_parser(
+        "execute-distinct",
+        help=(
+            "resumably collect the two first-party, distinct-family decoder "
+            "sources; researcher source review remains required"
+        ),
+    )
+    execute_distinct_decoder.add_argument("requests", type=Path)
+    execute_distinct_decoder.add_argument("output_dir", type=Path)
+    execute_distinct_decoder.add_argument(
+        "--execute-live",
+        action="store_true",
+    )
+    add_distinct_decoder_arguments(execute_distinct_decoder)
+    execute_distinct_decoder.set_defaults(handler=_decoder_execute_distinct)
+
+    native_action = commands.add_parser(
+        "native-action",
+        help=(
+            "record terminal actions produced directly from retained native "
+            "memory for Gate 4"
+        ),
+    )
+    native_action_commands = native_action.add_subparsers(
+        dest="native_action_command",
+        required=True,
+    )
+    plan_native_action = native_action_commands.add_parser(
+        "plan-openai",
+        help=(
+            "plan exact gpt-5.6-sol native-state actions without reading a key"
+        ),
+    )
+    plan_native_action.add_argument("run_dir", type=Path)
+    plan_native_action.add_argument("--output", type=Path)
+    add_openai_arguments(plan_native_action, include_role=False)
+    plan_native_action.add_argument(
+        "--model",
+        default=DEFAULT_OPENAI_MODEL_ROLES["primary"].model,
+    )
+    plan_native_action.add_argument(
+        "--reasoning-effort",
+        choices=("none", "low", "medium", "high", "xhigh", "max"),
+        default=DEFAULT_OPENAI_MODEL_ROLES["primary"].reasoning_effort,
+    )
+    plan_native_action.set_defaults(
+        handler=_native_action_plan_openai,
+        max_requests=900,
+        max_total_tokens=6_000_000,
+    )
+
+    execute_native_action = native_action_commands.add_parser(
+        "execute-openai",
+        help=(
+            "resumably collect schema-bound native actions with explicit "
+            "live authorization"
+        ),
+    )
+    execute_native_action.add_argument("run_dir", type=Path)
+    execute_native_action.add_argument("output_dir", type=Path)
+    execute_native_action.add_argument("--execute-live", action="store_true")
+    add_openai_arguments(execute_native_action, include_role=False)
+    execute_native_action.add_argument(
+        "--model",
+        default=DEFAULT_OPENAI_MODEL_ROLES["primary"].model,
+    )
+    execute_native_action.add_argument(
+        "--reasoning-effort",
+        choices=("none", "low", "medium", "high", "xhigh", "max"),
+        default=DEFAULT_OPENAI_MODEL_ROLES["primary"].reasoning_effort,
+    )
+    execute_native_action.set_defaults(
+        handler=_native_action_execute_openai,
+        max_requests=900,
+        max_total_tokens=6_000_000,
+    )
+
     human = commands.add_parser("human-study", help="human-study material helpers")
     human_commands = human.add_subparsers(dest="human_command", required=True)
     generate = human_commands.add_parser(
@@ -1079,7 +2063,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.handler(args))
     except (
         ConfigError,
+        ExternalDecoderProviderError,
         OpenAIProviderError,
+        OpenRouterProviderError,
         OSError,
         ValueError,
         KeyError,

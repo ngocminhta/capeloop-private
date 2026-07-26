@@ -38,7 +38,6 @@ from ..response import RandomUtilityModel, regret
 from ..schemas import (
     InteractionRecord,
     LatentUser,
-    PolicyProvenance,
     Susceptibility,
     Theta,
     TrajectoryRecord,

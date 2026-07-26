@@ -40,8 +40,18 @@ site/
 
 # Local experiment output
 runs/
+analyses/
 artifacts/local/
 artifacts/tmp/
+
+# Local R state and restored dependency libraries
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+analysis/confirmatory-mixed-effects/renv/library/
+analysis/confirmatory-mixed-effects/renv/staging/
+analysis/confirmatory-mixed-effects/renv/python/
 
 # Editors and operating systems
 .idea/

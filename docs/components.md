@@ -284,6 +284,47 @@ this external evidence path.
 
 See [Native memory](native-memory.md).
 
+## First-party distinct external decoder providers
+
+Module: `external_decoder_providers.py`
+
+Gate 4's default external pair is Anthropic `claude-sonnet-5` and Google
+`gemini-3.6-flash`. They use separate first-party providers and model families:
+that is a stronger source design than two OpenAI variants, but it is not an
+automatic claim that their errors are statistically independent.
+
+`ExternalDecoderProviderConfig` locks each credential to the provider's
+official HTTPS origin by default. Custom routing needs two deliberate changes:
+the custom-origin opt-in and a dedicated, non-default credential variable.
+Planning constructs every provider body, content digest, request ID, and
+conservative token reservation without reading an environment variable.
+
+Anthropic requests use the Messages API with a strict JSON-schema output
+format; Gemini requests use `generateContent` with a JSON response schema.
+Both response paths reject missing/inconsistent provider model identities,
+malformed or incomplete probability vectors, non-completion states, and
+unexpected candidates. The resulting records are ordinary
+`ExternalDecoderJudgment` rows accepted by the existing decoder analysis and
+Gate 4 importer.
+
+Collection records a durable `started`/`settled` journal around every physical
+HTTP attempt, and every retry consumes the per-provider request/token budget.
+The dependency-free HTTP transport refuses redirects and reads at most 16 MiB
+plus one overflow-detection byte for either success or error bodies. An
+oversized body is never retained or reflected; its attempt is charged
+conservatively and stopped without a retry.
+After a successful response, the redacted provider audit, including its
+validated judgment, is flushed before the judgment JSONL row. An exclusive
+cross-platform advisory output lock prevents concurrent collectors. Resume
+restores each provider's
+separate physical-attempt/token ledger, repairs a final crash-truncated JSONL
+tail or an interrupted judgment append when safe, and does not repeat an
+accepted call. An unresolved attempt or rejected model identity stops automatic
+resume for manual review and never becomes a judgment.
+
+See [Gate 4 live collection](gate4-live-collection.md) for commands,
+credentials, budgets, and the responsible-researcher review boundary.
+
 ## LLM replay
 
 Module: `llm_exchange.py`; adapter: `LLMReplayUpdater`
@@ -325,7 +366,9 @@ strict Structured Outputs request. Preparing or planning a request does not
 read a credential. An actual call requires explicit live authorization, reads
 only the configured environment variable, and reserves that provider
 instance's request/token budget before transport. Static and adaptive adapters
-append the provider audit before exposing the replay response.
+append the provider audit before exposing the replay response. The shared
+transport refuses redirects and applies the same 16 MiB wire-body ceiling to
+successful and error responses.
 
 The returned model must equal the requested model or its dated snapshot. A
 missing or different label is charged and retained as a rejected audit, but is
@@ -337,6 +380,92 @@ derives different content-addressed run and journal paths, and writes one
 identity-locked index. Planning is keyless; `--execute-live` creates a fresh
 provider ledger for each role. Terra is explicitly a GPT-5.6
 model-variant/tier replication rather than distinct-family robustness.
+
+## Live OpenRouter gateway provider
+
+Module: `openrouter_provider.py`
+
+`OpenRouterChatProvider` converts the provider-neutral `LLMRequest` into a
+non-streaming request to OpenRouter's
+`/api/v1/chat/completions` endpoint. It is a first-class gateway adapter rather
+than an `OpenAIResponsesProvider` custom-base-URL configuration. One canonical
+`author/model` slug is mandatory; aliases, route variants, `-latest`, and
+`openrouter/auto` are rejected. Changing that one slug is the complete model
+switch.
+
+Planning is credential-free. An authorized call reads only
+`OPENROUTER_API_KEY` (or the explicitly configured environment-variable name),
+reserves the request/token budget, sends strict JSON Schema, disables
+OpenRouter response caching, and opts into router metadata. The default route
+policy disables fallbacks, requires every request parameter, denies providers
+that OpenRouter marks as data collecting, and optionally constrains both
+`provider.order` and `provider.only` to one upstream slug. ZDR and attribution
+headers are separately configurable.
+
+The parser requires one stopped choice, exact returned-model equality, one
+selected upstream endpoint, a direct routing strategy, an upstream model
+matching the returned model, no disallowed fallback, no cache hit, and no
+material router-pipeline stage. It parses
+`choices[0].message.content` as JSON and revalidates all probability vectors
+locally. A completed response that fails route/model acceptance is durably
+audited but cannot enter replay.
+
+`OpenRouterProviderResult.to_audit_record()` implements
+`openrouter-provider-audit.schema.json`. The record distinguishes the gateway
+from the observed upstream route with `gateway`, `model_requested`,
+`model_returned`, `upstream_provider`, `upstream_model`, `routing_strategy`,
+`routing_attempt`, and the additive `routing_metadata`. It also retains
+provider/generation IDs when returned, cache status, raw usage, timings and
+hashes, a redacted raw response, and the provider-neutral replay response.
+Resume revalidates those identities and route-acceptance rules before using an
+accepted audit.
+
+The runner places its recovery files under
+`.llm-journals/<run-id>/openrouter/<model-role>/` and copies only used records
+into the checksummed run's `llm/` directory. The decoder CLI can place multiple
+exact models in separate `journals/<model-digest>/` directories and emit one
+combined `judgments.jsonl` plus execution manifest.
+
+Every audit fixes `first_party_origin_claimed = false`; decoder manifests also
+fix `strict_gate4_eligible = false` and
+`statistical_independence_claimed = false`. A selected upstream label does not
+turn a shared-gateway call into direct first-party provenance. OpenRouter
+profile-writer and reviewed-generic decoder execution are implemented
+capabilities, but strict Gate 4 still requires the direct first-party decoder
+and native-action collections documented in
+[Gate 4 live collection](gate4-live-collection.md).
+
+## Native end-to-end action provider
+
+Module: `native_action_provider.py`
+
+`build_native_action_requests` starts only from a checksum-valid completed
+Experiment B run with retained events. It selects the exact Gate 4-eligible
+incorrect-seed, soft-profile-conditioned native trajectories, verifies each
+terminal native-state ID, and binds that state to the domain's exact retained
+held-out terminal suite.
+
+The declared native system,
+`cape-loop-openai-native-agent-v1`, sends that complete retained state and suite
+to OpenAI `gpt-5.6-sol` at medium reasoning. The model must emit one strict,
+item-bound action for every terminal item. The adapter does not derive an action
+from a repository belief or persona projection. Returned actions are validated
+against item hashes, wording templates, question types, and displayed options
+before they become `NativeTerminalActionRecord` rows with
+`adapter_kind = "native_end_to_end_recorded"`.
+
+Planning is credential-free. Live collection requires `--execute-live`, the
+environment-only `OPENAI_API_KEY`, and the declared hard request/token
+ceilings; retries consume physical-attempt budget. The collector binds an exact
+collection plan, keeps outputs outside the immutable source run, holds an
+exclusive cross-platform advisory output lock, and fsyncs `started`/`settled`
+events around every HTTP attempt. The 16 MiB transport ceiling also applies
+here; overflow creates a body-free conservative settlement. The provider audit
+is flushed before its reusable action row, and
+resume can reconstruct an interrupted row from that audit without another
+accepted call. An unresolved attempt requires manual review. Gate 4 admits only
+the complete six-file collection, not the action file alone; even a validated
+collection does not by itself pass Gate 4 or create a paper claim.
 
 ## Native and structured evaluation
 
@@ -385,7 +514,9 @@ marginal OLS with user-clustered CR1 covariance, Holm correction, and paired
 cluster pilot-power simulation. The CR1 model is a dependency-free marginal
 robustness analysis. It is explicitly **not** the proposal's
 user-random-slope/scenario-random-intercept generalized mixed-effects model,
-which remains an external confirmatory step.
+which is implemented separately by the version-pinned optional
+[R mixed-effects harness](mixed-effects-analysis.md). No fitted R result is
+checked in.
 
 Experiment A also crosses an explicit prior-concentration factor. Each level is
 a declared mixture of the uniform joint prior and truth-aligned mass; the same
@@ -446,10 +577,15 @@ reviewed decoder sources, and genuine hash-bound native end-to-end actions.
 The two deterministic repository projections and persona/reference actions
 are retained but explicitly cannot satisfy those external criteria.
 The run remains immutable after completion. `gate_review.py` and
-`gate-review import-native` bind validated external decoder and native-action
-files to a verified completed Experiment B run, recompute Gate 4, and write a
-separate checksum-bound review. Ordinary Experiment B gate reports remain
-incomplete until that external import exists.
+`gate-review import-native` bind a validated five-file selected external
+decoder collection and six-file native-action collection to a verified
+completed Experiment B run, recompute Gate 4, and write a separate
+checksum-bound review. Plans, durable attempts, accepted audits, terminal
+judgments/actions, manifests, origins/models, approved ceilings, and every
+evidence digest are checked under shared collection locks. An explicit
+reviewed-generic decoder mode remains available without provider-collection
+provenance. Ordinary Experiment B gate reports remain incomplete until that
+external import exists.
 
 ## Runner, artifacts, reporting, and schemas
 
@@ -549,6 +685,7 @@ LLM-phase evidence still requires live external runs.
 | Exact shadow | No | Reads | Not required by likelihood | Joint shadow state |
 | Native decoder | No | Only blinded retained evidence | Blinded/omitted | Blinded state view |
 | External decoder source | No | Receives only `decoder/external-requests.jsonl` | Omitted | Blinded content payload |
+| Native action provider | No | Exact held-out terminal suite | Only provenance inside retained native memory | Exact retained native state |
 | Human participant | No latent simulator truth | Receives participant vignette/display ID | Condition/source hidden | No system profile |
 | Evaluator | Yes | Reads retained records | Reads retained records | Reads outputs |
 | Reporter/verifier | No new truth access | Reads files | Reads files | Reads files |

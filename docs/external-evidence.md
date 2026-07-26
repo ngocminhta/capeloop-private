@@ -28,9 +28,9 @@ The code's gate reports intentionally stop at computational status and retain
 | Live profile-writer evaluation | Strict requests/outputs, model-role config, budgets, retries, audit journal, replay, and development-only per-updater temperature calibration | API credential, spending authorization, actual provider responses | Resolved model/version, prompt/request hashes, response IDs, reasoning parameters, usage, timestamps, raw/active responses, calibration, audit |
 | Gate 1 paraphrase transfer | Split-safe surface suite, source/case hashes, fitted-aware scoring, completeness logic | Complete `llm_full_context` responses for every required case | Suite digest, case records, paired updater scores, transfer criterion |
 | External native decoding | Blinded requests, researcher-only truth/codebook, source audit, development calibration, test metrics | At least two genuinely distinct judgment sources per request | Request/judgment hashes, instance/family/source descriptors, calibration, raw/calibrated reliability and agreement |
-| Native end-to-end terminal actions | Held-out v2 action schema, exact item/content bindings, scoring, and transparent reference adapters | Recorded actions emitted by the studied native system itself | Native state/system version, suite digest, per-item bound actions, live/replay mode, execution audit, score |
+| Native end-to-end terminal actions | Held-out v2 action schema, exact item/content bindings, scoring, transparent reference adapters, and an origin/budget-locked resumable OpenAI collection path | Paid or replayed actions actually emitted by the declared native system; none are checked in | Native state/system version, suite digest, per-item bound actions, transport-attempt journal, live/replay mode, execution audit, score |
 | Human pragmatic ordering | Blinded packet, codebook, collection schema, eligibility checks, paired analysis | Ethics determination, approved consent, recruitment, hosting, compensation, collected de-identified ratings | Protocol versions, determination ID, packet digest, exclusions, analysis, privacy/retention statement |
-| Confirmatory mixed effects | Analysis rows, clustered marginal CR1 robustness result | Full generalized mixed-effects software/model fit and diagnostics | Input digest, formula, random effects, software/version, optimizer/convergence, contrasts, multiplicity family |
+| Confirmatory mixed effects | Version-pinned R harness for both exact formulas, turn-level B reconstruction, maximal random effects, validation, contrasts, diagnostics, and result schema; clustered CR1 remains separate | Verified preregistered study runs with A prior-strength variation, executed R fit, and responsible statistical review | Canonical config/input/source digests, formula, random effects, software/version, optimizer/scaled-gradient convergence, pointwise intervals, contrasts, multiplicity family |
 | Correction debt on a studied system | Stage-gated exact-pair protocol and diagnostic adapter | Prerequisite gate review plus a real LLM/native adapter and results | Gate-review record, adapter/version, protocol digest, arms, pair debts, stage summaries |
 | Paper release | Run verification and deterministic tar/sidecar | Author approval, frozen paper configuration/results, authorship and repository/DOI metadata | Archive/sidecar, artifact README, claim-to-run map, author/venue metadata |
 
@@ -94,26 +94,49 @@ suite item hash/wording/question type, name the native state and system
 version, and identify whether execution was recorded live or replayed from a
 frozen provider/system trace.
 
+The [Gate 4 live-collection guide](gate4-live-collection.md) documents the
+implemented keyless planning and explicitly authorized OpenAI native-action
+collector. Its physical-attempt budgets, durable journal, output lock, and
+manual-review stops make collection resumable; they are infrastructure, not
+empirical evidence. No provider-produced native action is checked in.
+
 Import both evidence classes into a new review directory; never place them
 inside the completed run:
 
 ```bash
 PYTHONPATH=src python -m cape_loop gate-review import-native \
   runs/EXPERIMENT-B \
-  decoder-requests.jsonl decoder-judgments.jsonl decoder-truth.jsonl \
-  recorded-native-actions.jsonl decoder-source-review.json \
-  artifacts/GATE4-REVIEW
+  decoder-requests.jsonl \
+  artifacts/gate4-distinct-decoders/judgments.jsonl \
+  decoder-truth.jsonl \
+  artifacts/gate4-native-actions decoder-source-review.json \
+  artifacts/GATE4-REVIEW \
+  --external-collection-dir artifacts/gate4-distinct-decoders
 PYTHONPATH=src python -m cape_loop gate-review verify \
   artifacts/GATE4-REVIEW
 ```
 
 The request and truth files must exactly match the verified run's retained
-packet. `recorded-native-actions.jsonl` uses
-`native-terminal-action-record.schema.json`; each test-split record binds the
-trajectory, terminal native-state digest, system/version, execution-trace
-digest, suite digest, and every item/hash/wording/question-type response. Only
-`native_end_to_end_recorded` plus `imported_native_system` and recorded
-live/replay execution are accepted.
+packet. Official automated decoder evidence is accepted only as the complete
+selected Anthropic/Gemini collection. The importer rebuilds its provider plan,
+validates the physical-attempt journal, accepted provider audits, exact
+judgments, portable execution manifest, and all five evidence-file digests
+while holding both collector locks. The positional judgment file must be
+byte-identical to that collection's `judgments.jsonl`.
+
+Gate 4 accepts native actions only as the complete output directory
+from the implemented official-origin OpenAI `gpt-5.6-sol`/medium collector.
+The importer rebuilds its plan and requests from the verified run, validates
+the transport-attempt journal and every accepted provider audit, matches
+`native-actions.jsonl` to the embedded audited records, and validates the
+execution manifest. All six collection-file digests are recorded in the
+review. A standalone action JSONL—even if each row is self-hashed and conforms
+to `native-terminal-action-record.schema.json`—is ineligible.
+
+Reviewed human or other generic decoder sources remain available only through
+the explicit `--allow-reviewed-generic-decoders` alternative. That path
+retains source-review and coverage checks but records
+`reviewed_generic_import`; it does not assert automated provider provenance.
 
 `decoder-source-review.json` uses `decoder-source-review.schema.json`. It binds
 the exact request/judgment file digests and records one responsible
@@ -128,11 +151,12 @@ The recomputed Gate 4 can meet computational checks, but both the artifact and
 the gate retain `claim_status = "not_claimed"`. A metadata attestation is
 auditable evidence, not proof that a source or action was honestly produced.
 
-The review stores digests and validation results; it does not copy the five
-external inputs. A reproducible evidence bundle must retain the exact request,
-judgment, truth-label, native-action, and source-review files named by those
-digests. Keep truth labels researcher-only and access-controlled rather than
-placing them in decoder-visible or public material. `gate-review verify`
+The review stores digests and validation results; it does not copy the
+evidence. A selected-provider evidence bundle must retain the request,
+truth-label, and source-review files, all five external-decoder collection
+files, and all six native-action collection files named by those digests.
+Keep truth labels researcher-only and access-controlled rather than placing
+them in decoder-visible or public material. `gate-review verify`
 verifies the review directory itself; full recomputation additionally needs
 the verified source run and those separately retained exact input bytes.
 
@@ -161,18 +185,36 @@ dependency-free auditing and smoke analysis. It is not interchangeable with
 the proposal's user-random-slope/scenario-random-intercept generalized
 mixed-effects model.
 
-For a confirmatory claim, fit the preregistered model in an appropriate external
-statistics environment and retain:
+The optional [mixed-effects analysis](mixed-effects-analysis.md) implements
+both proposal formulas in a version-pinned R environment. It verifies source
+run checksums and canonical resolved-config digests, requires pooled repeats to
+share the same source digest and design, refuses fixed-effect rank deficiency,
+preserves the maximal random-effects structure, and emits separately
+checksum-bound results. Experiment A needs at least two `prior_strength`
+values; the current one-level pilots are `not_estimable`. Experiment B derives
+one row per retained turn by rescoring each `belief_after` against top-level
+`theta`, normalizes turns to `1, ..., T`, and verifies that the last result
+equals the retained terminal error. Its repeats must have identical horizons;
+different horizons are not pooled to manufacture `turn` variation. For a
+confirmatory claim, execute that harness on preregistered verified runs and
+retain:
 
 - exact input-row and exclusion digests;
 - formula, link, fixed effects, random effects, contrasts, and coding;
 - software/package versions and numerical settings;
-- convergence, singularity, and variance-component diagnostics;
+- raw and curvature-scaled gradients, convergence, singularity, and
+  variance-component diagnostics;
 - interval and multiplicity procedures; and
 - a machine-readable result linked back to the source run.
 
 If the mixed model is not estimable, report that fact and the predeclared
 fallback. Do not silently promote the CR1 result to confirmatory status.
+The A target-versus-aware ACUE contrasts assess whether the target's error
+contrast is nonzero relative to the aware reference, not the direction of
+target belief updating required for H1. Likewise, B's declared terminal-error
+interaction alone does not establish all five self-confirmation clauses.
+Reported confidence intervals are unadjusted pointwise intervals; Holm
+adjustment applies to p-values only.
 
 ## Freeze and release
 

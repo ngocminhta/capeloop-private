@@ -50,6 +50,7 @@ analysis. Their current coverage includes:
 - native memory snapshots;
 - update and trajectory records;
 - LLM exchange envelopes;
+- direct-provider and OpenRouter gateway audit records;
 - experiment metrics and run manifests.
 
 Every external boundary has an explicit version carrier, but not every nested
@@ -196,6 +197,9 @@ inventory.
 | Provenance-aware updater | No | Yes | Declared metadata | Own state/history | Yes |
 | Shadow updater | No | Yes | No | Shadow state | Yes |
 | Native decoder | No | If retained in blinded memory | Blinded/declared | Native state | If retained |
+| External decoder provider | No | Blinded request payload only | Omitted | Blinded native-state view | No |
+| OpenRouter gateway/upstream | No | Only fields in the selected LLM or blinded-decoder view | Only for the provenance-aware LLM view | Request prior or blinded state | Selected observation when included by that view |
+| Native action provider | No | Held-out terminal suite | Only fields inside retained native memory | Exact retained native state | No |
 | Evaluator | Yes | Yes | Yes | Yes | Yes |
 | Reporter | Only retained metric truth fields | Retained records | Retained records | Retained reports | Retained records |
 
@@ -224,11 +228,11 @@ External LLM execution is intentionally outside the trusted core:
 
 ```text
 CAPE-Loop Python request builder
-    │ schema-versioned, blinded requests.jsonl
-    ▼
-external provider harness
-    │ keyed responses.jsonl
-    ▼
+    │ schema-versioned, content-hashed request
+    ├────────► direct first-party provider ──► provider audit
+    └────────► OpenRouter gateway ──► upstream route + gateway audit
+                                            │
+                                            ▼
 CAPE-Loop validator/importer
     │ canonical replay records
     ▼
@@ -238,9 +242,25 @@ ordinary updater/evaluation path
 The external harness cannot choose its own latent information view. The request
 payload is complete and hashed; imported responses must match it.
 
-This is the process boundary, not a claim that the current CLI orchestrates it.
-The alpha release has an offline replay adapter and response validator, but no
-standalone request-export command or adaptive live-provider loop.
+This is a process boundary, not a claim that any configured evaluation has
+already run. The CLI now orchestrates credential-free planning and explicitly
+authorized, budgeted live execution for direct OpenAI profile writers,
+OpenRouter-routed profile writers and reviewed-generic decoders, direct
+Anthropic and Gemini external decoders, and the direct OpenAI-backed native
+action system. Provider audits are written before reusable responses,
+judgments, or actions. The ordinary simulation/replay core remains network-free
+and treats retained, hash-bound records as its canonical input.
+
+The OpenRouter branch has a distinct provenance layer. It requires one exact
+model, disables gateway response caching, requests router metadata, and retains
+the reported selected upstream provider/model plus routing attempt and
+strategy. The validator rejects unexpected model substitution, fallback, cache
+hits, or material pipeline transformations before producing replay input. The
+gateway audit nevertheless sets `first_party_origin_claimed = false`: an
+upstream label reported by OpenRouter is not the same evidence as a request
+sent directly to that provider. Multiple routes or models behind one gateway
+also do not establish statistically independent errors. Strict Gate 4 therefore
+uses only the separate direct first-party collection branches.
 
 The external projection strips audit-only choice-noise and
 context/event/scenario/turn identifiers. Model-facing request IDs are derived
@@ -257,6 +277,8 @@ Scientific-invalid states should fail loudly:
 - context/provenance field mixing;
 - changed anchor features across matched variants;
 - unmatched request and response identifiers;
+- missing or inconsistent gateway/upstream model identity;
+- disallowed gateway fallback, cache replay, or request/response transformation;
 - static-history mismatch across systems;
 - use of test IDs in fitting or calibration;
 - missing action-influence evidence for a self-confirmation label;

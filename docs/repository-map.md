@@ -16,6 +16,7 @@ planned future layout.
 | `CONTRIBUTING.md` | Development and scientific-integrity requirements |
 | `CODE_OF_CONDUCT.md` | Community behavior and enforcement policy |
 | `SECURITY.md` | Private vulnerability and sensitive-data reporting guidance |
+| `.env.example` | Environment-variable naming reference for live provider credentials; not automatically loaded |
 | `.gitignore` | Python, editor, credential, build, and local-run exclusions |
 
 ## Source package
@@ -48,11 +49,15 @@ planned future layout.
 | `gates.py` | Result-free machine-readable stage-gate diagnostics |
 | `power.py` | Pilot power and multiple-testing helpers |
 | `sensitivity.py` | Multi-axis random-utility/rule-based grid points, phase criteria, and observed-grid boundary inference |
+| `file_lock.py` | Dependency-free POSIX/Windows advisory lock abstraction for live collections and coherent evidence review |
 | `llm_exchange.py` | Strict request/response records and hash-bound local replay |
 | `openai_provider.py` | Explicit-opt-in Responses API execution, strict structured output, retry/budget controls, audit journaling, and resumability |
+| `openrouter_provider.py` | Explicit-opt-in OpenRouter Chat Completions execution, strict structured output, route/cache/metadata validation, gateway/upstream audit, and resumability |
 | `evaluation_suite.py` | Immutable matched primary/replication planning, isolated live dispatch, per-role budget lineage, and combined indexing |
 | `heldout.py` | Leakage-guarded surface paraphrases, Gate 1 transfer criterion, terminal-v2 items, action bindings, and scoring |
 | `decoder_study.py` | Blinded external decoder exchange, source audit, development calibration/test reliability, and de-identified human collection analysis |
+| `external_decoder_providers.py` | Explicit-opt-in Anthropic/Gemini decoder collection with blinded payloads, budgets, journals, and resume |
+| `native_action_provider.py` | Explicit-opt-in OpenAI execution of native-state terminal actions with source-run/state/suite bindings |
 | `human_study.py` | Study items, deterministic blinding/order, codebooks, and base rating validation |
 | `correction_debt.py` | Stage-gated paired correction/recovery protocol and transparent reference adapter |
 | `gate_review.py` | Strict recorded-action/source-review contracts, verified Experiment B evidence binding, recomputed Gate 4, and immutable review verification |
@@ -88,10 +93,30 @@ See [Components](components.md) for inputs, outputs, and information boundaries.
 | `sensitivity_full.toml` | Broader 384-point multi-axis/model-family sensitivity grid |
 | `openai_primary.toml` | Explicit-opt-in primary live-provider Experiment A pilot |
 | `openai_replication.toml` | Matched GPT-5.6 model-variant/tier replication pilot |
+| `openrouter_gemini.toml` | Explicit-opt-in OpenRouter/Gemini routed Experiment A pilot with exact model and upstream-route controls |
 
-All are strict executable declarations. The live-provider config is a request
-plan, not evidence that a provider call was made. There is no checked-in
-paper-frozen configuration/result pair.
+All are strict executable declarations. The live-provider configs are request
+plans, not evidence that a provider call was made. The OpenRouter config records
+a shared-gateway route and is not strict Gate 4 first-party provenance. There
+is no checked-in paper-frozen configuration/result pair.
+
+## Optional analysis
+
+`analysis/confirmatory-mixed-effects/` is an isolated R 4.6.1 project for the
+two proposal mixed-effects formulas. It contains:
+
+| Path | Purpose |
+| --- | --- |
+| `analysis-spec.json` | Frozen formulas, coding, estimands, contrasts, diagnostics, and failure policy |
+| `run_analysis.R` | Strict source-run verification, row preparation, fitting, and artifact entry point |
+| `R/io.R` | Checksum/run validation, schema checks, factor construction, and deterministic writers |
+| `R/model.R` | Maximal lmerTest fits, diagnostics, emmeans contrasts, and machine-readable tables |
+| `renv.lock`, `restore.R`, `DESCRIPTION` | Exact R/runtime dependency environment and installation |
+| `analysis-result.schema.json` | Public result-object contract |
+| `validate_contract.py` | Standard-library static validation when R is unavailable |
+| `README.md` | Operator, statistical, failure, and output reference |
+
+The directory contains protocol/software only, not a fitted result.
 
 ## Tests
 
@@ -114,10 +139,16 @@ The offline `unittest` modules are flat under `tests/`:
 | `test_missing_workflows.py` | Held-out surface/terminal contracts, external decoder/human analysis, and correction-debt pairing |
 | `test_external_schemas.py` | Public held-out, decoder, human-collection, and provider-audit schemas |
 | `test_openai_provider.py` | Provider request bodies, strict parsing, retry/budget/audit behavior, and resumability with no live network |
+| `test_openrouter_integration.py` | OpenRouter request/routing/cache/metadata validation, mocked live execution, config/CLI integration, audits, and resumability |
 | `test_evaluation_suite.py` | Credential-free suite planning, immutable role configs, isolated paths, explicit dispatch, and per-role ceilings |
 | `test_live_integration.py` | Config/runner live-adapter integration under mocked provider execution |
 | `test_release.py` | Deterministic tar freeze, config-origin gate, and sidecar verification |
 | `test_gate_review.py` | Gate 4 action/source contracts, fail-closed external-evidence import, source-run non-mutation, and review checksums |
+| `test_external_decoder_providers.py` | Keyless planning and mocked Anthropic/Gemini decoder execution, validation, budgets, audit, and resume |
+| `test_native_action_provider.py` | Keyless planning and mocked native-action execution, source bindings, audit ordering, and recovery |
+| `test_provider_cli.py` | Gate 4 model-manifest/default alignment, live authorization gates, immutable-source destinations, and command-wide locking |
+| `test_file_lock.py` | Exclusive/shared lock behavior plus mocked Windows byte-range semantics |
+| `test_mixed_effects_contract.py` | R-free validation of formulas, package locks, result status/claim boundary, and output inventory |
 
 `test_support.py` also provides shared test helpers. Tests validate software
 contracts, not paper findings.
@@ -134,14 +165,19 @@ interaction-record.schema.json
 llm-request.schema.json
 llm-response.schema.json
 openai-provider-audit.schema.json
+openrouter-provider-audit.schema.json
 heldout-paraphrase-case.schema.json
 heldout-paraphrase-evaluation.schema.json
 heldout-paraphrase-criterion.schema.json
 external-decoder-request.schema.json
 external-decoder-judgment.schema.json
+external-decoder-provider-audit.schema.json
+external-decoder-transport-attempt.schema.json
 decoder-truth-label.schema.json
 decoder-source-review.schema.json
 native-terminal-action-record.schema.json
+native-action-provider-audit.schema.json
+native-action-transport-attempt.schema.json
 gate4-review-artifact.schema.json
 run-manifest.schema.json
 trajectory.schema.json
@@ -171,6 +207,7 @@ are not benchmark evidence.
 | `docs/implementation-plan.md` | Engineering plan and reference defaults |
 | `docs/scientific-design.md` | Formal scientific framing |
 | `docs/architecture.md` | Causal data flow and trust boundary |
+| `docs/dataset-card.md` | Synthetic benchmark provenance, contents, splits, reproduction, and limitations |
 | `docs/data-model.md` | Record schemas and linkage |
 | `docs/data-splits.md` | Executed split assets and leakage audit |
 | `docs/configuration.md` | Exact TOML fields and strict contracts |
@@ -178,6 +215,8 @@ are not benchmark evidence.
 | `docs/experiments.md` | Current A/B/C/sensitivity/human material behavior |
 | `docs/native-memory.md` | Full native state and two-decoder evaluation |
 | `docs/llm-exchange.md` | Hash-bound offline replay |
+| `docs/gate4-live-collection.md` | Distinct-family decoder and real native-action provider collection |
+| `docs/mixed-effects-analysis.md` | Optional R confirmatory formulas, planned contrasts, diagnostics, and artifacts |
 | `docs/metrics.md` | Metric definitions |
 | `docs/outputs.md` | Exact run files and verification |
 | `docs/components.md` | Runtime component contracts |

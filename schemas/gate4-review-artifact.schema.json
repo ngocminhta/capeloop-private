@@ -18,8 +18,125 @@
     },
     "inputs": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "decoder_collection_plan",
+            "decoder_transport_attempts",
+            "decoder_provider_audit",
+            "decoder_execution_manifest"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "decoder_collection_plan"
+                ]
+              },
+              {
+                "required": [
+                  "decoder_transport_attempts"
+                ]
+              },
+              {
+                "required": [
+                  "decoder_provider_audit"
+                ]
+              },
+              {
+                "required": [
+                  "decoder_execution_manifest"
+                ]
+              }
+            ]
+          }
+        }
+      ],
       "properties": {
+        "decoder_collection_plan": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "decoder_execution_manifest": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
         "decoder_judgments": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "decoder_provider_audit": {
           "additionalProperties": false,
           "properties": {
             "bytes": {
@@ -100,7 +217,142 @@
           ],
           "type": "object"
         },
+        "decoder_transport_attempts": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
         "decoder_truth_labels": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "native_action_requests": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "native_collection_plan": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "native_execution_manifest": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "native_provider_audit": {
           "additionalProperties": false,
           "properties": {
             "bytes": {
@@ -153,13 +405,45 @@
             "bytes"
           ],
           "type": "object"
+        },
+        "native_transport_attempts": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "record_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "filename",
+            "sha256",
+            "bytes"
+          ],
+          "type": "object"
         }
       },
       "required": [
         "decoder_requests",
         "decoder_judgments",
         "decoder_truth_labels",
+        "native_collection_plan",
+        "native_action_requests",
+        "native_transport_attempts",
+        "native_provider_audit",
         "native_terminal_actions",
+        "native_execution_manifest",
         "decoder_source_review"
       ],
       "type": "object"

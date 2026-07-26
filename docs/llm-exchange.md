@@ -1,12 +1,13 @@
 # LLM exchange and live execution
 
-CAPE-Loop supports two model-execution modes behind the same hash-bound
+CAPE-Loop supports three model-execution modes behind the same hash-bound
 request/response contract:
 
 ```text
-replay:  retained response JSONL ──► prompt-hash check ──► profile update
-openai:  CAPE request ──► budgeted Responses API call ──► journal ──► profile update
-runner:  development raw outputs ──► temperature fit ──► calibrated test/runtime update
+replay:      retained response JSONL ──► prompt-hash check ──► profile update
+openai:      CAPE request ──► direct Responses API ──► audit journal ──► profile update
+openrouter:  CAPE request ──► gateway Chat Completions ──► route audit ──► profile update
+runner:      development raw outputs ──► temperature fit ──► calibrated test/runtime update
 ```
 
 Replay remains the portable scientific record. Live execution is an opt-in data
@@ -49,7 +50,7 @@ The selection and wire contract were checked against OpenAI's official
 on the declaration's `resolved_on` date. Recheck those sources before changing
 models or starting a later collection wave.
 
-## Safety boundary
+## Direct OpenAI safety boundary
 
 A live request requires every one of these conditions:
 
@@ -169,7 +170,185 @@ the exact official OpenAI origin; providing the flag permits the configured
 credential to be sent to the reviewed custom HTTPS endpoint during live
 execution.
 
-## Adaptive experiment workflow
+## OpenRouter gateway workflow
+
+OpenRouter uses a dedicated `OpenRouterChatProvider`, not the direct OpenAI
+provider with a changed base URL. It prepares
+`POST https://openrouter.ai/api/v1/chat/completions` requests with:
+
+```text
+model = one exact canonical author/model slug
+stream = false
+response_format.type = "json_schema"
+response_format.json_schema.strict = true
+max_completion_tokens = configured output ceiling
+provider = explicit routing/privacy preferences
+X-OpenRouter-Metadata: enabled
+X-OpenRouter-Cache: false
+```
+
+The response's structured JSON remains text in
+`choices[0].message.content`; CAPE-Loop parses and validates it locally. The
+request selects no model-fallback array. Aliases beginning with `~`,
+colon-suffixed route variants, `-latest` labels, and `openrouter/auto` are
+rejected so one model switch is exactly one value:
+
+```bash
+--model google/gemini-3.6-flash
+```
+
+Select and re-verify the canonical slug and endpoint support in OpenRouter's
+[model catalog](https://openrouter.ai/models) before a collection wave.
+
+Plan a static corpus without reading `OPENROUTER_API_KEY`:
+
+```bash
+PYTHONPATH=src python -m cape_loop llm plan-openrouter \
+  requests.jsonl \
+  --model google/gemini-3.6-flash \
+  --upstream-provider google-ai-studio \
+  --max-requests 500 \
+  --max-total-tokens 2050000
+```
+
+The optional upstream slug is placed in both `provider.order` and
+`provider.only`. Use a full endpoint-variant slug when a region or specialized
+endpoint matters. Without it, OpenRouter may choose among eligible providers,
+but the selected route is still retained. Defaults set
+`allow_fallbacks = false`, `require_parameters = true`, and
+`data_collection = "deny"`; `--zdr` adds a zero-data-retention requirement.
+The corresponding flags `--allow-fallbacks`,
+`--allow-unsupported-parameters`, and `--data-collection allow` weaken those
+defaults deliberately. The data-collection and ZDR fields filter using
+OpenRouter's endpoint classifications; retain the values, but verify current
+provider policies independently rather than treating the flags as a legal or
+institutional guarantee.
+
+After reviewing the model, endpoint, route policy, current pricing, and hard
+ceilings:
+
+```bash
+export OPENROUTER_API_KEY='...'
+PYTHONPATH=src python -m cape_loop llm execute-openrouter \
+  requests.jsonl responses.jsonl openrouter-provider-audit.jsonl \
+  --model google/gemini-3.6-flash \
+  --upstream-provider google-ai-studio \
+  --max-requests 500 \
+  --max-total-tokens 2050000 \
+  --execute-live
+```
+
+`--http-referer` and `--app-title` add optional attribution headers. According
+to OpenRouter's [app-attribution documentation](https://openrouter.ai/docs/app-attribution),
+the referer is the attribution identifier and a title alone does not create an
+app entry. These headers label usage; they do not authenticate provider
+provenance.
+
+An accepted response must:
+
+1. be one non-streaming `chat.completion` with one stopped choice;
+2. return the exact requested model;
+3. include opted-in `openrouter_metadata`;
+4. report the requested model and `strategy = "direct"`;
+5. mark exactly one upstream endpoint selected, with its model equal to the
+   top-level returned model;
+6. use routing attempt one when fallbacks are disabled;
+7. not be an OpenRouter response-cache hit; and
+8. have no nonempty router pipeline that materially transformed the request or
+   response.
+
+OpenRouter documents that cache hits omit `openrouter_metadata`; consequently,
+a replayed cache response fails the required-metadata check even before the
+explicit cache-status acceptance check can apply.
+
+A completely parsed but unacceptable response is charged and retained as
+`rejected_openrouter_identity`, but it does not become replay input. Accepted
+audits are written before replay responses, and resume revalidates the retained
+raw response, route metadata, model identity, cache status, and transformation
+policy before reuse.
+
+The audit schema separates gateway from upstream identity:
+
+```text
+provider = "openrouter"
+gateway = "openrouter"
+model_requested / model_returned
+upstream_provider / upstream_model
+routing_strategy / routing_attempt / routing_metadata
+provider_response_id / generation_id / cache_status
+usage / timing / request and response hashes
+raw_response / replay_response
+first_party_origin_claimed = false
+```
+
+`routing_metadata` is additive and should be decoded permissively. The adapter
+captures the body response ID and `X-Generation-Id` response header when
+present; it does not itself call
+`GET /api/v1/generation`. The raw response `usage` object is retained,
+including prompt/completion/total counts, token-detail objects, and cost fields
+when OpenRouter returns them. The budget commits a valid `total_tokens`, falls
+back to prompt plus completion counts, and otherwise charges the conservative
+reservation; missing optional detail fields do not erase that reservation.
+OpenRouter's official
+[Chat Completions reference](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
+[Structured Outputs guide](https://openrouter.ai/docs/guides/features/structured-outputs),
+[provider-routing guide](https://openrouter.ai/docs/guides/routing/provider-selection),
+[router-metadata guide](https://openrouter.ai/docs/guides/features/router-metadata),
+[response-caching guide](https://openrouter.ai/docs/guides/features/response-caching),
+[usage-accounting guide](https://openrouter.ai/docs/cookbook/administration/usage-accounting),
+and [generation lookup](https://openrouter.ai/docs/api/api-reference/generations/get-generation)
+define the external wire behavior. Endpoint support and provider policies can
+change; recheck them before collection.
+
+For adaptive execution, change only the exact `model` line in
+[`configs/openrouter_gemini.toml`](../configs/openrouter_gemini.toml), validate
+the file, and run it with explicit authorization:
+
+```bash
+PYTHONPATH=src python -m cape_loop config validate \
+  configs/openrouter_gemini.toml
+PYTHONPATH=src python -m cape_loop run \
+  configs/openrouter_gemini.toml --execute-live
+```
+
+The OpenRouter runner journal adds a gateway segment:
+
+```text
+<output-root>/.llm-journals/<run-id>/openrouter/<model-role>/
+├── provider-audit.jsonl
+└── responses.jsonl
+```
+
+Used audits and a credential-free provider manifest are copied into the
+successful run in the same `llm/` locations used by direct OpenAI execution.
+No live result is checked in.
+
+For reviewed-generic external decoder collection, one command can journal
+multiple exact models separately:
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study plan-openrouter \
+  decoder-requests.jsonl \
+  --model anthropic/claude-sonnet-4.5 \
+  --additional-model google/gemini-3.6-flash
+
+PYTHONPATH=src python -m cape_loop decoder-study execute-openrouter \
+  decoder-requests.jsonl openrouter-decoder-output \
+  --model anthropic/claude-sonnet-4.5 \
+  --additional-model google/gemini-3.6-flash \
+  --execute-live
+```
+
+The output has one `journals/<model-digest>/` directory per model,
+`judgments.jsonl`, and `execution-manifest.json`. Different model labels or
+reported upstream routes behind the same OpenRouter gateway do not prove
+independent errors. The manifest consequently fixes
+`first_party_origin_claimed = false`, `strict_gate4_eligible = false`, and
+`statistical_independence_claimed = false`. These sources may enter the
+explicit reviewed-generic decoder branch, but cannot replace strict Gate 4's
+direct first-party Anthropic/Gemini decoder collection.
+
+## Direct OpenAI adaptive experiment workflow
 
 [`configs/openai_primary.toml`](../configs/openai_primary.toml) is an executable
 pilot configuration for the primary model role;
@@ -320,11 +499,11 @@ need a new recursive execution and response coverage for every alternate
 prompt/action branch.
 
 When prompt retention is enabled, development requests are also retained in
-`llm/development-requests.jsonl`. Both replay and OpenAI runner modes use this
-same calibration boundary; a replay corpus must therefore cover the
-development probe as well as the test/runtime requests. The standalone
-`llm execute-openai` command only collects the supplied raw request corpus—it
-does not fit temperatures by itself.
+`llm/development-requests.jsonl`. Replay, direct OpenAI, and OpenRouter runner
+modes use this same calibration boundary; a replay corpus must therefore cover
+the development probe as well as the test/runtime requests. The standalone
+`llm execute-openai` and `llm execute-openrouter` commands collect only their
+supplied raw request corpus—they do not fit temperatures by themselves.
 
 ### Recover a failed live run
 
@@ -339,9 +518,9 @@ PYTHONPATH=src python -m cape_loop run \
   --resume-failed-live
 ```
 
-This option requires both OpenAI mode and `--execute-live`. It verifies that the
-existing destination is a failed artifact for the same resolved
-configuration, moves it to:
+This option requires direct OpenAI or OpenRouter mode plus `--execute-live`. It
+verifies that the existing destination is a failed artifact for the same
+resolved configuration, moves it to:
 
 ```text
 <output-root>/.failed-runs/<run-id>-attempt-NNN/
@@ -393,6 +572,91 @@ OpenAI variants share provider infrastructure and may share training lineage,
 failure modes, and institutional incentives. They do **not** prove independent
 judgment. Treat them as operational replication sources; use independently
 administered or human judgments for a strong independence claim.
+
+## Distinct-family Gate 4 collection
+
+The default Gate 4 decoder workflow crosses both provider and model family:
+Anthropic `claude-sonnet-5` and stable Google `gemini-3.6-flash`. Plan the exact
+two-source corpus without reading either credential:
+
+This strict path calls the two first-party APIs directly. An OpenRouter decoder
+collection remains a shared-gateway, reviewed-generic source even when its
+router metadata names Anthropic or Google; it cannot substitute for either
+first-party collection and does not establish statistically independent
+errors.
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study plan-distinct \
+  runs/EXPERIMENT-B/decoder/external-requests.jsonl \
+  --output artifacts/gate4-decoder-plan.json
+```
+
+The planner locks the official Anthropic and Google origins, constructs strict
+provider-specific JSON-schema requests, records every request-body hash, and
+checks the default ceilings of 900 physical transport attempts and 6,000,000
+conservatively charged tokens independently for each source. Every retry
+consumes another attempt-budget unit. It reports `credential_read = false`;
+the environment-variable names are recorded, but their values are neither read
+nor retained.
+
+After reviewing the plan, export keys only in the invoking shell:
+
+```bash
+export ANTHROPIC_API_KEY='...'
+export GEMINI_API_KEY='...'
+
+PYTHONPATH=src python -m cape_loop decoder-study execute-distinct \
+  runs/EXPERIMENT-B/decoder/external-requests.jsonl \
+  artifacts/gate4-distinct-decoders \
+  --execute-live
+```
+
+The command writes the exact plan, a durable physical-attempt journal, a
+provider audit, import-compatible judgments, and an execution manifest with
+file digests. A `started` event is fsynced before each HTTP request. Accepted
+audits are durably appended before judgments, so an interrupted judgment append
+can be reconstructed without another accepted call. Returned provider/model
+identities, request and prompt hashes, strict probabilities, blinding fields,
+usage, and resume configuration are all validated. An unresolved attempt or a
+returned-model mismatch requires manual review.
+
+The official origins are `https://api.anthropic.com` and
+`https://generativelanguage.googleapis.com`. A custom route needs both its
+provider-specific `--allow-custom-...-base-url` flag and a dedicated
+non-default credential-variable name; changing only the URL is insufficient.
+
+Distinct provider/family metadata is necessary but does not establish
+statistically independent errors. The execution manifest explicitly preserves
+`statistical_independence_claimed = false` and requires a responsible
+researcher to assess provider ownership, lineage, infrastructure, likely
+training overlap, common prompt/schema effects, and the intended claim scope.
+
+Gate 4 also requires end-to-end actions from retained native memory. Plan and
+execute the OpenAI-backed native system separately:
+
+```bash
+PYTHONPATH=src python -m cape_loop native-action plan-openai \
+  runs/EXPERIMENT-B \
+  --output artifacts/gate4-native-action-plan.json
+
+PYTHONPATH=src python -m cape_loop native-action execute-openai \
+  runs/EXPERIMENT-B \
+  artifacts/gate4-native-actions \
+  --execute-live
+```
+
+This action workflow sends the complete retained native state and held-out
+terminal suite to `gpt-5.6-sol`, then requires one schema-bound action for every
+item. It is a model-mediated native action adapter, not a deterministic
+belief-to-action projection. Its `transport-attempts.jsonl` is written around
+each physical request, and its accepted audit is written before
+`native-actions.jsonl`; together they support the same conservative
+crash-recovery and no-duplicate-accepted-call reconciliation.
+
+The exact Anthropic and Gemini request/response fields, origin and key guards,
+budget accounting, recovery behavior, native-action artifacts, researcher
+attestation, and final `gate-review import-native` command are documented in
+[Gate 4 live collection](gate4-live-collection.md).
 
 ## Replay configuration
 
@@ -492,19 +756,30 @@ reconstructed request.
 call, the executor reserves the conservative maximum; after a successful call,
 it commits provider-reported usage when available. Resumed usage is restored
 into the ledger, so restarting does not reset the ceiling. `max_output_tokens`
-limits each response. `max_retries` controls retries for transient transport
-errors and retryable HTTP statuses; it does not relax either budget.
+is sent as the provider-side generation ceiling, but it is not trusted as a
+wire-size guarantee. The direct-provider and OpenRouter transports read at most
+16 MiB plus one overflow-detection byte for either success or HTTP-error
+bodies. An oversized body is not retained or reflected and is charged
+conservatively without a retry. `max_retries` controls only retry cases that
+the selected transport treats as unambiguous and transient; it does not relax
+either budget.
 
 For an A/B/C runner with temperature calibration, the same ledger covers both
 the development probe and test/runtime requests. Size the ceiling for both;
 `calibration_users` is therefore an execution-cost parameter as well as an
 analysis choice.
 
-Live requests use deterministic content-based idempotency and client request
-IDs, strict Structured Outputs, and `store = false`. Audit records retain
-request/body hashes, model request/return labels, provider response IDs,
-timestamps, attempts, safe response metadata, usage, and replay-compatible
-beliefs. They never retain the Authorization header or credential value.
+Direct OpenAI requests use deterministic content-based idempotency/client
+request IDs, strict Structured Outputs, and `store = false`. OpenRouter
+requests also derive a stable local client request ID, but Chat Completions has
+no documented general idempotency guarantee; ambiguous transport outcomes stop
+for manual review instead of being retried automatically. Its accepted
+responses must be direct, uncached, untransformed, and identity-consistent.
+Audit records retain request/body hashes, model request/return labels, provider
+response IDs, timestamps, attempts, safe response metadata, usage, and
+replay-compatible beliefs. OpenRouter audits additionally retain selected
+upstream and routing metadata. Neither path retains the Authorization header or
+credential value.
 
 HTTPS validates transport to the named endpoint; it does not establish that a
 custom endpoint is OpenAI or safe. The custom-base-URL opt-in deliberately

@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "analysis_id": "cape-loop-confirmatory-mixed-effects-v1",
+  "status": "analysis_protocol_not_results",
+  "family": "gaussian",
+  "link": "identity",
+  "estimation": {
+    "method": "maximum_likelihood",
+    "reml": false,
+    "optimizer": "bobyqa",
+    "maxfun": 200000,
+    "degrees_of_freedom": "Satterthwaite",
+    "confidence_level": 0.95,
+    "singularity_tolerance": 0.0001,
+    "gradient_tolerance": 0.002,
+    "gradient_scaling": "inverse_cholesky_hessian",
+    "minimum_user_clusters": 8,
+    "minimum_scenario_clusters": 8
+  },
+  "factor_coding": {
+    "contrasts": [
+      "contr.treatment",
+      "contr.poly"
+    ],
+    "updater_reference": "fitted_action_aware",
+    "experiment_a_mechanism_reference": "balanced",
+    "experiment_b_policy_reference": "balanced",
+    "experiment_b_initial_profile_reference": "incorrect",
+    "domain_reference_preference": "travel"
+  },
+  "experiments": {
+    "A": {
+      "run_kind": "provenance_audit",
+      "input_file": "events/experiment-a.jsonl",
+      "exclusion_file": "events/experiment-a-exclusions.jsonl",
+      "response_mode": "naturally_sampled",
+      "outcome_source": "metrics.acue",
+      "outcome_name": "update_error",
+      "formula": "update_error ~ updater * mechanism + domain + prior_strength + (1 + mechanism | user) + (1 | scenario)",
+      "proposal_formula": "UpdateError ~ Updater * Mechanism + Domain + PriorStrength + (1 + Mechanism | User) + (1 | Scenario)",
+      "required_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested"
+      ],
+      "primary_contrast": {
+        "id": "target-minus-aware-within-policy-conditioned-mechanism",
+        "mechanisms": [
+          "restricted",
+          "default",
+          "suggested"
+        ],
+        "expression": "target_updater[mechanism] - fitted_action_aware[mechanism]",
+        "multiplicity": "Holm within the three-mechanism primary family"
+      },
+      "secondary_contrasts": [
+        {
+          "id": "balanced-target-minus-aware",
+          "expression": "target_updater[balanced] - fitted_action_aware[balanced]"
+        },
+        {
+          "id": "updater-by-mechanism-difference-in-differences",
+          "expression": "(target_updater[mechanism] - fitted_action_aware[mechanism]) - (target_updater[balanced] - fitted_action_aware[balanced])",
+          "mechanisms": [
+            "restricted",
+            "default",
+            "suggested"
+          ]
+        }
+      ],
+      "scenario_mapping": "run_id + context.scenario_id",
+      "user_mapping": "run_id + user_id"
+    },
+    "B": {
+      "run_kind": "closed_loop",
+      "input_file": "events/experiment-b-trajectories.jsonl",
+      "analysis_unit": "retained_turn",
+      "outcome_source": "turns[].belief_after marginal Brier against top-level theta",
+      "outcome_name": "terminal_error",
+      "turn_source": "turns[].turn + 1",
+      "terminal_consistency_check": "final reconstructed turn error equals retained terminal_error",
+      "formula": "terminal_error ~ updater * policy * initial_profile + domain + turn + (1 + policy | user) + (1 | scenario)",
+      "proposal_formula": "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + (1 + Policy | User) + (1 | Scenario)",
+      "required_policies": [
+        "balanced",
+        "soft_profile_conditioned"
+      ],
+      "required_initial_profiles": [
+        "incorrect"
+      ],
+      "primary_contrast": {
+        "id": "incorrect-profile-updater-by-policy",
+        "initial_profile": "incorrect",
+        "expression": "(target_updater[soft_profile_conditioned] - target_updater[balanced]) - (fitted_action_aware[soft_profile_conditioned] - fitted_action_aware[balanced])",
+        "multiplicity": "single predeclared contrast"
+      },
+      "secondary_contrasts": [
+        {
+          "id": "incorrect-profile-target-policy-effect",
+          "expression": "target_updater[soft_profile_conditioned] - target_updater[balanced]"
+        },
+        {
+          "id": "incorrect-profile-target-minus-aware-by-policy",
+          "expression": "target_updater[policy] - fitted_action_aware[policy]",
+          "policies": [
+            "balanced",
+            "soft_profile_conditioned"
+          ]
+        },
+        {
+          "id": "incorrect-versus-correct-three-way",
+          "expression": "updater_by_policy[incorrect] - updater_by_policy[correct]",
+          "requires_initial_profile": "correct"
+        }
+      ],
+      "scenario_mapping": "run_id + crn_key",
+      "user_mapping": "run_id + user_id"
+    }
+  },
+  "outputs": [
+    "analysis-result.json",
+    "diagnostics.json",
+    "input-manifest.json",
+    "analysis-rows.csv",
+    "fixed-effects.csv",
+    "omnibus-tests.csv",
+    "random-effects.csv",
+    "contrasts.csv",
+    "session-info.txt",
+    "SHA256SUMS"
+  ],
+  "fallback_policy": {
+    "singular_or_nonconverged": "Record not_confirmatory; do not simplify random effects automatically.",
+    "rank_deficient": "Record not_estimable; do not drop proposal fixed effects automatically.",
+    "missing_target_updater": "Abort before fitting.",
+    "cr1": "Existing user-clustered CR1 output remains a separately labelled robustness analysis and is never promoted to confirmatory."
+  }
+}

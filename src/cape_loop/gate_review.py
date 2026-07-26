@@ -12,6 +12,7 @@ therefore retains ``claim_status = "not_claimed"``.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -20,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 import json
 import math
+import os
 
 from .artifacts import canonical_json, verify_run
 from .decoder_study import (
@@ -28,12 +30,10 @@ from .decoder_study import (
     ExternalDecoderJudgment,
     ExternalDecoderRequest,
     analyze_external_decoders,
-    read_decoder_truth_labels,
-    read_external_decoder_judgments,
-    read_external_decoder_requests,
     validate_external_decoder_import,
 )
 from .gates import GateCriterion, GateReport
+from .file_lock import try_file_lock, unlock_file
 from .heldout import (
     HeldOutTerminalItem,
     HeldOutTerminalOption,
@@ -62,6 +62,34 @@ _RECORDING_ATTESTATION = (
 _ACTION_EXECUTION_MODES = frozenset({"recorded_live", "recorded_replay"})
 _ACTION_ADAPTER_KIND = "native_end_to_end_recorded"
 _ACTION_EVIDENCE_ORIGIN = "imported_native_system"
+_GATE4_NATIVE_MODEL = "gpt-5.6-sol"
+_GATE4_NATIVE_REASONING_EFFORT = "medium"
+_GATE4_NATIVE_ORIGIN = "https://api.openai.com"
+_GATE4_NATIVE_MAX_REQUESTS = 900
+_GATE4_NATIVE_MAX_TOTAL_TOKENS = 6_000_000
+_GATE4_NATIVE_MAX_OUTPUT_TOKENS = 4_096
+_NATIVE_COLLECTION_FILES = {
+    "native_collection_plan": "collection-plan.json",
+    "native_action_requests": "requests.jsonl",
+    "native_transport_attempts": "transport-attempts.jsonl",
+    "native_provider_audit": "provider-audit.jsonl",
+    "native_terminal_actions": "native-actions.jsonl",
+    "native_execution_manifest": "execution-manifest.json",
+}
+_EXTERNAL_COLLECTION_FILES = {
+    "decoder_collection_plan": "collection-plan.json",
+    "decoder_transport_attempts": "transport-attempts.jsonl",
+    "decoder_provider_audit": "provider-audit.jsonl",
+    "decoder_judgments": "judgments.jsonl",
+    "decoder_execution_manifest": "execution-manifest.json",
+}
+_EXTERNAL_COLLECTION_LOCKS = (
+    ".external-decoder-command.lock",
+    ".external-decoder-collection.lock",
+)
+_GATE4_EXTERNAL_MAX_REQUESTS = 900
+_GATE4_EXTERNAL_MAX_TOTAL_TOKENS = 6_000_000
+_GATE4_EXTERNAL_MAX_OUTPUT_TOKENS = 1_024
 
 
 def _require_text(value: object, name: str) -> str:
@@ -92,6 +120,110 @@ def _digest_value(value: Any) -> str:
 
 def _file_digest(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _FileSnapshot:
+    path: Path
+    material: bytes
+
+    @property
+    def sha256(self) -> str:
+        return sha256(self.material).hexdigest()
+
+    def manifest_entry(
+        self,
+        *,
+        record_count: int | None = None,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "filename": self.path.name,
+            "sha256": self.sha256,
+            "bytes": len(self.material),
+        }
+        if record_count is not None:
+            result["record_count"] = record_count
+        return result
+
+
+def _snapshot_file(path: Path, *, name: str) -> _FileSnapshot:
+    unresolved = Path(path)
+    if unresolved.is_symlink() or not unresolved.is_file():
+        raise ValueError(f"{name} must be a safe regular file")
+    resolved = unresolved.resolve()
+    return _FileSnapshot(resolved, resolved.read_bytes())
+
+
+def _json_object_from_snapshot(
+    snapshot: _FileSnapshot,
+) -> dict[str, Any]:
+    try:
+        decoded = json.loads(snapshot.material.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{snapshot.path}: invalid JSON: {exc}") from exc
+    if not isinstance(decoded, Mapping):
+        raise ValueError(f"{snapshot.path}: expected a JSON object")
+    return dict(decoded)
+
+
+def _jsonl_objects_from_snapshot(
+    snapshot: _FileSnapshot,
+) -> tuple[dict[str, Any], ...]:
+    try:
+        text = snapshot.material.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{snapshot.path}: input is not UTF-8") from exc
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            decoded = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{snapshot.path}:{line_number}: {exc}"
+            ) from exc
+        if not isinstance(decoded, Mapping):
+            raise ValueError(
+                f"{snapshot.path}:{line_number}: record must be an object"
+            )
+        rows.append(dict(decoded))
+    if not rows:
+        raise ValueError(f"{snapshot.path}: input cannot be empty")
+    return tuple(rows)
+
+
+def _decoder_requests_from_snapshot(
+    snapshot: _FileSnapshot,
+) -> tuple[ExternalDecoderRequest, ...]:
+    rows = tuple(
+        ExternalDecoderRequest.parse(raw)
+        for raw in _jsonl_objects_from_snapshot(snapshot)
+    )
+    if len({row.request_id for row in rows}) != len(rows):
+        raise ValueError(f"{snapshot.path}: duplicate decoder request IDs")
+    return rows
+
+
+def _decoder_judgments_from_snapshot(
+    snapshot: _FileSnapshot,
+) -> tuple[ExternalDecoderJudgment, ...]:
+    return tuple(
+        ExternalDecoderJudgment.parse(raw)
+        for raw in _jsonl_objects_from_snapshot(snapshot)
+    )
+
+
+def _decoder_truth_from_snapshot(
+    snapshot: _FileSnapshot,
+) -> tuple[DecoderTruthLabel, ...]:
+    rows = tuple(
+        DecoderTruthLabel.parse(raw)
+        for raw in _jsonl_objects_from_snapshot(snapshot)
+    )
+    if len({row.pseudonymous_state_id for row in rows}) != len(rows):
+        raise ValueError(f"{snapshot.path}: duplicate decoder truth state IDs")
+    return rows
 
 
 def _validate_timestamp(value: object, name: str) -> str:
@@ -1371,20 +1503,1221 @@ def _input_manifest_entry(
     return result
 
 
+@contextmanager
+def _hold_shared_collection_locks(
+    locks: Sequence[tuple[str, Path]],
+) -> Iterable[None]:
+    """Hold collector-compatible shared locks through validation and output."""
+
+    descriptors: list[tuple[int, str]] = []
+    try:
+        for label, lock_path in locks:
+            if lock_path.is_symlink() or not lock_path.is_file():
+                raise ValueError(f"{label} lacks its safe collection lock")
+            descriptor = os.open(lock_path, os.O_RDWR)
+            try:
+                acquired = try_file_lock(descriptor, shared=True)
+            except Exception:
+                os.close(descriptor)
+                raise
+            if not acquired:
+                os.close(descriptor)
+                raise ValueError(
+                    f"{label} is currently locked by a collector"
+                )
+            descriptors.append((descriptor, label))
+        yield
+    finally:
+        for descriptor, _ in reversed(descriptors):
+            try:
+                unlock_file(descriptor)
+            finally:
+                os.close(descriptor)
+
+
+def _validate_native_action_collection(
+    collection_dir: str | Path,
+    run_path: Path,
+) -> tuple[
+    tuple[NativeTerminalActionRecord, ...],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
+    """Revalidate one complete OpenAI native-action collection."""
+
+    unresolved_collection = Path(collection_dir)
+    if unresolved_collection.is_symlink() or not unresolved_collection.is_dir():
+        raise ValueError(
+            "Gate 4 requires a complete native action collection directory; "
+            "a standalone native-actions.jsonl file is ineligible"
+        )
+    collection = unresolved_collection.resolve()
+    if collection == run_path or run_path in collection.parents:
+        raise ValueError(
+            "native action collection cannot equal or be inside the source run"
+        )
+    required_names = set(_NATIVE_COLLECTION_FILES.values())
+    allowed_names = required_names | {".collection.lock"}
+    actual_names = {item.name for item in collection.iterdir()}
+    missing = required_names - actual_names
+    unexpected = actual_names - allowed_names
+    if missing or unexpected:
+        raise ValueError(
+            "native action collection has missing or unexpected entries: "
+            + canonical_json(
+                {
+                    "missing": sorted(missing),
+                    "unexpected": sorted(unexpected),
+                }
+            )
+        )
+    paths: dict[str, Path] = {}
+    for key, filename in _NATIVE_COLLECTION_FILES.items():
+        candidate = collection / filename
+        if (
+            candidate.is_symlink()
+            or not candidate.is_file()
+            or candidate.resolve().parent != collection
+        ):
+            raise ValueError(
+                f"native action collection file is unsafe: {filename}"
+            )
+        paths[key] = candidate
+    lock_path = collection / ".collection.lock"
+    if lock_path.is_symlink() or not lock_path.is_file():
+        raise ValueError(
+            "native action collection lacks its safe collection lock"
+        )
+
+    # Local imports avoid the gate_review <-> native_action_provider import
+    # cycle while reusing the collector's exact plan, journal, and audit
+    # validators.
+    from .native_action_provider import (
+        MODEL_SELECTION_RESOLVED_ON,
+        NATIVE_ACTION_SYSTEM_ID,
+        OPENAI_NATIVE_ACTION_REFERENCE,
+        OPENAI_STRUCTURED_OUTPUT_REFERENCE,
+        OpenAINativeActionProvider,
+        _DurableAttemptLedger,
+        _audit_rows,
+        _build_collection_plan,
+        _collection_config,
+        _validate_audit_record,
+        build_native_action_requests,
+    )
+    from .openai_provider import OpenAIProviderConfig
+
+    plan = _read_json_object(paths["native_collection_plan"])
+    collection_config = plan.get("collection_config")
+    if not isinstance(collection_config, Mapping):
+        raise ValueError("native action collection plan lacks collection_config")
+    if (
+        collection_config.get("provider") != "openai"
+        or collection_config.get("model") != _GATE4_NATIVE_MODEL
+        or collection_config.get("reasoning_effort")
+        != _GATE4_NATIVE_REASONING_EFFORT
+        or collection_config.get("base_url") != _GATE4_NATIVE_ORIGIN
+        or collection_config.get("endpoint")
+        != f"{_GATE4_NATIVE_ORIGIN}/v1/responses"
+        or collection_config.get("allow_custom_base_url") is not False
+        or collection_config.get("official_origin_locked") is not True
+    ):
+        raise ValueError(
+            "Gate 4 native evidence requires the implemented official "
+            "OpenAI gpt-5.6-sol/medium adapter and origin"
+        )
+    try:
+        provider_config = OpenAIProviderConfig(
+            model=collection_config["model"],
+            reasoning_effort=collection_config["reasoning_effort"],
+            api_key_env=collection_config["api_key_env"],
+            base_url=collection_config["base_url"],
+            allow_custom_base_url=collection_config[
+                "allow_custom_base_url"
+            ],
+            timeout_seconds=collection_config["timeout_seconds"],
+            max_retries=collection_config["max_retries"],
+            initial_backoff_seconds=collection_config[
+                "initial_backoff_seconds"
+            ],
+            max_backoff_seconds=collection_config[
+                "max_backoff_seconds"
+            ],
+            jitter_fraction=collection_config["jitter_fraction"],
+            max_output_tokens=collection_config["max_output_tokens"],
+            max_requests=collection_config["max_requests"],
+            max_total_tokens=collection_config["max_total_tokens"],
+            live_execution=False,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "native action collection has an invalid provider configuration"
+        ) from exc
+    if dict(collection_config) != _collection_config(provider_config):
+        raise ValueError(
+            "native action collection configuration is incomplete or altered"
+        )
+    if (
+        provider_config.max_requests > _GATE4_NATIVE_MAX_REQUESTS
+        or provider_config.max_total_tokens
+        > _GATE4_NATIVE_MAX_TOTAL_TOKENS
+        or provider_config.max_output_tokens
+        > _GATE4_NATIVE_MAX_OUTPUT_TOKENS
+    ):
+        raise ValueError(
+            "native action collection exceeds the approved Gate 4 ceilings "
+            "(900 requests, 6000000 total tokens, 4096 output tokens)"
+        )
+
+    requests = build_native_action_requests(run_path)
+    provider = OpenAINativeActionProvider(provider_config)
+    prepared = tuple(provider.prepare(request) for request in requests)
+    expected_plan = _build_collection_plan(
+        run_path,
+        provider_config,
+        requests,
+        prepared,
+    )
+    if plan != expected_plan:
+        raise ValueError(
+            "native action collection plan does not match the verified "
+            "source run and implemented adapter"
+        )
+    expected_request_bytes = "".join(
+        canonical_json(request.to_dict()) + "\n" for request in requests
+    ).encode("utf-8")
+    if paths["native_action_requests"].read_bytes() != expected_request_bytes:
+        raise ValueError(
+            "native action requests do not exactly match the verified source run"
+        )
+
+    request_by_id = {request.request_id: request for request in requests}
+    prepared_by_id = {
+        request.request_id: item
+        for request, item in zip(requests, prepared)
+    }
+    ledger = _DurableAttemptLedger(
+        paths["native_transport_attempts"],
+        collection_plan_sha256=plan["plan_sha256"],
+        collection_config_sha256=plan["collection_config_sha256"],
+    )
+    ledger.validate_bindings(request_by_id, provider)
+    if ledger.unresolved_attempt_ids:
+        raise ValueError(
+            "native action collection has unresolved transport attempts"
+        )
+    embedded_audits = ledger.embedded_final_audits()
+    if set(embedded_audits) != set(request_by_id):
+        raise ValueError(
+            "native action attempt journal lacks one final audit per request"
+        )
+    attempts_by_request: dict[str, list[tuple[int, bool]]] = {}
+    for attempt_id, start in ledger.starts.items():
+        settlement = ledger.settlements.get(attempt_id)
+        if settlement is None:
+            raise ValueError(
+                "native action collection has an unsettled transport attempt"
+            )
+        attempt_started_text = _validate_timestamp(
+            start.get("started_at"),
+            "native action attempt started_at",
+        )
+        attempt_settled_text = _validate_timestamp(
+            settlement.get("settled_at"),
+            "native action attempt settled_at",
+        )
+        if datetime.fromisoformat(
+            attempt_settled_text.replace("Z", "+00:00")
+        ) < datetime.fromisoformat(
+            attempt_started_text.replace("Z", "+00:00")
+        ):
+            raise ValueError(
+                "native action attempt settled_at precedes started_at"
+            )
+        attempts_by_request.setdefault(start["request_id"], []).append(
+            (
+                start["attempt_ordinal"],
+                isinstance(settlement.get("provider_audit"), Mapping),
+            )
+        )
+    final_ordinal_by_request: dict[str, int] = {}
+    for request_id, attempt_rows in attempts_by_request.items():
+        ordered = sorted(attempt_rows)
+        final_ordinals = [
+            ordinal for ordinal, is_final in ordered if is_final
+        ]
+        if (
+            len(final_ordinals) != 1
+            or final_ordinals[0] != ordered[-1][0]
+            or final_ordinals[0] > provider_config.max_retries + 1
+        ):
+            raise ValueError(
+                "native action collection has attempts after or without its "
+                f"final provider audit for {request_id}"
+            )
+        final_ordinal_by_request[request_id] = final_ordinals[0]
+
+    audit_rows = _audit_rows(paths["native_provider_audit"])
+    audits_by_request: dict[str, dict[str, Any]] = {}
+    accepted_records: dict[str, NativeTerminalActionRecord] = {}
+    for audit in audit_rows:
+        request_id = audit.get("request_id")
+        if (
+            not isinstance(request_id, str)
+            or request_id not in request_by_id
+            or request_id in audits_by_request
+        ):
+            raise ValueError(
+                "native action provider audit has an invalid request identity"
+            )
+        if audit.get("acceptance_status") != "accepted":
+            raise ValueError(
+                "Gate 4 cannot admit rejected native action provider responses"
+            )
+        record = _validate_audit_record(
+            audit,
+            request_by_id[request_id],
+            prepared_by_id[request_id],
+            provider_config,
+        )
+        if audit.get("attempts") != final_ordinal_by_request[request_id]:
+            raise ValueError(
+                "native action provider audit attempt count does not match "
+                "its transport journal"
+            )
+        if dict(audit) != embedded_audits.get(request_id):
+            raise ValueError(
+                "native action provider audit differs from the attempt journal"
+            )
+        audits_by_request[request_id] = dict(audit)
+        accepted_records[request_id] = record
+    if set(audits_by_request) != set(request_by_id):
+        raise ValueError(
+            "native action provider audits do not cover requests exactly"
+        )
+
+    actions = read_native_terminal_action_records(
+        paths["native_terminal_actions"]
+    )
+    actions_by_trajectory = {
+        record.trajectory_id: record for record in actions
+    }
+    expected_actions = {
+        request_by_id[request_id].trajectory_id: record
+        for request_id, record in accepted_records.items()
+    }
+    if set(actions_by_trajectory) != set(expected_actions) or any(
+        actions_by_trajectory[trajectory_id].to_dict()
+        != expected_actions[trajectory_id].to_dict()
+        for trajectory_id in expected_actions
+    ):
+        raise ValueError(
+            "native action records differ from accepted provider audits"
+        )
+
+    execution_manifest = _read_json_object(
+        paths["native_execution_manifest"]
+    )
+    expected_manifest_fields = {
+        "schema_version",
+        "workflow",
+        "status",
+        "claim_status",
+        "source_run_id",
+        "source_run_manifest_sha256",
+        "source_run_checksums_sha256",
+        "native_system_id",
+        "native_system_version",
+        "model",
+        "reasoning_effort",
+        "request_count",
+        "action_record_count",
+        "reused_request_count",
+        "new_request_count",
+        "request_budget_used",
+        "transport_attempt_count",
+        "token_budget_used",
+        "budget_accounting_unit",
+        "max_requests",
+        "max_total_tokens",
+        "credentials_retained",
+        "collection_plan_file",
+        "collection_plan_sha256",
+        "collection_plan_file_sha256",
+        "collection_config",
+        "collection_config_sha256",
+        "requests_sha256",
+        "transport_attempts_sha256",
+        "provider_audit_sha256",
+        "native_actions_sha256",
+        "transport_attempts_file",
+        "native_actions_file",
+        "provider_audit_file",
+        "official_references",
+        "resolved_on",
+    }
+    if set(execution_manifest) != expected_manifest_fields:
+        raise ValueError(
+            "native action execution manifest has missing or unknown fields"
+        )
+    attempt_count, token_count = ledger.accounting()
+    manifest_expected = {
+        "schema_version": 1,
+        "workflow": "native_terminal_actions",
+        "status": "complete",
+        "claim_status": "not_claimed",
+        "source_run_id": plan["source_run_id"],
+        "source_run_manifest_sha256": plan[
+            "source_run_manifest_sha256"
+        ],
+        "source_run_checksums_sha256": plan[
+            "source_run_checksums_sha256"
+        ],
+        "native_system_id": NATIVE_ACTION_SYSTEM_ID,
+        "native_system_version": (
+            f"openai-responses:{_GATE4_NATIVE_MODEL}"
+        ),
+        "model": _GATE4_NATIVE_MODEL,
+        "reasoning_effort": _GATE4_NATIVE_REASONING_EFFORT,
+        "request_count": len(requests),
+        "action_record_count": len(actions),
+        "request_budget_used": attempt_count,
+        "transport_attempt_count": attempt_count,
+        "token_budget_used": token_count,
+        "budget_accounting_unit": "actual_transport_attempt",
+        "max_requests": provider_config.max_requests,
+        "max_total_tokens": provider_config.max_total_tokens,
+        "credentials_retained": False,
+        "collection_plan_file": "collection-plan.json",
+        "collection_plan_sha256": plan["plan_sha256"],
+        "collection_plan_file_sha256": _file_digest(
+            paths["native_collection_plan"]
+        ),
+        "collection_config": dict(collection_config),
+        "collection_config_sha256": plan["collection_config_sha256"],
+        "requests_sha256": _file_digest(paths["native_action_requests"]),
+        "transport_attempts_sha256": _file_digest(
+            paths["native_transport_attempts"]
+        ),
+        "provider_audit_sha256": _file_digest(
+            paths["native_provider_audit"]
+        ),
+        "native_actions_sha256": _file_digest(
+            paths["native_terminal_actions"]
+        ),
+        "transport_attempts_file": "transport-attempts.jsonl",
+        "native_actions_file": "native-actions.jsonl",
+        "provider_audit_file": "provider-audit.jsonl",
+        "official_references": [
+            OPENAI_NATIVE_ACTION_REFERENCE,
+            OPENAI_STRUCTURED_OUTPUT_REFERENCE,
+        ],
+        "resolved_on": MODEL_SELECTION_RESOLVED_ON,
+    }
+    for name, expected in manifest_expected.items():
+        if execution_manifest.get(name) != expected:
+            raise ValueError(
+                f"native action execution manifest mismatch for {name}"
+            )
+    reused = execution_manifest.get("reused_request_count")
+    created = execution_manifest.get("new_request_count")
+    if (
+        not isinstance(reused, int)
+        or isinstance(reused, bool)
+        or reused < 0
+        or not isinstance(created, int)
+        or isinstance(created, bool)
+        or created < 0
+        or reused + created != len(requests)
+        or attempt_count > provider_config.max_requests
+        or token_count > provider_config.max_total_tokens
+    ):
+        raise ValueError(
+            "native action execution manifest has invalid completion accounting"
+        )
+
+    inputs = {
+        key: _input_manifest_entry(
+            paths[key],
+            record_count=(
+                len(requests)
+                if key == "native_action_requests"
+                else len(ledger.starts) + len(ledger.settlements)
+                if key == "native_transport_attempts"
+                else len(audit_rows)
+                if key == "native_provider_audit"
+                else len(actions)
+                if key == "native_terminal_actions"
+                else None
+            ),
+        )
+        for key in _NATIVE_COLLECTION_FILES
+    }
+    summary = {
+        "collection_status": "complete",
+        "source_run_id": plan["source_run_id"],
+        "native_system_id": NATIVE_ACTION_SYSTEM_ID,
+        "native_system_version": execution_manifest[
+            "native_system_version"
+        ],
+        "provider": "openai",
+        "model": _GATE4_NATIVE_MODEL,
+        "reasoning_effort": _GATE4_NATIVE_REASONING_EFFORT,
+        "official_origin": _GATE4_NATIVE_ORIGIN,
+        "official_origin_locked": True,
+        "request_count": len(requests),
+        "transport_attempt_count": attempt_count,
+        "provider_audit_count": len(audit_rows),
+        "action_record_count": len(actions),
+        "all_collection_files_digest_bound": True,
+        "requests_rebuilt_from_verified_source": True,
+        "collection_plan_rebuilt_and_validated": True,
+        "attempt_journal_validated": True,
+        "provider_audits_validated": True,
+        "actions_match_accepted_provider_audits": True,
+        "legacy_standalone_action_files_eligible": False,
+    }
+    return actions, inputs, summary
+
+
+def _validate_external_provider_audit(
+    audit: Mapping[str, Any],
+    *,
+    request: ExternalDecoderRequest,
+    provider: Any,
+    final_attempt_ordinal: int,
+) -> ExternalDecoderJudgment:
+    """Reconstruct one accepted decoder result from its retained audit."""
+
+    from .decoder_study import external_decoder_judgment_from_response
+    from .external_decoder_providers import (
+        ExternalDecoderProviderResult,
+        _parse_anthropic_response,
+        _parse_gemini_response,
+        _validate_resumed_audit,
+    )
+    from .llm_exchange import LLMResponse
+
+    if audit.get("acceptance_status") != "accepted":
+        raise ValueError(
+            "Gate 4 cannot admit rejected external decoder responses"
+        )
+    judgment = _validate_resumed_audit(audit, request, provider)
+    llm_raw = audit.get("llm_response")
+    raw_response = audit.get("raw_response")
+    usage = audit.get("usage")
+    if (
+        not isinstance(llm_raw, Mapping)
+        or not isinstance(raw_response, Mapping)
+        or not isinstance(usage, Mapping)
+    ):
+        raise ValueError(
+            "external decoder audit lacks structured response evidence"
+        )
+    llm_response = LLMResponse.parse(llm_raw)
+    _validate_digest(
+        llm_response.raw_response_sha256,
+        "external decoder raw_response_sha256",
+    )
+    regenerated = external_decoder_judgment_from_response(
+        request,
+        llm_response,
+        decoder_instance_id=provider.config.decoder_instance_id,
+        decoder_family_id=provider.config.source.decoder_family_id,
+        source_descriptor=provider.config.source_descriptor,
+    )
+    if judgment.to_dict() != regenerated.to_dict():
+        raise ValueError(
+            "external decoder audit judgment does not match its LLM response"
+        )
+    parse_raw = (
+        _parse_anthropic_response
+        if provider.config.provider == "anthropic"
+        else _parse_gemini_response
+    )
+    try:
+        returned_model, response_id, payload, parsed_usage = parse_raw(
+            raw_response,
+            # NUL cannot occur in accepted provider identifiers and is
+            # serialized escaped in JSON, so it acts as a nonmatching
+            # redaction sentinel without retaining a credential.
+            secret="\0",
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "external decoder audit raw response is not valid provider output"
+        ) from exc
+    if (
+        audit.get("model_returned") != returned_model
+        or audit.get("provider_response_id") != response_id
+        or dict(usage) != dict(parsed_usage)
+        or llm_response.model_id != returned_model
+        or payload.get("beliefs") != llm_response.beliefs
+    ):
+        raise ValueError(
+            "external decoder audit response identity, usage, or beliefs "
+            "do not match its retained raw response"
+        )
+    attempts = audit.get("attempts")
+    if (
+        not isinstance(attempts, int)
+        or isinstance(attempts, bool)
+        or attempts != final_attempt_ordinal
+    ):
+        raise ValueError(
+            "external decoder audit attempt count does not match its journal"
+        )
+    started_text = _validate_timestamp(
+        audit.get("started_at"),
+        "external decoder started_at",
+    )
+    completed_text = _validate_timestamp(
+        audit.get("completed_at"),
+        "external decoder completed_at",
+    )
+    started = datetime.fromisoformat(started_text.replace("Z", "+00:00"))
+    completed = datetime.fromisoformat(completed_text.replace("Z", "+00:00"))
+    if completed < started:
+        raise ValueError(
+            "external decoder audit completed_at precedes started_at"
+        )
+    server_request_id = audit.get("server_request_id")
+    if server_request_id is not None:
+        _require_text(server_request_id, "external decoder server_request_id")
+    result = ExternalDecoderProviderResult(
+        judgment=judgment,
+        llm_response=llm_response,
+        provider=provider.config.provider,
+        model_requested=str(provider.config.model),
+        model_returned=returned_model,
+        provider_response_id=_require_text(
+            response_id,
+            "external decoder provider_response_id",
+        ),
+        usage=dict(usage),
+        started_at=started_text,
+        completed_at=completed_text,
+        attempts=attempts,
+        request_body_sha256=_validate_digest(
+            audit.get("request_body_sha256"),
+            "external decoder request_body_sha256",
+        ),
+        client_request_id=_require_text(
+            audit.get("client_request_id"),
+            "external decoder client_request_id",
+        ),
+        server_request_id=server_request_id,
+        estimated_max_tokens=audit.get("estimated_max_tokens"),
+        raw_response=dict(raw_response),
+    )
+    if dict(audit) != result.to_audit_record():
+        raise ValueError(
+            "external decoder provider audit has missing, unknown, or "
+            "internally inconsistent fields"
+        )
+    return judgment
+
+
+def _validate_external_decoder_collection(
+    collection_dir: str | Path,
+    *,
+    run_path: Path,
+    requests: Sequence[ExternalDecoderRequest],
+    supplied_judgments: _FileSnapshot,
+) -> tuple[
+    tuple[ExternalDecoderJudgment, ...],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
+    """Revalidate one complete official Anthropic/Gemini collection."""
+
+    from .external_decoder_providers import (
+        ANTHROPIC_DEFAULT_MODEL,
+        ANTHROPIC_OFFICIAL_ORIGIN,
+        GEMINI_DEFAULT_MODEL,
+        GEMINI_OFFICIAL_ORIGIN,
+        ExternalDecoderProvider,
+        ExternalDecoderProviderConfig,
+        _DurableAttemptLedger,
+        _read_audits,
+        plan_external_decoder_collection,
+    )
+
+    unresolved_collection = Path(collection_dir)
+    if (
+        unresolved_collection.is_symlink()
+        or not unresolved_collection.is_dir()
+    ):
+        raise ValueError(
+            "official external decoder evidence requires a complete "
+            "distinct-decoder collection directory"
+        )
+    collection = unresolved_collection.resolve()
+    if collection == run_path or run_path in collection.parents:
+        raise ValueError(
+            "external decoder collection cannot equal or be inside the "
+            "source run"
+        )
+    required_names = set(_EXTERNAL_COLLECTION_FILES.values()) | set(
+        _EXTERNAL_COLLECTION_LOCKS
+    )
+    actual_names = {item.name for item in collection.iterdir()}
+    if actual_names != required_names:
+        raise ValueError(
+            "external decoder collection has missing or unexpected entries: "
+            + canonical_json(
+                {
+                    "missing": sorted(required_names - actual_names),
+                    "unexpected": sorted(actual_names - required_names),
+                }
+            )
+        )
+    paths: dict[str, Path] = {}
+    for key, filename in _EXTERNAL_COLLECTION_FILES.items():
+        candidate = collection / filename
+        if (
+            candidate.is_symlink()
+            or not candidate.is_file()
+            or candidate.resolve().parent != collection
+        ):
+            raise ValueError(
+                f"external decoder collection file is unsafe: {filename}"
+            )
+        paths[key] = candidate
+    for filename in _EXTERNAL_COLLECTION_LOCKS:
+        lock_path = collection / filename
+        if lock_path.is_symlink() or not lock_path.is_file():
+            raise ValueError(
+                "external decoder collection lacks its safe collection locks"
+            )
+
+    plan = _read_json_object(paths["decoder_collection_plan"])
+    source_rows = plan.get("sources")
+    if (
+        not isinstance(source_rows, list)
+        or len(source_rows) != 2
+        or any(not isinstance(row, Mapping) for row in source_rows)
+    ):
+        raise ValueError(
+            "external decoder collection plan must declare exactly two sources"
+        )
+    selected_models = {
+        "anthropic": (ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_OFFICIAL_ORIGIN),
+        "google_gemini": (
+            GEMINI_DEFAULT_MODEL,
+            GEMINI_OFFICIAL_ORIGIN,
+        ),
+    }
+    configs = []
+    seen_providers: set[str] = set()
+    for raw_source in source_rows:
+        source = dict(raw_source)
+        provider_name = source.get("provider")
+        if (
+            not isinstance(provider_name, str)
+            or provider_name not in selected_models
+            or provider_name in seen_providers
+        ):
+            raise ValueError(
+                "external decoder collection does not contain the selected "
+                "distinct provider pair"
+            )
+        seen_providers.add(provider_name)
+        selected_model, official_origin = selected_models[provider_name]
+        expected_endpoint = (
+            f"{official_origin}/v1/messages"
+            if provider_name == "anthropic"
+            else (
+                f"{official_origin}/v1beta/models/"
+                f"{selected_model}:generateContent"
+            )
+        )
+        if (
+            source.get("model") != selected_model
+            or source.get("official_origin_locked") is not True
+            or source.get("endpoint") != expected_endpoint
+        ):
+            raise ValueError(
+                "Gate 4 official decoder evidence requires the selected "
+                "Anthropic Claude Sonnet 5 and Gemini 3.6 Flash models at "
+                "their first-party origins"
+            )
+        try:
+            config = ExternalDecoderProviderConfig(
+                provider=provider_name,
+                model=source["model"],
+                api_key_env=source["api_key_env"],
+                base_url=official_origin,
+                allow_custom_base_url=False,
+                timeout_seconds=source["timeout_seconds"],
+                max_retries=source["max_retries"],
+                initial_backoff_seconds=source[
+                    "initial_backoff_seconds"
+                ],
+                max_backoff_seconds=source["max_backoff_seconds"],
+                jitter_fraction=source["jitter_fraction"],
+                max_output_tokens=source["max_output_tokens"],
+                max_requests=source["max_requests"],
+                max_total_tokens=source["max_total_tokens"],
+                live_execution=False,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "external decoder collection has an invalid source "
+                "configuration"
+            ) from exc
+        if (
+            config.max_requests > _GATE4_EXTERNAL_MAX_REQUESTS
+            or config.max_total_tokens
+            > _GATE4_EXTERNAL_MAX_TOTAL_TOKENS
+            or config.max_output_tokens
+            > _GATE4_EXTERNAL_MAX_OUTPUT_TOKENS
+        ):
+            raise ValueError(
+                "external decoder collection exceeds the approved per-source "
+                "Gate 4 ceilings (900 requests, 6000000 total tokens, 1024 "
+                "output tokens)"
+            )
+        configs.append(config)
+    if seen_providers != set(selected_models):
+        raise ValueError(
+            "external decoder collection lacks the selected provider pair"
+        )
+    expected_plan = plan_external_decoder_collection(requests, configs)
+    if plan != expected_plan:
+        raise ValueError(
+            "external decoder collection plan does not match the retained "
+            "requests and implemented provider adapters"
+        )
+
+    providers = tuple(
+        ExternalDecoderProvider(config)
+        for config in sorted(configs, key=lambda item: item.provider)
+    )
+    provider_by_name = {
+        provider.config.provider: provider for provider in providers
+    }
+    request_by_id = {request.request_id: request for request in requests}
+    ledger = _DurableAttemptLedger(
+        paths["decoder_transport_attempts"]
+    )
+    ledger.validate_bindings(provider_by_name, request_by_id)
+    if ledger.unresolved_attempt_ids or set(ledger.starts) != set(
+        ledger.settlements
+    ):
+        raise ValueError(
+            "external decoder collection has unresolved transport attempts"
+        )
+    expected_keys = {
+        (provider_name, request_id)
+        for provider_name in provider_by_name
+        for request_id in request_by_id
+    }
+    embedded_audits = ledger.embedded_final_audits()
+    if set(embedded_audits) != expected_keys:
+        raise ValueError(
+            "external decoder attempt journal lacks one final audit for every "
+            "provider/request pair"
+        )
+    final_ordinals: dict[tuple[str, str], int] = {}
+    attempts_by_key: dict[tuple[str, str], list[tuple[int, bool]]] = {}
+    for attempt_id, start in ledger.starts.items():
+        settlement = ledger.settlements[attempt_id]
+        attempt_started_text = _validate_timestamp(
+            start.get("started_at"),
+            "external decoder attempt started_at",
+        )
+        attempt_settled_text = _validate_timestamp(
+            settlement.get("settled_at"),
+            "external decoder attempt settled_at",
+        )
+        if datetime.fromisoformat(
+            attempt_settled_text.replace("Z", "+00:00")
+        ) < datetime.fromisoformat(
+            attempt_started_text.replace("Z", "+00:00")
+        ):
+            raise ValueError(
+                "external decoder attempt settled_at precedes started_at"
+            )
+        key = (start["provider"], start["request_id"])
+        attempts_by_key.setdefault(key, []).append(
+            (
+                start["attempt_ordinal"],
+                isinstance(settlement.get("provider_audit"), Mapping),
+            )
+        )
+    for key, attempt_rows in attempts_by_key.items():
+        ordered = sorted(attempt_rows)
+        audited = [ordinal for ordinal, final in ordered if final]
+        if len(audited) != 1 or audited[0] != ordered[-1][0]:
+            raise ValueError(
+                "external decoder collection has attempts after or without "
+                f"its final provider audit for {key}"
+            )
+        provider = provider_by_name[key[0]]
+        if audited[0] > provider.config.max_retries + 1:
+            raise ValueError(
+                "external decoder collection exceeds its retry policy"
+            )
+        final_ordinals[key] = audited[0]
+
+    audits = _read_audits(paths["decoder_provider_audit"])
+    if set(audits) != expected_keys:
+        raise ValueError(
+            "external decoder provider audits do not cover requests exactly"
+        )
+    judgments_by_key: dict[
+        tuple[str, str],
+        ExternalDecoderJudgment,
+    ] = {}
+    ordered_judgments: list[ExternalDecoderJudgment] = []
+    for key, audit in audits.items():
+        if audit != embedded_audits[key]:
+            raise ValueError(
+                "external decoder provider audit differs from the transport "
+                "attempt journal"
+            )
+        provider = provider_by_name[key[0]]
+        judgment = _validate_external_provider_audit(
+            audit,
+            request=request_by_id[key[1]],
+            provider=provider,
+            final_attempt_ordinal=final_ordinals[key],
+        )
+        judgment_key = (
+            judgment.decoder_instance_id,
+            judgment.request_id,
+        )
+        if judgment_key in judgments_by_key:
+            raise ValueError(
+                "external decoder collection contains duplicate judgments"
+            )
+        judgments_by_key[judgment_key] = judgment
+        ordered_judgments.append(judgment)
+
+    expected_judgment_bytes = "".join(
+        canonical_json(judgment.to_dict()) + "\n"
+        for judgment in ordered_judgments
+    ).encode("utf-8")
+    retained_judgment_bytes = paths["decoder_judgments"].read_bytes()
+    if retained_judgment_bytes != expected_judgment_bytes:
+        raise ValueError(
+            "external decoder judgments differ from accepted provider audits"
+        )
+    if supplied_judgments.material != retained_judgment_bytes:
+        raise ValueError(
+            "supplied judgments must be byte-identical to the selected "
+            "external decoder collection"
+        )
+    judgments = tuple(ordered_judgments)
+    source_design = validate_external_decoder_import(
+        requests,
+        judgments,
+        minimum_sources_per_request=2,
+        require_distinct_families=True,
+    )
+    if (
+        not source_design.complete_coverage
+        or not source_design.source_design_eligible
+    ):
+        raise ValueError(
+            "external decoder collection lacks complete distinct-source "
+            "coverage"
+        )
+
+    execution_manifest = _read_json_object(
+        paths["decoder_execution_manifest"]
+    )
+    expected_manifest_fields = {
+        "schema_version",
+        "kind",
+        "status",
+        "claim_status",
+        "collection_plan_sha256",
+        "judgments_sha256",
+        "provider_audit_sha256",
+        "transport_attempts_sha256",
+        "execution_summary",
+        "source_design_audit",
+        "distinct_provider_model_families",
+        "statistical_independence_claimed",
+        "responsible_researcher_source_review_required",
+        "credentials_retained",
+    }
+    if set(execution_manifest) != expected_manifest_fields:
+        raise ValueError(
+            "external decoder execution manifest has missing or unknown fields"
+        )
+    fixed_manifest = {
+        "schema_version": 1,
+        "kind": "distinct-external-decoder-collection",
+        "status": "complete",
+        "claim_status": "not_claimed",
+        "collection_plan_sha256": _file_digest(
+            paths["decoder_collection_plan"]
+        ),
+        "judgments_sha256": _file_digest(paths["decoder_judgments"]),
+        "provider_audit_sha256": _file_digest(
+            paths["decoder_provider_audit"]
+        ),
+        "transport_attempts_sha256": _file_digest(
+            paths["decoder_transport_attempts"]
+        ),
+        "source_design_audit": source_design.to_dict(),
+        "distinct_provider_model_families": True,
+        "statistical_independence_claimed": False,
+        "responsible_researcher_source_review_required": True,
+        "credentials_retained": False,
+    }
+    for name, expected in fixed_manifest.items():
+        if execution_manifest.get(name) != expected:
+            raise ValueError(
+                f"external decoder execution manifest mismatch for {name}"
+            )
+    execution_summary = execution_manifest.get("execution_summary")
+    expected_summary_fields = {
+        "schema_version",
+        "request_count",
+        "source_count",
+        "judgment_count",
+        "resumed_count",
+        "executed_count",
+        "transport_attempts_by_provider",
+        "total_tokens_by_provider",
+        "judgments_path",
+        "audit_path",
+        "attempt_path",
+        "repaired_trailing_files",
+    }
+    if (
+        not isinstance(execution_summary, Mapping)
+        or set(execution_summary) != expected_summary_fields
+    ):
+        raise ValueError(
+            "external decoder execution summary has missing or unknown fields"
+        )
+    attempts_by_provider = {
+        provider_name: ledger.accounting_for(provider_name)[0]
+        for provider_name in provider_by_name
+    }
+    tokens_by_provider = {
+        provider_name: ledger.accounting_for(provider_name)[1]
+        for provider_name in provider_by_name
+    }
+    expected_summary = {
+        "schema_version": 1,
+        "request_count": len(requests),
+        "source_count": len(providers),
+        "judgment_count": len(judgments),
+        "transport_attempts_by_provider": attempts_by_provider,
+        "total_tokens_by_provider": tokens_by_provider,
+        "judgments_path": "judgments.jsonl",
+        "audit_path": "provider-audit.jsonl",
+        "attempt_path": "transport-attempts.jsonl",
+    }
+    for name, expected in expected_summary.items():
+        if execution_summary.get(name) != expected:
+            raise ValueError(
+                f"external decoder execution summary mismatch for {name}"
+            )
+    resumed = execution_summary.get("resumed_count")
+    executed = execution_summary.get("executed_count")
+    repaired = execution_summary.get("repaired_trailing_files")
+    allowed_repaired = {
+        "judgments.jsonl",
+        "provider-audit.jsonl",
+        "transport-attempts.jsonl",
+    }
+    if (
+        not isinstance(resumed, int)
+        or isinstance(resumed, bool)
+        or resumed < 0
+        or not isinstance(executed, int)
+        or isinstance(executed, bool)
+        or executed < 0
+        or resumed + executed != len(judgments)
+        or not isinstance(repaired, list)
+        or any(
+            not isinstance(name, str) or name not in allowed_repaired
+            for name in repaired
+        )
+        or len(set(repaired)) != len(repaired)
+    ):
+        raise ValueError(
+            "external decoder execution summary has invalid completion or "
+            "portable-path accounting"
+        )
+    for provider_name, provider in provider_by_name.items():
+        if (
+            attempts_by_provider[provider_name]
+            > provider.config.max_requests
+            or tokens_by_provider[provider_name]
+            > provider.config.max_total_tokens
+        ):
+            raise ValueError(
+                "external decoder execution exceeds its declared budget"
+            )
+
+    inputs = {
+        key: _input_manifest_entry(
+            paths[key],
+            record_count=(
+                len(ledger.starts) + len(ledger.settlements)
+                if key == "decoder_transport_attempts"
+                else len(audits)
+                if key == "decoder_provider_audit"
+                else len(judgments)
+                if key == "decoder_judgments"
+                else None
+            ),
+        )
+        for key in _EXTERNAL_COLLECTION_FILES
+    }
+    summary = {
+        "provenance_mode": "selected_live_provider_collection",
+        "collection_status": "complete",
+        "providers": [
+            {
+                "provider": provider.config.provider,
+                "model": provider.config.model,
+                "decoder_instance_id": (
+                    provider.config.decoder_instance_id
+                ),
+                "decoder_family_id": provider.config.source.decoder_family_id,
+                "official_origin": provider.config.source.official_origin,
+                "official_origin_locked": True,
+                "transport_attempt_count": attempts_by_provider[
+                    provider.config.provider
+                ],
+                "token_budget_used": tokens_by_provider[
+                    provider.config.provider
+                ],
+            }
+            for provider in providers
+        ],
+        "request_count": len(requests),
+        "source_count": len(providers),
+        "judgment_count": len(judgments),
+        "all_collection_files_digest_bound": True,
+        "plan_rebuilt_from_retained_requests": True,
+        "attempt_journal_validated": True,
+        "provider_audits_validated": True,
+        "judgments_match_accepted_provider_audits": True,
+        "standalone_automated_provider_files_eligible": False,
+    }
+    return judgments, inputs, summary
+
+
 def import_native_gate_review(
     *,
     run_dir: str | Path,
     requests_path: str | Path,
     judgments_path: str | Path,
     truth_labels_path: str | Path,
-    actions_path: str | Path,
+    native_collection_dir: str | Path,
     source_review_path: str | Path,
     output_dir: str | Path,
+    external_collection_dir: str | Path | None = None,
+    allow_reviewed_generic_decoders: bool = False,
 ) -> dict[str, Any]:
-    """Validate external native evidence and write a new immutable review."""
+    """Validate external evidence under stable collection locks."""
 
     run_path = Path(run_dir).resolve()
     output = Path(output_dir).resolve()
+    if (
+        external_collection_dir is not None
+    ) == allow_reviewed_generic_decoders:
+        raise ValueError(
+            "choose exactly one external decoder provenance mode: provide "
+            "external_collection_dir or set "
+            "allow_reviewed_generic_decoders=True"
+        )
+    unresolved_native = Path(native_collection_dir)
+    if unresolved_native.is_symlink() or not unresolved_native.is_dir():
+        raise ValueError(
+            "Gate 4 requires a complete native action collection directory; "
+            "a standalone native-actions.jsonl file is ineligible"
+        )
+    native_collection = unresolved_native.resolve()
+    if output == native_collection or native_collection in output.parents:
+        raise ValueError(
+            "gate-review output cannot equal or be inside the native action "
+            "collection"
+        )
+    external_collection: Path | None = None
+    locks: list[tuple[str, Path]] = []
+    if external_collection_dir is not None:
+        unresolved_external = Path(external_collection_dir)
+        if (
+            unresolved_external.is_symlink()
+            or not unresolved_external.is_dir()
+        ):
+            raise ValueError(
+                "official external decoder evidence requires a complete "
+                "distinct-decoder collection directory"
+            )
+        external_collection = unresolved_external.resolve()
+        if (
+            output == external_collection
+            or external_collection in output.parents
+        ):
+            raise ValueError(
+                "gate-review output cannot equal or be inside the external "
+                "decoder collection"
+            )
+        if external_collection == native_collection:
+            raise ValueError(
+                "external decoder and native action collections must differ"
+            )
+        # Match the collector's outer-to-inner nesting order.
+        locks.extend(
+            (
+                (
+                    "external decoder command collection",
+                    external_collection / _EXTERNAL_COLLECTION_LOCKS[0],
+                ),
+                (
+                    "external decoder journal collection",
+                    external_collection / _EXTERNAL_COLLECTION_LOCKS[1],
+                ),
+            )
+        )
+    locks.append(
+        (
+            "native action collection",
+            native_collection / ".collection.lock",
+        )
+    )
+    with _hold_shared_collection_locks(locks):
+        return _import_native_gate_review_locked(
+            run_path=run_path,
+            requests_path=requests_path,
+            judgments_path=judgments_path,
+            truth_labels_path=truth_labels_path,
+            native_collection_dir=native_collection,
+            source_review_path=source_review_path,
+            output=output,
+            external_collection_dir=external_collection,
+            allow_reviewed_generic_decoders=(
+                allow_reviewed_generic_decoders
+            ),
+        )
+
+
+def _import_native_gate_review_locked(
+    *,
+    run_path: Path,
+    requests_path: str | Path,
+    judgments_path: str | Path,
+    truth_labels_path: str | Path,
+    native_collection_dir: str | Path,
+    source_review_path: str | Path,
+    output: Path,
+    external_collection_dir: Path | None,
+    allow_reviewed_generic_decoders: bool,
+) -> dict[str, Any]:
+    """Validate a locked collection and write a new immutable review."""
+
     if output.exists():
         raise FileExistsError(f"gate-review output already exists: {output}")
     if output == run_path or run_path in output.parents:
@@ -1414,24 +2747,88 @@ def import_native_gate_review(
             "Gate 4 native import requires retained Experiment B events"
         )
 
-    request_file = Path(requests_path).resolve()
-    judgment_file = Path(judgments_path).resolve()
-    truth_file = Path(truth_labels_path).resolve()
-    action_file = Path(actions_path).resolve()
-    review_file = Path(source_review_path).resolve()
+    request_snapshot = _snapshot_file(
+        Path(requests_path),
+        name="decoder requests",
+    )
+    judgment_snapshot = _snapshot_file(
+        Path(judgments_path),
+        name="decoder judgments",
+    )
+    truth_snapshot = _snapshot_file(
+        Path(truth_labels_path),
+        name="decoder truth labels",
+    )
+    review_snapshot = _snapshot_file(
+        Path(source_review_path),
+        name="decoder source review",
+    )
 
-    requests = read_external_decoder_requests(request_file)
-    judgments = read_external_decoder_judgments(judgment_file)
-    labels = read_decoder_truth_labels(truth_file)
-    actions = read_native_terminal_action_records(action_file)
-    source_review = read_decoder_source_review(review_file)
+    requests = _decoder_requests_from_snapshot(request_snapshot)
+    labels = _decoder_truth_from_snapshot(truth_snapshot)
+    source_review = DecoderSourceReview.parse(
+        _json_object_from_snapshot(review_snapshot)
+    )
+    external_collection_inputs: dict[str, dict[str, Any]]
+    external_collection_summary: dict[str, Any]
+    if external_collection_dir is not None:
+        (
+            judgments,
+            external_collection_inputs,
+            external_collection_summary,
+        ) = _validate_external_decoder_collection(
+            external_collection_dir,
+            run_path=run_path,
+            requests=requests,
+            supplied_judgments=judgment_snapshot,
+        )
+    else:
+        if not allow_reviewed_generic_decoders:
+            raise ValueError(
+                "reviewed generic decoder mode was not explicitly authorized"
+            )
+        judgments = _decoder_judgments_from_snapshot(judgment_snapshot)
+        external_collection_inputs = {}
+        external_collection_summary = {
+            "provenance_mode": "reviewed_generic_import",
+            "collection_status": "not_applicable",
+            "official_provider_collection_validated": False,
+            "responsible_researcher_review_required": True,
+            "standalone_automated_provider_provenance_claimed": False,
+        }
+    actions, native_collection_inputs, native_collection_summary = (
+        _validate_native_action_collection(
+            native_collection_dir,
+            run_path,
+        )
+    )
 
-    retained_requests = read_external_decoder_requests(
+    retained_request_path = (
         run_path / "decoder" / "external-requests.jsonl"
-    )
-    retained_labels = read_decoder_truth_labels(
+    ).resolve()
+    retained_truth_path = (
         run_path / "decoder" / "truth-labels.researcher-only.jsonl"
+    ).resolve()
+    retained_request_snapshot = (
+        request_snapshot
+        if request_snapshot.path == retained_request_path
+        else _snapshot_file(
+            retained_request_path,
+            name="retained decoder requests",
+        )
     )
+    retained_truth_snapshot = (
+        truth_snapshot
+        if truth_snapshot.path == retained_truth_path
+        else _snapshot_file(
+            retained_truth_path,
+            name="retained decoder truth labels",
+        )
+    )
+    retained_requests = _decoder_requests_from_snapshot(
+        retained_request_snapshot
+    )
+    retained_labels = _decoder_truth_from_snapshot(retained_truth_snapshot)
     if [item.to_dict() for item in requests] != [
         item.to_dict() for item in retained_requests
     ]:
@@ -1526,8 +2923,8 @@ def import_native_gate_review(
     source_review_summary = _validate_source_review(
         source_review,
         judgments,
-        requests_sha256=_file_digest(request_file),
-        judgments_sha256=_file_digest(judgment_file),
+        requests_sha256=request_snapshot.sha256,
+        judgments_sha256=judgment_snapshot.sha256,
     )
     judgments_by_request: dict[str, list[ExternalDecoderJudgment]] = {}
     for judgment in judgments:
@@ -1584,23 +2981,23 @@ def import_native_gate_review(
     _assert_baseline_consistency(baseline, gate_4)
 
     inputs = {
-        "decoder_requests": _input_manifest_entry(
-            request_file,
+        "decoder_requests": request_snapshot.manifest_entry(
             record_count=len(requests),
         ),
-        "decoder_judgments": _input_manifest_entry(
-            judgment_file,
-            record_count=len(judgments),
+        **(
+            external_collection_inputs
+            if external_collection_inputs
+            else {
+                "decoder_judgments": judgment_snapshot.manifest_entry(
+                    record_count=len(judgments),
+                )
+            }
         ),
-        "decoder_truth_labels": _input_manifest_entry(
-            truth_file,
+        "decoder_truth_labels": truth_snapshot.manifest_entry(
             record_count=len(labels),
         ),
-        "native_terminal_actions": _input_manifest_entry(
-            action_file,
-            record_count=len(actions),
-        ),
-        "decoder_source_review": _input_manifest_entry(review_file),
+        **native_collection_inputs,
+        "decoder_source_review": review_snapshot.manifest_entry(),
     }
     source_run = {
         "run_id": manifest["run_id"],
@@ -1623,6 +3020,7 @@ def import_native_gate_review(
         "eligible_trajectory_ids": sorted(eligible),
         "external_decoder_evidence": {
             "import_status": "import_validated",
+            "collection_provenance": external_collection_summary,
             "complete_coverage": True,
             "source_design_eligible": True,
             "blind_to_system_identity": True,
@@ -1638,6 +3036,7 @@ def import_native_gate_review(
             "complete_coverage": True,
             "all_suite_bindings_validated": True,
             "reference_or_projection_actions_accepted": False,
+            "collection_provenance": native_collection_summary,
             "scores": list(action_scores),
         },
         "source_gate4_baseline_consistent": True,
@@ -1653,8 +3052,17 @@ def import_native_gate_review(
         "interpretation_boundary": (
             "Passing import and computational checks does not establish a "
             "paper claim. Source distinctness is a responsible-researcher "
-            "determination, and recorded-action attestations remain auditable "
-            "external evidence."
+            "determination. The validated native provider collection and "
+            + (
+                "selected decoder provider collection remain auditable "
+                "external evidence."
+                if external_collection_dir is not None
+                else (
+                    "explicitly reviewed generic decoder import remain "
+                    "auditable external evidence without an automated "
+                    "provider-provenance assertion."
+                )
+            )
         ),
     }
     artifact_id = _digest_value(review_core)

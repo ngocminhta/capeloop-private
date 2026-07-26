@@ -54,12 +54,24 @@ llm validate RESPONSES.jsonl
 llm plan REQUESTS.jsonl [provider options]
 llm execute-openai REQUESTS.jsonl RESPONSES.jsonl AUDIT.jsonl
                    [provider options] --execute-live
+llm plan-openrouter REQUESTS.jsonl [OpenRouter options]
+llm execute-openrouter REQUESTS.jsonl RESPONSES.jsonl AUDIT.jsonl
+                       [OpenRouter options] --execute-live
 decoder-study validate REQUESTS JUDGMENTS
 decoder-study analyze REQUESTS JUDGMENTS TRUTH_LABELS
 decoder-study plan-openai REQUESTS [provider options]
 decoder-study execute-openai REQUESTS OUTPUT_DIR
                              [provider options] --execute-live
-gate-review import-native RUN REQUESTS JUDGMENTS TRUTH ACTIONS SOURCE_REVIEW OUTPUT
+decoder-study plan-openrouter REQUESTS [OpenRouter options]
+decoder-study execute-openrouter REQUESTS OUTPUT_DIR
+                                 [OpenRouter options] --execute-live
+decoder-study plan-distinct REQUESTS [--output PLAN]
+decoder-study execute-distinct REQUESTS OUTPUT_DIR --execute-live
+native-action plan-openai RUN_DIR [--output PLAN]
+native-action execute-openai RUN_DIR OUTPUT_DIR --execute-live
+gate-review import-native RUN REQUESTS JUDGMENTS TRUTH NATIVE_COLLECTION \
+  SOURCE_REVIEW OUTPUT \
+  (--external-collection-dir DIR | --allow-reviewed-generic-decoders)
 gate-review verify REVIEW_DIR
 human-study generate OUTPUT_DIR [--assignment-id ID] [--seed INTEGER]
 human-study analyze RESPONSES CODEBOOK [--output OUTPUT]
@@ -94,12 +106,13 @@ The checked-in configurations are:
 | `configs/sensitivity_full.toml` | Broader alternative-model robustness grid |
 | `configs/openai_primary.toml` | GPT-5.6 Sol Experiment A live pilot |
 | `configs/openai_replication.toml` | GPT-5.6 Terra matched live pilot |
+| `configs/openrouter_gemini.toml` | OpenRouter-routed Gemini Experiment A live pilot |
 
 See [Configuration](configuration.md) before changing a value. These files
 contain reference software settings, not preregistered paper parameters.
-The two OpenAI configurations are two-user pilot designs, not paper power
-settings or completed runs. Each keeps its selected model fixed across the
-three LLM information views and declares hard ceilings of 900 requests and
+The OpenAI and OpenRouter configurations are two-user pilot designs, not paper
+power settings or completed runs. Each keeps its selected model fixed across
+the three LLM information views and declares hard ceilings of 900 requests and
 6,000,000 conservatively estimated tokens. The ceiling covers a one-user
 development calibration probe plus all three test/runtime views.
 
@@ -301,6 +314,134 @@ completed or mismatched run.
 No live call was made to create this repository. The checked-in implementation
 and pilot configurations are execution capability, not empirical evidence.
 
+## Plan and execute through OpenRouter
+
+OpenRouter is a separate first-class gateway mode using
+`https://openrouter.ai/api/v1/chat/completions`. It is not configured by
+pointing the direct OpenAI provider at a custom URL. Start with a keyless static
+plan:
+
+```bash
+PYTHONPATH=src python -m cape_loop llm plan-openrouter \
+  requests.jsonl \
+  --model google/gemini-3.6-flash \
+  --upstream-provider google-ai-studio \
+  --max-requests 500 \
+  --max-total-tokens 2050000
+```
+
+The planner reads no credential. It prints the exact model, endpoint, provider
+preferences, per-request body hashes, conservative token reservation, and
+whether the corpus is within both hard ceilings. To switch models, change only
+the canonical `--model author/model` value. Aliases, `openrouter/auto`,
+colon-suffixed routes, and `-latest` labels are rejected.
+
+After reviewing the model's current OpenRouter endpoints and pricing, export
+the gateway key in the invoking shell and explicitly authorize the call:
+
+```bash
+export OPENROUTER_API_KEY='...'
+PYTHONPATH=src python -m cape_loop llm execute-openrouter \
+  requests.jsonl \
+  responses.jsonl \
+  openrouter-provider-audit.jsonl \
+  --model google/gemini-3.6-flash \
+  --upstream-provider google-ai-studio \
+  --max-requests 500 \
+  --max-total-tokens 2050000 \
+  --execute-live
+```
+
+The key is never written to either output. The adapter submits strict JSON
+Schema, disables OpenRouter response caching, requests router metadata, and
+defaults to `provider.allow_fallbacks = false`,
+`provider.require_parameters = true`, and
+`provider.data_collection = "deny"`. `--zdr` further requires a
+zero-data-retention endpoint. `--allow-fallbacks`,
+`--allow-unsupported-parameters`, or `--data-collection allow` deliberately
+weakens those defaults and must be reported as a protocol change.
+`--http-referer` and `--app-title` control optional public app attribution; they
+are not provenance authentication.
+
+The accepted response must contain exactly one selected upstream endpoint and
+must retain the requested/returned model, selected upstream provider/model,
+routing strategy and attempt, additive router metadata, provider response ID,
+`X-Generation-Id` when present, cache status, usage, timings, hashes, redacted
+raw response, and replay-compatible beliefs. Model changes, unexpected
+fallback, cache hits, and nonempty transformation pipelines fail closed and
+never become usable replay rows. A completely parsed model/routing identity
+mismatch is retained as a rejected audit; a response missing required metadata
+can fail earlier during parsing. OpenRouter documents these fields in its
+[Chat Completions reference](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
+[provider-routing guide](https://openrouter.ai/docs/guides/routing/provider-selection),
+[router-metadata guide](https://openrouter.ai/docs/guides/features/router-metadata),
+and [usage-accounting guide](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+The implementation captures generation IDs but does not automatically query
+the separate [generation record endpoint](https://openrouter.ai/docs/api/api-reference/generations/get-generation).
+
+For adaptive profile-writer execution, validate the checked-in reproducible
+route example:
+
+```bash
+PYTHONPATH=src python -m cape_loop config validate \
+  configs/openrouter_gemini.toml
+```
+
+Change the model slug to switch models:
+
+```toml
+# Change this canonical author/model slug.
+model = "google/gemini-3.6-flash"
+```
+
+That example pins `openrouter_upstream_provider = "google-ai-studio"`. Keep the
+pin when the replacement model is served by that endpoint. For a different
+model family, set the correct OpenRouter provider slug or clear the value to
+allow router selection; the accepted upstream route is retained in every
+audit. The standalone `plan-openrouter` and `execute-openrouter` commands
+default to no upstream pin, so `--model author/model` is their only required
+model-switching argument.
+
+Then authorize the adaptive run:
+
+```bash
+PYTHONPATH=src python -m cape_loop run \
+  configs/openrouter_gemini.toml \
+  --execute-live
+```
+
+The external recovery journal defaults to
+`<output-root>/.llm-journals/<run-id>/openrouter/<model-role>/`. A successful
+run copies used rows into `llm/provider-audit.jsonl` and writes
+`llm/provider-manifest.json`; it does not imply that this repository contains a
+live result.
+
+OpenRouter can also collect one or more reviewed-generic decoder sources:
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study plan-openrouter \
+  decoder-requests.jsonl \
+  --model anthropic/claude-sonnet-4.5 \
+  --additional-model google/gemini-3.6-flash
+
+PYTHONPATH=src python -m cape_loop decoder-study execute-openrouter \
+  decoder-requests.jsonl \
+  openrouter-decoder-output \
+  --model anthropic/claude-sonnet-4.5 \
+  --additional-model google/gemini-3.6-flash \
+  --execute-live
+```
+
+Each exact model receives a separate journal under
+`OUTPUT_DIR/journals/<model-digest>/`; the output also contains
+`judgments.jsonl` and `execution-manifest.json`. All sources still share the
+OpenRouter gateway, and a reported upstream provider is not a direct
+first-party origin record. The manifest therefore fixes
+`first_party_origin_claimed = false`, `strict_gate4_eligible = false`, and
+`statistical_independence_claimed = false`. Strict Gate 4 remains limited to
+the direct first-party Anthropic/Gemini decoder collection and direct OpenAI
+native-action collection described below.
+
 ## Plan and execute OpenAI decoder variants
 
 Budget both default decoder sources without a key:
@@ -333,6 +474,97 @@ not prove statistically independent judgment. The execution manifest records
 
 See [LLM exchange](llm-exchange.md) for exact provider fields, request hashes,
 recovery semantics, and scientific interpretation.
+
+## Collect the selected Gate 4 model evidence
+
+The checked-in Gate 4 model suite uses:
+
+- OpenAI `gpt-5.6-sol` at medium reasoning as the declared native action
+  system;
+- Anthropic `claude-sonnet-5` as one blinded external decoder; and
+- Google `gemini-3.6-flash` as the other blinded external decoder.
+
+The frozen declaration, official source links, origins, credential names, and
+per-source ceilings are in
+[`data/model-suites/gate4-native-and-distinct-decoders.json`](../data/model-suites/gate4-native-and-distinct-decoders.json).
+First produce and verify a completed Experiment B run. Then create both plans;
+neither command reads a credential:
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study plan-distinct \
+  runs/<experiment-b-run>/decoder/external-requests.jsonl \
+  --output artifacts/gate4-decoder-plan.json
+PYTHONPATH=src python -m cape_loop native-action plan-openai \
+  runs/<experiment-b-run> \
+  --output artifacts/gate4-native-action-plan.json
+```
+
+Review the exact request counts, body hashes, official origins, selected models,
+and default ceilings of 900 physical transport attempts and 6,000,000
+conservatively charged tokens per source. Retries consume those ceilings. When
+you are ready to fund collection, export the three keys in your own shell; do
+not add values to `.env.example` or commit a populated `.env`:
+
+```bash
+export OPENAI_API_KEY='...'
+export ANTHROPIC_API_KEY='...'
+export GEMINI_API_KEY='...'
+```
+
+Authorize the two resumable collections explicitly:
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study execute-distinct \
+  runs/<experiment-b-run>/decoder/external-requests.jsonl \
+  artifacts/gate4-decoder-collection \
+  --execute-live
+PYTHONPATH=src python -m cape_loop native-action execute-openai \
+  runs/<experiment-b-run> \
+  artifacts/gate4-native-actions \
+  --execute-live
+```
+
+Both outputs remain outside the immutable run. The external collection produces
+`judgments.jsonl`, `provider-audit.jsonl`, `transport-attempts.jsonl`, its
+keyless plan, and an execution manifest. The native collection produces its
+bound collection plan, exact requests, physical-attempt journal, audit records,
+`native-actions.jsonl`, and execution manifest. A `started` attempt is durable
+before each HTTP request, and accepted audit rows are written before reusable
+judgment/action rows so an interrupted append can be repaired without another
+accepted call. An unresolved attempt stops automatic resume for manual review.
+
+Separate first-party providers and model families satisfy the repository's
+mechanical source-diversity check; they do not prove independent errors. A
+responsible researcher must inspect the retained source descriptors and complete
+a `decoder-source-review` record. Only then import all exact evidence files:
+
+```bash
+PYTHONPATH=src python -m cape_loop gate-review import-native \
+  runs/<experiment-b-run> \
+  runs/<experiment-b-run>/decoder/external-requests.jsonl \
+  artifacts/gate4-decoder-collection/judgments.jsonl \
+  runs/<experiment-b-run>/decoder/truth-labels.researcher-only.jsonl \
+  artifacts/gate4-native-actions \
+  artifacts/gate4-source-review.json \
+  artifacts/gate4-review \
+  --external-collection-dir artifacts/gate4-decoder-collection
+PYTHONPATH=src python -m cape_loop gate-review verify \
+  artifacts/gate4-review
+```
+
+Keep the request, truth-label, and source-review inputs plus the complete
+five-file decoder and six-file native collections beside or within the release
+evidence bundle. The positional judgment path must name the decoder
+collection's byte-identical `judgments.jsonl`. The review stores every evidence
+file's hash and filename but does not copy them. Standalone automated judgment
+or native-action files are not eligible for official-provider provenance. For
+reviewed human or other generic sources, use the explicit
+`--allow-reviewed-generic-decoders` alternative instead of
+`--external-collection-dir`; that mode records no provider-collection claim. A
+valid review still records
+`claim_status = "not_claimed"` until the paper's full scientific decision
+process is completed. See
+[Gate 4 live collection](gate4-live-collection.md).
 
 ## Choose another output parent
 

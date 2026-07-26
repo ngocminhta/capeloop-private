@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "suite_id": "cape-loop-gate4-native-and-distinct-decoders-v1",
+  "resolved_on": "2026-07-26",
+  "status": "implementation_ready_not_executed",
+  "project_generated": true,
+  "license": "Apache-2.0",
+  "native_action_system": {
+    "system_id": "cape-loop-openai-native-agent-v1",
+    "provider": "openai",
+    "api": "responses",
+    "official_origin": "https://api.openai.com",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "medium",
+    "api_key_env": "OPENAI_API_KEY",
+    "max_requests": 900,
+    "request_budget_unit": "physical_http_attempt",
+    "max_output_tokens": 4096,
+    "max_total_tokens": 6000000,
+    "action_contract": "The model receives the exact retained native-memory state and exact held-out terminal suite and emits one schema-bound action per item; no local belief-to-action projection is accepted.",
+    "official_references": [
+      "https://developers.openai.com/api/docs/guides/latest-model",
+      "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "https://developers.openai.com/api/docs/guides/structured-outputs"
+    ]
+  },
+  "external_decoders": [
+    {
+      "provider": "anthropic",
+      "provider_family": "Claude",
+      "decoder_family_id": "anthropic-claude",
+      "model": "claude-sonnet-5",
+      "official_origin": "https://api.anthropic.com",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "max_requests": 900,
+      "request_budget_unit": "physical_http_attempt",
+      "max_output_tokens": 1024,
+      "max_total_tokens": 6000000,
+      "official_references": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5",
+        "https://platform.claude.com/docs/en/api/messages/create",
+        "https://platform.claude.com/docs/en/build-with-claude/structured-outputs"
+      ]
+    },
+    {
+      "provider": "google_gemini",
+      "provider_family": "Gemini",
+      "decoder_family_id": "google-gemini",
+      "model": "gemini-3.6-flash",
+      "official_origin": "https://generativelanguage.googleapis.com",
+      "api_key_env": "GEMINI_API_KEY",
+      "max_requests": 900,
+      "request_budget_unit": "physical_http_attempt",
+      "max_output_tokens": 1024,
+      "max_total_tokens": 6000000,
+      "official_references": [
+        "https://ai.google.dev/gemini-api/docs/latest-model",
+        "https://ai.google.dev/gemini-api/docs/models",
+        "https://ai.google.dev/api/generate-content",
+        "https://ai.google.dev/gemini-api/docs/generate-content/structured-output"
+      ]
+    }
+  ],
+  "source_design": {
+    "distinct_provider_model_families": true,
+    "statistical_independence_claimed": false,
+    "responsible_researcher_review_required": true,
+    "gate4_import_requires_responsible_researcher_review": true
+  },
+  "execution_invariants": {
+    "live_execution_requires_explicit_flag": true,
+    "planning_reads_credentials": false,
+    "credentials_retained": false,
+    "official_origins_locked_by_default": true,
+    "physical_attempts_journaled_before_transport": true,
+    "audit_written_before_reusable_result": true,
+    "resumable_without_duplicate_accepted_calls": true
+  }
+}

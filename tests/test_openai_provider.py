@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Mapping
+from urllib.error import HTTPError
+from io import BytesIO
 from unittest.mock import patch
 import json
 import unittest
 
+import cape_loop.openai_provider as openai_provider
 from cape_loop.llm_exchange import (
     LLMRequest,
     ReplayProvider,
@@ -29,7 +32,20 @@ from cape_loop.openai_provider import (
     parse_llm_request,
     prepare_openai_request,
     returned_model_is_consistent,
+    urllib_transport,
 )
+
+
+class _TrackingBody(BytesIO):
+    def __init__(self, payload: bytes) -> None:
+        super().__init__(payload)
+        self.read_sizes: list[int] = []
+        self.status = 200
+        self.headers: dict[str, str] = {}
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        return super().read(size)
 
 
 BELIEFS = {
@@ -231,6 +247,125 @@ class OpenAIRequestTests(unittest.TestCase):
 
 
 class OpenAITransportTests(unittest.TestCase):
+    def test_default_transport_refuses_redirects_with_credentials(self) -> None:
+        redirect = HTTPError(
+            "https://api.openai.com/v1/responses",
+            302,
+            "Found",
+            {"Location": "https://attacker.example.test/collect"},
+            BytesIO(b'{"error":{"message":"redirect refused"}}'),
+        )
+        with patch(
+            "cape_loop.openai_provider.build_opener"
+        ) as build:
+            build.return_value.open.side_effect = redirect
+            result = urllib_transport(
+                url="https://api.openai.com/v1/responses",
+                body=b"{}",
+                headers={"Authorization": "Bearer secret"},
+                timeout=1,
+            )
+        self.assertEqual(result.status, 302)
+        self.assertEqual(build.call_count, 1)
+        redirect_handler = build.call_args.args[0]
+        self.assertIsNone(
+            redirect_handler.redirect_request(
+                object(),
+                None,
+                302,
+                "Found",
+                {},
+                "https://attacker.example.test/collect",
+            )
+        )
+
+    def test_default_transport_caps_success_response_body(self) -> None:
+        secret = "oversized-success-secret"
+        body = _TrackingBody(secret.encode("utf-8") + (b"x" * 64))
+        with (
+            patch.object(
+                openai_provider,
+                "HTTP_RESPONSE_BODY_LIMIT_BYTES",
+                32,
+            ),
+            patch.object(openai_provider, "build_opener") as build,
+        ):
+            build.return_value.open.return_value = body
+            with self.assertRaises(
+                openai_provider.HTTPResponseBodyTooLarge
+            ) as caught:
+                urllib_transport(
+                    url="https://api.openai.com/v1/responses",
+                    body=b"{}",
+                    headers={"Authorization": "Bearer request-secret"},
+                    timeout=1,
+                )
+        self.assertEqual(body.read_sizes, [33])
+        self.assertEqual(caught.exception.status, 200)
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertTrue(body.closed)
+
+    def test_default_transport_caps_http_error_response_body(self) -> None:
+        secret = "oversized-error-secret"
+        body = _TrackingBody(secret.encode("utf-8") + (b"x" * 64))
+        oversized = HTTPError(
+            "https://api.openai.com/v1/responses",
+            413,
+            "Content Too Large",
+            {},
+            body,
+        )
+        with (
+            patch.object(
+                openai_provider,
+                "HTTP_RESPONSE_BODY_LIMIT_BYTES",
+                32,
+            ),
+            patch.object(openai_provider, "build_opener") as build,
+        ):
+            build.return_value.open.side_effect = oversized
+            with self.assertRaises(
+                openai_provider.HTTPResponseBodyTooLarge
+            ) as caught:
+                urllib_transport(
+                    url="https://api.openai.com/v1/responses",
+                    body=b"{}",
+                    headers={"Authorization": "Bearer request-secret"},
+                    timeout=1,
+                )
+        self.assertEqual(body.read_sizes, [33])
+        self.assertEqual(caught.exception.status, 413)
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertTrue(body.closed)
+
+    def test_oversized_response_is_charged_without_body_reflection(self) -> None:
+        secret = "oversized-provider-secret"
+
+        def oversized_response(**_: object) -> HTTPResult:
+            raise openai_provider.HTTPResponseBodyTooLarge(status=413)
+
+        provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                live_execution=True,
+                api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                max_total_tokens=100_000,
+            ),
+            transport=oversized_response,
+        )
+        expected_charge = provider.prepare(
+            build_request()
+        ).estimated_max_tokens
+        with patch.dict(
+            "os.environ",
+            {"CAPE_LOOP_TEST_OPENAI_KEY": secret},
+            clear=True,
+        ):
+            with self.assertRaises(ProviderResponseError) as caught:
+                provider.complete(build_request())
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertEqual(provider.budget.request_count, 1)
+        self.assertEqual(provider.budget.total_tokens, expected_charge)
+
     def test_success_parses_nested_output_and_captures_safe_metadata(self) -> None:
         seen: list[dict[str, object]] = []
 
@@ -378,6 +513,37 @@ class OpenAITransportTests(unittest.TestCase):
         self.assertNotIn(secret, str(raised.exception))
         self.assertIn("[redacted]", str(raised.exception))
         self.assertEqual(provider.budget.request_count, 0)
+
+    def test_success_audit_redacts_echoed_provider_metadata(self) -> None:
+        secret = "sk-success-echo-secret"
+        raw = json.loads(response_body())
+        raw["id"] = f"resp-{secret}"
+        raw["usage"]["debug"] = secret
+        raw["debug"] = {
+            "authorization_echo": secret,
+            f"credential-{secret}": "echoed in a provider-controlled key",
+        }
+        provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                live_execution=True,
+                api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                max_total_tokens=100_000,
+            ),
+            transport=lambda **_: HTTPResult(
+                status=200,
+                headers={"X-Request-Id": f"server-{secret}"},
+                body=json.dumps(raw).encode("utf-8"),
+            ),
+        )
+        with patch.dict(
+            "os.environ",
+            {"CAPE_LOOP_TEST_OPENAI_KEY": secret},
+            clear=True,
+        ):
+            result = provider.complete(build_request())
+        retained = json.dumps(result.to_audit_record())
+        self.assertNotIn(secret, retained)
+        self.assertIn("[redacted]", retained)
 
     def test_refusal_is_not_mistaken_for_structured_output(self) -> None:
         refusal = {

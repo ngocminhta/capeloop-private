@@ -24,14 +24,15 @@ are called out below.
 | `configs/sensitivity_full.toml` | `sensitivity` | Broader alternative-model robustness grid |
 | `configs/openai_primary.toml` | `provenance_audit` | Two-user GPT-5.6 Sol live-execution pilot |
 | `configs/openai_replication.toml` | `provenance_audit` | Matched GPT-5.6 Terra replication pilot |
+| `configs/openrouter_gemini.toml` | `provenance_audit` | Two-user OpenRouter/Gemini routed-execution pilot |
 
 These are executable software configurations. They are not preregistrations and
-their outputs are not paper results. In particular, the OpenAI files are pilot
-designs rather than paper power settings or evidence of completed live runs.
-Both hold their selected model and reasoning effort fixed across all three LLM
-information views and declare hard ceilings of 900 requests and 6,000,000
-conservatively estimated tokens. Those ceilings cover the development
-calibration probe plus all three test/runtime views.
+their outputs are not paper results. In particular, the OpenAI and OpenRouter
+files are pilot designs rather than paper power settings or evidence of
+completed live runs. They hold their selected model and reasoning effort fixed
+across all three LLM information views and declare hard ceilings of 900
+requests and 6,000,000 conservatively estimated tokens. Those ceilings cover
+the development calibration probe plus all three test/runtime views.
 
 ## Root schema
 
@@ -91,9 +92,10 @@ directory whose source digest matches the current source tree. For an LLM run,
 the retained input manifest must also exactly match the current replay corpus or
 declared live-model configuration.
 
-Live OpenAI mode additionally requires `run CONFIG --execute-live`. If a live
-attempt fails, `--resume-failed-live` may be combined with `--execute-live` to
-preserve the failed artifact under
+Live OpenAI and OpenRouter modes additionally require
+`run CONFIG --execute-live`. If a live attempt fails,
+`--resume-failed-live` may be combined with `--execute-live` to preserve the
+failed artifact under
 `<output-root>/.failed-runs/<run-id>-attempt-NNN/`, recreate the deterministic
 run path, and resume its external provider journal. It accepts only a failed
 artifact with the same resolved configuration; it cannot overwrite or resume a
@@ -319,13 +321,13 @@ runner does not sweep the separate rule-based response-model class.
 
 | Key | Type/default | Meaning |
 | --- | --- | --- |
-| `mode` | string / `"replay"` | `"replay"` for retained JSONL or `"openai"` for explicitly authorized adaptive execution |
+| `mode` | string / `"replay"` | `"replay"` for retained JSONL, `"openai"` for direct OpenAI Responses API execution, or `"openrouter"` for OpenRouter Chat Completions |
 | `responses_file` | string / `""` | Input JSONL in replay mode; required when an `llm_` updater uses replay |
 | `calibration` | string / `"temperature"` | `"temperature"` fits development-only LLM probability calibration; `"none"` uses raw vectors |
 | `calibration_users` | integer / `1` | Positive number of declared development users used by the fixed calibration probe |
 | `model_role` | string / `"primary"` | `primary`, `replication`, or `decoder` default model declaration |
-| `model` | string / `""` | Explicit model override; empty resolves from `model_role` |
-| `reasoning_effort` | string / `""` | Explicit `none`, `low`, `medium`, `high`, `xhigh`, or `max`; empty resolves from the role |
+| `model` | string / `""` | OpenAI override, empty to resolve from `model_role`; OpenRouter requires one exact canonical `author/model` slug |
+| `reasoning_effort` | string / `""` | Explicit `none`, `low`, `medium`, `high`, `xhigh`, or `max`; OpenRouter also accepts `minimal`, and empty omits its optional reasoning control |
 | `api_key_env` | string / `"OPENAI_API_KEY"` | Name of the environment variable read immediately before a live request |
 | `base_url` | string / `"https://api.openai.com"` | Provider HTTPS origin/path; official origin required unless the separate opt-in below is true |
 | `allow_custom_base_url` | Boolean / `false` | Explicitly permit sending the configured credential to the reviewed non-official HTTPS endpoint |
@@ -335,6 +337,22 @@ runner does not sweep the separate rule-based response-model class.
 | `max_requests` | integer / `100` | Positive hard request ceiling for one provider ledger |
 | `max_total_tokens` | integer / `500000` | Positive hard conservative-token ceiling for one provider ledger |
 | `journal_dir` | string / `""` | Optional live recovery-journal root; empty uses `<output-root>/.llm-journals` |
+| `openrouter_upstream_provider` | string / `""` | Optional OpenRouter provider slug placed in both `provider.order` and `provider.only`; use a full endpoint-variant slug when region/variant identity matters |
+| `openrouter_allow_fallbacks` | Boolean / `false` | Permit another endpoint for the same model after a failed route |
+| `openrouter_require_parameters` | Boolean / `true` | Exclude endpoints that do not advertise every requested parameter, including structured output |
+| `openrouter_data_collection` | string / `"deny"` | OpenRouter provider-data filter: `"deny"` or `"allow"` |
+| `openrouter_zdr` | Boolean / `false` | When true, require a zero-data-retention endpoint |
+| `openrouter_http_referer` | string / `""` | Optional absolute HTTP(S) app-attribution URL sent as `HTTP-Referer` |
+| `openrouter_app_title` | string / `"CAPE-Loop"` | Optional app-attribution title sent as `X-OpenRouter-Title` |
+
+When `mode = "openrouter"`, omitted mode-specific common fields resolve to
+`api_key_env = "OPENROUTER_API_KEY"`,
+`base_url = "https://openrouter.ai/api"`, and `max_retries = 2`. The endpoint
+constructed from that base path is
+`https://openrouter.ai/api/v1/chat/completions`. `model_role` still names the
+journal role, but it does not select an OpenRouter model; `model` must be
+explicit. The validator rejects aliases beginning with `~`, colon-suffixed
+route variants, `-latest` labels, and `openrouter/auto`.
 
 The default role resolution is:
 
@@ -444,6 +462,89 @@ On a successful run, used audit records and a credential-free provider
 manifest are copied into the checksummed artifact. The external journal remains
 available for `--resume-failed-live`. See [LLM exchange](llm-exchange.md) for
 planning, static execution, recovery, and decoder commands.
+
+### OpenRouter mode
+
+`mode = "openrouter"` is a first-class gateway mode. It does not reinterpret
+OpenRouter as an OpenAI custom base URL. The checked-in example is:
+
+```toml
+[llm]
+mode = "openrouter"
+# Change this model slug. If the replacement is not served by the pinned
+# endpoint below, also change or clear openrouter_upstream_provider.
+model = "google/gemini-3.6-flash"
+api_key_env = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api"
+allow_custom_base_url = false
+
+openrouter_upstream_provider = "google-ai-studio"
+openrouter_allow_fallbacks = false
+openrouter_require_parameters = true
+openrouter_data_collection = "deny"
+openrouter_zdr = false
+openrouter_http_referer = ""
+openrouter_app_title = "CAPE-Loop"
+```
+
+The standalone OpenRouter CLI defaults to no upstream-provider pin, so one
+`--model author/model` argument switches its model. The checked-in adaptive
+pilot pins Google AI Studio for route reproducibility. When changing that
+pilot to a model not served there, also replace the provider slug or set
+`openrouter_upstream_provider = ""`; an unpinned route is accepted only with
+its selected upstream identity retained for analysis.
+
+Preparing a request sends `stream = false`, `max_completion_tokens`, and a
+strict `response_format.type = "json_schema"`. The provider preferences contain
+the declared fallback, parameter-support, data-collection, ZDR, and optional
+provider constraints. The transport always sends
+`X-OpenRouter-Metadata: enabled` and `X-OpenRouter-Cache: false`; attribution
+headers are separate and optional. A successful response must report the exact
+requested model, a `direct` routing strategy, exactly one selected upstream
+endpoint whose model matches the response, no disallowed fallback, no cache
+hit, and no material router pipeline transformation. Structured message
+content is parsed and validated locally before it can become an
+`LLMResponse`.
+
+The API key is read from `OPENROUTER_API_KEY` only after `--execute-live` and is
+never retained. The official base path is required by default. As with direct
+OpenAI execution, a different HTTPS endpoint requires
+`allow_custom_base_url = true` and a dedicated credential-variable name; that
+choice authorizes sending the dedicated credential to the reviewed endpoint.
+
+OpenRouter journals use:
+
+```text
+<output-root>/.llm-journals/<run-id>/openrouter/<model-role>/provider-audit.jsonl
+<output-root>/.llm-journals/<run-id>/openrouter/<model-role>/responses.jsonl
+```
+
+The checksummed run receives `llm/provider-audit.jsonl` and
+`llm/provider-manifest.json`. Audit rows separate the gateway from the selected
+upstream route through `gateway`, `model_requested`, `model_returned`,
+`upstream_provider`, `upstream_model`, `routing_strategy`,
+`routing_attempt`, and the full additive `routing_metadata`; they also retain
+the provider response ID, `X-Generation-Id` when present, cache status, usage,
+timing, body/prompt hashes, redacted raw response, and provider-neutral replay
+response. The implementation records `first_party_origin_claimed = false` and
+does not automatically call OpenRouter's generation-lookup endpoint.
+
+OpenRouter's official documentation defines the
+[Chat Completions request](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
+[structured-output contract](https://openrouter.ai/docs/guides/features/structured-outputs),
+[provider preferences](https://openrouter.ai/docs/guides/routing/provider-selection),
+[router metadata](https://openrouter.ai/docs/guides/features/router-metadata),
+[response-cache controls](https://openrouter.ai/docs/guides/features/response-caching),
+and [app-attribution headers](https://openrouter.ai/docs/app-attribution).
+Recheck endpoint support and the model catalog before each collection wave.
+
+This gateway mode is valid for profile-writer studies and reviewed-generic
+decoder collection, but it is not direct first-party provenance. Multiple
+models or reported upstream providers behind the same gateway do not establish
+statistically independent errors. OpenRouter artifacts are therefore
+ineligible for strict Gate 4, which remains restricted to the direct
+first-party collection paths documented in
+[Gate 4 live collection](gate4-live-collection.md).
 
 ## `[artifacts]`
 

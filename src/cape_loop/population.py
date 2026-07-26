@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from itertools import product
 from typing import Sequence
 from typing import Any

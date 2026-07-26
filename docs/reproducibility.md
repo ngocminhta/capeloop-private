@@ -89,6 +89,16 @@ paper release also record:
 - provider execution metadata;
 - analysis tool versions if non-core analysis is used.
 
+The optional [mixed-effects analysis](mixed-effects-analysis.md) pins R and its
+runtime dependency graph, records `sessionInfo()`, independently verifies every
+source-run checksum, recomputes the configuration digest from the retained
+canonical resolved-config payload, digests its normalized analysis rows, and
+writes a separate `SHA256SUMS`. Pooled repeats must have the same source digest
+and design, including an identical Experiment B horizon. B rows are
+reconstructed for retained turns `1, ..., T`, and the final marginal Brier
+error is checked against the retained terminal error. Do not copy analysis
+outputs into or otherwise mutate the verified source run.
+
 A container can aid portability but does not replace source and configuration
 identity.
 
@@ -168,10 +178,49 @@ Follow [LLM exchange](llm-exchange.md). At minimum retain:
 `llm validate` checks response structure, not provider authenticity or request
 completeness. The replay/experiment layer performs expected-ID and prompt-hash
 matching. Static corpora can be planned and executed through the explicit
-OpenAI CLI; adaptive A–C execution uses the same journaled provider only with
-`--execute-live`. Runs fingerprint the supplied response corpus or live model
-declaration in `llm/input-manifest.json`, and `--allow-existing` requires that
-identity to match.
+direct OpenAI or OpenRouter CLI; adaptive A–C execution uses the selected
+journaled provider only with `--execute-live`. Runs fingerprint the supplied
+response corpus or live model declaration in `llm/input-manifest.json`, and
+`--allow-existing` requires that identity to match.
+
+For OpenRouter, freeze and retain all of the following as one protocol identity:
+
+- the exact canonical `author/model` slug, never an alias or auto router;
+- the optional upstream provider/endpoint slug;
+- `allow_fallbacks`, `require_parameters`, `data_collection`, and `zdr`;
+- the app-attribution values, if any;
+- the disabled response-cache and enabled router-metadata declarations;
+- request/body/prompt hashes and conservative budget ceilings;
+- requested/returned model plus selected upstream provider/model;
+- routing strategy, attempt, and complete additive router metadata;
+- body response ID, response-header generation ID, cache status, raw usage,
+  timings, and acceptance status; and
+- the redacted raw response and provider-neutral replay response.
+
+Changing the `model` line in `configs/openrouter_gemini.toml` switches the
+model, but it changes the resolved-config digest and creates a different run
+identity. If the replacement is not served by the configured upstream route,
+also change or clear that pin. Changing only a human-facing model description
+is not sufficient. Endpoint support and routing policy are external state, so
+preserve the observed route metadata rather than inferring it later from the
+requested slug.
+
+OpenRouter response caching is disabled in every prepared request. A reported
+cache hit, fallback when disabled, model mismatch, non-direct strategy, or
+material router pipeline is rejected before replay. Accepted audit rows are
+written before response rows, and resumed audits are revalidated. The default
+adaptive recovery path is
+`.llm-journals/<run-id>/openrouter/<model-role>/`; successful runs copy their
+used audit and provider manifest into `llm/`.
+
+The OpenRouter audit deliberately records
+`first_party_origin_claimed = false`. A gateway-reported upstream identity is
+not equivalent to a direct request to that provider, and multiple models or
+upstreams behind the same gateway do not establish statistically independent
+errors. OpenRouter decoder artifacts must remain in the reviewed-generic
+evidence branch. Strict Gate 4 continues to require the direct first-party
+Anthropic/Gemini decoder collections and direct OpenAI native-action
+collection.
 
 For the declared primary/replication pair, use `llm evaluation-suite`. Its
 default mode writes a credential-free combined plan; `--execute-live` is

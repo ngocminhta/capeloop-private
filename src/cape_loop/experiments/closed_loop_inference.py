@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from statistics import mean
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from ..statistics import clustered_bootstrap_mean
 from .closed_loop import ExperimentBResult

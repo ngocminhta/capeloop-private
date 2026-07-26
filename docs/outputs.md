@@ -370,6 +370,53 @@ trajectories.
 
 ## Standalone protocol and analysis outputs
 
+### Optional R mixed-effects analysis
+
+The confirmatory R harness writes outside the immutable source run:
+
+```text
+analysis-result.json
+diagnostics.json
+input-manifest.json
+analysis-rows.csv
+fixed-effects.csv
+omnibus-tests.csv
+random-effects.csv
+contrasts.csv
+session-info.txt
+SHA256SUMS
+```
+
+`input-manifest.json` binds every complete source run, its configuration/source
+digests, its full checksum-manifest digest, the exact event and exclusion
+inputs, the normalized-row digest, analysis source digests, factor levels, and
+cluster counts. The runner recomputes the configuration digest from the
+retained canonical `config.resolved.json` payload. Pooled repeats must share
+the same `source_sha256`, factorial design, and, for B, horizon.
+
+Experiment B's `analysis-rows.csv` has one row per retained turn. Its outcome
+column keeps the protocol name `terminal_error`, but each value is marginal
+Brier error reconstructed from that turn's `belief_after` and the trajectory's
+top-level `theta`; stored zero-based turns become `1, ..., T`. The final
+reconstructed value must equal the retained top-level `terminal_error`.
+
+`diagnostics.json` records fixed-design rank, optimizer, raw gradient, the
+curvature-scaled gradient used for convergence, Hessian, singularity, and
+residual summaries; `random-effects.csv` records the fitted variance
+components. Confidence-limit columns in the fixed-effect and contrast tables
+are named `pointwise_unadjusted_confidence_lower` and
+`pointwise_unadjusted_confidence_upper`, with standardized equivalents in the
+contrast table. These are pointwise 95% intervals; Holm adjustment applies
+only to the corresponding p-value families.
+
+`analysis-result.json` is checked against the required closed top-level
+contract documented by the analysis schema and uses `complete`,
+`not_confirmatory`, or `not_estimable` independently of its fixed
+`claim_status = not_claimed`. No fitted model is checked in. See
+[Confirmatory mixed-effects analysis](mixed-effects-analysis.md).
+
+### Decoder, Gate 4, human, and correction-debt outputs
+
 `decoder-study validate` prints a `DecoderImportAudit` with request/judgment
 counts, coverage, per-request instance/family/source-descriptor counts, missing
 request IDs, and the independence caveat. `decoder-study analyze` can write one
@@ -387,11 +434,39 @@ interpretation_boundary
 Truth labels are inputs to the researcher-side analysis and must never be
 copied into decoder-visible outputs.
 
+The distinct-decoder live collector writes a separate evidence directory:
+
+```text
+collection-plan.json
+transport-attempts.jsonl
+provider-audit.jsonl
+judgments.jsonl
+execution-manifest.json
+```
+
+The native-action live collector writes its own separate evidence directory:
+
+```text
+requests.jsonl
+collection-plan.json
+transport-attempts.jsonl
+provider-audit.jsonl
+native-actions.jsonl
+execution-manifest.json
+```
+
+For both collectors, the durable `started` transport-attempt journal entry is
+flushed before the physical request. A validated, accepted provider-audit row
+is then flushed before its reusable `judgments.jsonl` or
+`native-actions.jsonl` row. These collection directories remain outside the
+immutable source run; they are later supplied by digest to the Gate 4 import.
+
 `gate-review import-native` validates a completed, checksum-valid Experiment B
-run without modifying it. It requires the exact retained decoder request/truth
-packet, complete externally collected judgments, a hash-bound responsible-
-researcher source review, and one exact-suite recorded native action record per
-eligible trajectory. The separate output directory contains:
+run without modifying it. The selected automated path requires the exact
+retained decoder request/truth packet, a complete official Anthropic/Gemini
+five-file collection, a hash-bound responsible-researcher source review, and a
+complete official OpenAI six-file native-action collection. The separate
+output directory contains:
 
 ```text
 gate-review.json
@@ -405,12 +480,16 @@ trajectory action scores, and recomputed Gate 4 criteria. Use
 `gate-review verify REVIEW_DIR` to check the file and content bindings.
 `claim_status` is always `not_claimed`.
 
-The directory deliberately does not duplicate its five evidence inputs.
-Retain their exact bytes separately in the evidence bundle so their recorded
-digests can be checked and the import can be recomputed. Protect the truth-
-label file as researcher-only; do not place it in decoder-visible material.
-Review verification checks the immutable review files, while recomputation
-also requires the verified source run and all five retained inputs.
+The directory deliberately does not duplicate its evidence inputs. Retain the
+request, truth-label, and source-review files plus the five decoder and six
+native collection evidence files so all recorded digests can be checked and
+the import can be recomputed. The positional judgment path is the exact
+collection `judgments.jsonl`. Protect the truth-label file as researcher-only;
+do not place it in decoder-visible material. Review verification checks the
+immutable review files, while recomputation also requires the verified source
+run and all retained inputs. The explicit
+`--allow-reviewed-generic-decoders` mode omits the four decoder collection
+sidecars and makes no official-provider provenance assertion.
 
 `human-study generate` writes participant items, a researcher codebook, order
 manifest, response schema, packet hash manifest, and an ethics warning.

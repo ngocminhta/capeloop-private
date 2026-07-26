@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from statistics import mean
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 import json
 import math
 
@@ -88,7 +88,13 @@ from .openai_provider import (
     DEFAULT_OPENAI_MODEL_ROLES,
     OpenAIProviderConfig,
     OpenAIResponsesProvider,
+    ResumableCompletionProvider,
     ResumableOpenAICompletionProvider,
+)
+from .openrouter_provider import (
+    OpenRouterChatProvider,
+    OpenRouterProviderConfig,
+    ResumableOpenRouterCompletionProvider,
 )
 from .policies import build_policy
 from .population import (
@@ -619,6 +625,64 @@ def _llm_input_manifest(config: AppConfig) -> dict[str, Any] | None:
             "max_total_tokens": config.llm.max_total_tokens,
             "credential_retained": False,
         }
+    if config.llm.mode == "openrouter":
+        provider = OpenRouterProviderConfig(
+            model=config.llm.model,
+            reasoning_effort=config.llm.reasoning_effort,
+            api_key_env=config.llm.api_key_env,
+            base_url=config.llm.base_url,
+            allow_custom_base_url=config.llm.allow_custom_base_url,
+            upstream_provider=(
+                config.llm.openrouter_upstream_provider
+            ),
+            allow_fallbacks=(
+                config.llm.openrouter_allow_fallbacks
+            ),
+            require_parameters=(
+                config.llm.openrouter_require_parameters
+            ),
+            data_collection=(
+                config.llm.openrouter_data_collection
+            ),
+            zdr=config.llm.openrouter_zdr,
+            http_referer=config.llm.openrouter_http_referer,
+            app_title=config.llm.openrouter_app_title,
+            timeout_seconds=config.llm.timeout_seconds,
+            max_retries=config.llm.max_retries,
+            max_output_tokens=config.llm.max_output_tokens,
+            max_requests=config.llm.max_requests,
+            max_total_tokens=config.llm.max_total_tokens,
+            live_execution=False,
+        )
+        return {
+            "schema_version": 1,
+            "mode": "openrouter",
+            "provider": "openrouter",
+            "gateway": "openrouter",
+            "model_role": config.llm.model_role,
+            "model": provider.model,
+            "reasoning_effort": provider.reasoning_effort or None,
+            "calibration": config.llm.calibration,
+            "calibration_users": config.llm.calibration_users,
+            "api_key_env": provider.api_key_env,
+            "base_url": provider.base_url,
+            "endpoint": provider.endpoint,
+            "allow_custom_base_url": provider.allow_custom_base_url,
+            "upstream_provider_constraint": (
+                provider.upstream_provider or None
+            ),
+            "provider_preferences": provider.provider_preferences(),
+            "response_cache_enabled": False,
+            "router_metadata_requested": True,
+            "router_transforms_accepted": False,
+            "max_output_tokens": provider.max_output_tokens,
+            "max_requests": provider.max_requests,
+            "request_budget_unit": "physical_http_attempt",
+            "max_retries_per_logical_request": provider.max_retries,
+            "max_total_tokens": provider.max_total_tokens,
+            "credential_retained": False,
+            "first_party_origin_claimed": False,
+        }
     response_path = Path(config.llm.responses_file)
     try:
         payload = response_path.read_bytes()
@@ -647,45 +711,86 @@ def _live_completion_provider(
     *,
     destination: Path,
     execute_live: bool,
-) -> ResumableOpenAICompletionProvider | None:
+) -> ResumableCompletionProvider | None:
     """Build the adaptive provider only for an explicitly authorized run."""
 
     uses_llm = any(
         updater_id.startswith("llm_")
         for updater_id in config.experiment.updaters
     )
-    if not uses_llm or config.llm.mode != "openai":
+    if not uses_llm or config.llm.mode not in {"openai", "openrouter"}:
         return None
     if not execute_live:
         raise ValueError(
-            "this configuration requests live OpenAI execution; rerun with "
-            "--execute-live only after reviewing the model and hard budgets"
+            f"this configuration requests live {config.llm.mode} execution; "
+            "rerun with --execute-live only after reviewing the model, "
+            "route, and hard budgets"
         )
-    role = DEFAULT_OPENAI_MODEL_ROLES[config.llm.model_role]
-    provider = OpenAIResponsesProvider(
-        OpenAIProviderConfig(
-            model=config.llm.model or role.model,
-            reasoning_effort=(
-                config.llm.reasoning_effort or role.reasoning_effort
-            ),
-            api_key_env=config.llm.api_key_env,
-            base_url=config.llm.base_url,
-            allow_custom_base_url=config.llm.allow_custom_base_url,
-            timeout_seconds=config.llm.timeout_seconds,
-            max_retries=config.llm.max_retries,
-            max_output_tokens=config.llm.max_output_tokens,
-            max_requests=config.llm.max_requests,
-            max_total_tokens=config.llm.max_total_tokens,
-            live_execution=True,
+    if config.llm.mode == "openai":
+        role = DEFAULT_OPENAI_MODEL_ROLES[config.llm.model_role]
+        provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                model=config.llm.model or role.model,
+                reasoning_effort=(
+                    config.llm.reasoning_effort or role.reasoning_effort
+                ),
+                api_key_env=config.llm.api_key_env,
+                base_url=config.llm.base_url,
+                allow_custom_base_url=config.llm.allow_custom_base_url,
+                timeout_seconds=config.llm.timeout_seconds,
+                max_retries=config.llm.max_retries,
+                max_output_tokens=config.llm.max_output_tokens,
+                max_requests=config.llm.max_requests,
+                max_total_tokens=config.llm.max_total_tokens,
+                live_execution=True,
+            )
         )
-    )
+    else:
+        provider = OpenRouterChatProvider(
+            OpenRouterProviderConfig(
+                model=config.llm.model,
+                reasoning_effort=config.llm.reasoning_effort,
+                api_key_env=config.llm.api_key_env,
+                base_url=config.llm.base_url,
+                allow_custom_base_url=config.llm.allow_custom_base_url,
+                upstream_provider=(
+                    config.llm.openrouter_upstream_provider
+                ),
+                allow_fallbacks=(
+                    config.llm.openrouter_allow_fallbacks
+                ),
+                require_parameters=(
+                    config.llm.openrouter_require_parameters
+                ),
+                data_collection=(
+                    config.llm.openrouter_data_collection
+                ),
+                zdr=config.llm.openrouter_zdr,
+                http_referer=config.llm.openrouter_http_referer,
+                app_title=config.llm.openrouter_app_title,
+                timeout_seconds=config.llm.timeout_seconds,
+                max_retries=config.llm.max_retries,
+                max_output_tokens=config.llm.max_output_tokens,
+                max_requests=config.llm.max_requests,
+                max_total_tokens=config.llm.max_total_tokens,
+                live_execution=True,
+            )
+        )
     journal_root = (
         Path(config.llm.journal_dir)
         if config.llm.journal_dir
         else destination.parent / ".llm-journals"
     )
-    journal = journal_root / destination.name / config.llm.model_role
-    return ResumableOpenAICompletionProvider(
+    journal = journal_root / destination.name
+    if config.llm.mode == "openrouter":
+        journal = journal / "openrouter"
+    journal = journal / config.llm.model_role
+    adapter_type = (
+        ResumableOpenAICompletionProvider
+        if config.llm.mode == "openai"
+        else ResumableOpenRouterCompletionProvider
+    )
+    return adapter_type(
         provider,
         responses_path=journal / "responses.jsonl",
         audit_path=journal / "provider-audit.jsonl",
@@ -916,7 +1021,7 @@ def _write_llm_exchange(
     registry: Mapping[str, ProfileUpdater],
     *,
     additional_registries: Sequence[Mapping[str, ProfileUpdater]] = (),
-    live_provider: ResumableOpenAICompletionProvider | None = None,
+    live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
 ) -> None:
     adapters = tuple(
@@ -1236,7 +1341,7 @@ def _run_a(
     *,
     completion_provider: CompletionProvider | None = None,
     raw_completion_provider: CompletionProvider | None = None,
-    live_provider: ResumableOpenAICompletionProvider | None = None,
+    live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
 ) -> dict[str, Any]:
     registry = _registry(
@@ -2093,7 +2198,7 @@ def _run_b(
     prepared: PreparedStudy,
     *,
     completion_provider: CompletionProvider | None = None,
-    live_provider: ResumableOpenAICompletionProvider | None = None,
+    live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
 ) -> dict[str, Any]:
     registry = _registry(
@@ -2767,7 +2872,7 @@ def _run_c(
     prepared: PreparedStudy,
     *,
     completion_provider: CompletionProvider | None = None,
-    live_provider: ResumableOpenAICompletionProvider | None = None,
+    live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
 ) -> dict[str, Any]:
     registry = _registry(
@@ -3629,10 +3734,10 @@ def run_experiment(
     destination = _existing_run(config, output_root=output_root)
     archived_failed_run: Path | None = None
     if resume_failed_live:
-        if config.llm.mode != "openai" or not execute_live:
+        if config.llm.mode not in {"openai", "openrouter"} or not execute_live:
             raise ValueError(
-                "--resume-failed-live requires an OpenAI configuration and "
-                "--execute-live"
+                "--resume-failed-live requires an OpenAI or OpenRouter "
+                "configuration and --execute-live"
             )
         if not destination.exists():
             raise FileNotFoundError(

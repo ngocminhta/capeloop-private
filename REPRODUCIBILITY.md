@@ -171,10 +171,43 @@ request hash and record decoder instance, family, source descriptor, and
 blinding attestation. The source audit checks complete per-request coverage and
 distinct metadata. It does not prove statistically independent errors.
 
+The selected distinct-family pair is Anthropic `claude-sonnet-5` and Google
+`gemini-3.6-flash`. Plan both provider bodies and per-source ceilings without
+reading either key:
+
+```bash
+PYTHONPATH=src python -m cape_loop decoder-study plan-distinct \
+  runs/<experiment-b-run>/decoder/external-requests.jsonl \
+  --output artifacts/gate4-decoder-plan.json
+```
+
+Live collection requires both environment-only keys and the explicit
+`--execute-live` flag. Retain `collection-plan.json`,
+`transport-attempts.jsonl`, `provider-audit.jsonl`, `judgments.jsonl`, and
+`execution-manifest.json` together. The attempt journal durably records a
+`started` event before every physical request and its settlement afterward.
+The accepted audit is written before the judgment and embeds it, so the
+collector can repair an interrupted judgment append without another accepted
+call.
+
 Fit decoder temperature calibration on development labels only, then lock it
 before reporting raw/calibrated test Brier, NLL, accuracy, ECE/reliability, and
 cross-source agreement. The two deterministic repository decoders are
 representation checks and cannot satisfy the external-source requirement.
+
+For native actions, retain the exact `native-action plan-openai` output and the
+collection's `collection-plan.json`, `requests.jsonl`,
+`transport-attempts.jsonl`, `provider-audit.jsonl`,
+`native-actions.jsonl`, and `execution-manifest.json`. The action adapter sends
+the retained native state and exact terminal suite to the declared OpenAI
+`gpt-5.6-sol` system; it does not project a local belief to an action. A
+responsible researcher must still complete the exact hash-bound source review
+before Gate 4 import.
+
+The Gate 4 review directory does not copy its five external evidence inputs.
+An evidence release must therefore retain the exact request, judgment,
+truth-label, native-action, and source-review files named by the review hashes,
+as well as the verified source run.
 
 ## Human evidence
 

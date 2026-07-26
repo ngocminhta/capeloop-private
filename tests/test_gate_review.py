@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 from hashlib import sha256
+from io import StringIO
+from itertools import combinations
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import json
+import os
+import shutil
 import unittest
 
 from cape_loop.artifacts import canonical_json, verify_run
+from cape_loop.cli import main as cli_main
 from cape_loop.config import (
     AppConfig,
     ExperimentSection,
@@ -15,8 +22,16 @@ from cape_loop.config import (
 )
 from cape_loop.decoder_study import (
     ExternalDecoderJudgment,
+    read_external_decoder_judgments,
     read_external_decoder_requests,
 )
+from cape_loop.external_decoder_providers import (
+    ANTHROPIC_DEFAULT_MODEL,
+    GEMINI_DEFAULT_MODEL,
+    ExternalDecoderProvider,
+    HTTPResult as ExternalHTTPResult,
+)
+from cape_loop.file_lock import try_file_lock, unlock_file
 from cape_loop.gate_review import (
     DecoderSourceAssessment,
     DecoderSourcePairAssessment,
@@ -26,6 +41,14 @@ from cape_loop.gate_review import (
     verify_gate_review,
 )
 from cape_loop.heldout import TerminalAction
+from cape_loop.native_action_provider import (
+    OpenAINativeActionProvider,
+    execute_openai_native_actions,
+)
+from cape_loop.openai_provider import (
+    HTTPResult as OpenAIHTTPResult,
+    OpenAIProviderConfig,
+)
 from cape_loop.runner import run_experiment
 from cape_loop.schema_export import SCHEMAS
 
@@ -41,6 +64,115 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(canonical_json(row) + "\n" for row in rows),
         encoding="utf-8",
+    )
+
+
+def _native_response(**kwargs: object) -> OpenAIHTTPResult:
+    body = json.loads(bytes(kwargs["body"]).decode("utf-8"))
+    visible = json.loads(body["input"][0]["content"][0]["text"])
+    actions = []
+    for item in visible["terminal_suite"]["items"]:
+        direct = item["question_type"] == "direct_preference_probe"
+        actions.append(
+            {
+                "item_id": item["item_id"],
+                "item_sha256": item["item_sha256"],
+                "wording_template_id": item["wording_template_id"],
+                "question_type": item["question_type"],
+                "selected_option_id": (
+                    None if direct else item["options"][0]["option_id"]
+                ),
+                "declared_direction": 1 if direct else None,
+            }
+        )
+    raw = {
+        "id": (
+            "resp_gate_review_"
+            + body["metadata"]["cape_loop_native_state_id"][:12]
+        ),
+        "status": "completed",
+        "model": "gpt-5.6-sol",
+        "usage": {
+            "input_tokens": 60,
+            "output_tokens": 40,
+            "total_tokens": 100,
+        },
+        "output_text": json.dumps({"actions": actions}),
+    }
+    return OpenAIHTTPResult(
+        status=200,
+        headers={"X-Request-Id": "gate-review-test-request"},
+        body=json.dumps(raw).encode("utf-8"),
+    )
+
+
+_EXTERNAL_BELIEFS = {
+    f"attribute_{attribute}": {
+        "-2": 0.1,
+        "-1": 0.2,
+        "+1": 0.3,
+        "+2": 0.4,
+    }
+    for attribute in range(1, 4)
+}
+
+
+def _external_provider(config: object) -> ExternalDecoderProvider:
+    def transport(**_: object) -> ExternalHTTPResult:
+        if config.provider == "anthropic":
+            raw = {
+                "id": "msg_gate_review_test",
+                "type": "message",
+                "role": "assistant",
+                "model": ANTHROPIC_DEFAULT_MODEL,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {"beliefs": _EXTERNAL_BELIEFS}
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 80, "output_tokens": 40},
+            }
+        else:
+            raw = {
+                "candidates": [
+                    {
+                        "content": {
+                            "role": "model",
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {"beliefs": _EXTERNAL_BELIEFS}
+                                    )
+                                }
+                            ],
+                        },
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 70,
+                    "candidatesTokenCount": 30,
+                    "thoughtsTokenCount": 10,
+                    "totalTokenCount": 110,
+                },
+                "modelVersion": GEMINI_DEFAULT_MODEL,
+                "responseId": "gemini-gate-review-test",
+                "modelStatus": {"modelStage": "STABLE"},
+            }
+        return ExternalHTTPResult(
+            status=200,
+            headers={"X-Request-Id": f"{config.provider}-gate-review"},
+            body=json.dumps(raw).encode("utf-8"),
+        )
+
+    return ExternalDecoderProvider(
+        config,
+        transport=transport,
+        epoch_time=lambda: 1_800_000_000.0,
     )
 
 
@@ -90,6 +222,30 @@ class GateReviewRecordTests(unittest.TestCase):
                     schema["$id"],
                     f"urn:cape-loop:schema:{name}:v1",
                 )
+        review_inputs = SCHEMAS["gate4-review-artifact"]["properties"][
+            "inputs"
+        ]
+        self.assertTrue(
+            {
+                "native_collection_plan",
+                "native_action_requests",
+                "native_transport_attempts",
+                "native_provider_audit",
+                "native_terminal_actions",
+                "native_execution_manifest",
+            }
+            <= set(review_inputs["required"])
+        )
+        self.assertTrue(
+            {
+                "decoder_collection_plan",
+                "decoder_transport_attempts",
+                "decoder_provider_audit",
+                "decoder_execution_manifest",
+            }
+            <= set(review_inputs["properties"])
+        )
+        self.assertEqual(len(review_inputs["oneOf"]), 2)
 
 
 class GateReviewIntegrationTests(unittest.TestCase):
@@ -137,30 +293,62 @@ class GateReviewIntegrationTests(unittest.TestCase):
                 / "truth-labels.researcher-only.jsonl"
             )
             requests = read_external_decoder_requests(requests_path)
-            judgments: list[ExternalDecoderJudgment] = []
-            for request in requests:
-                for instance, family, descriptor in (
-                    ("decoder-a", "family-a", "independent source A"),
-                    ("decoder-b", "family-b", "independent source B"),
-                ):
-                    judgments.append(
-                        ExternalDecoderJudgment(
-                            request_id=request.request_id,
-                            request_sha256=request.request_sha256,
-                            decoder_instance_id=instance,
-                            decoder_family_id=family,
-                            judgment_origin="external_model",
-                            source_descriptor=descriptor,
-                            blind_to_system_identity=True,
-                            blind_to_latent_truth=True,
-                            probabilities=_ROWS,
-                        )
-                    )
-            judgments_path = root / "judgments.jsonl"
-            _write_jsonl(
-                judgments_path,
-                [row.to_dict() for row in judgments],
+            external_collection = root / "external-decoder-collection"
+            with (
+                patch(
+                    "cape_loop.cli.ExternalDecoderProvider",
+                    side_effect=_external_provider,
+                ),
+                patch.dict(
+                    "os.environ",
+                    {
+                        "ANTHROPIC_API_KEY": "test-anthropic-key",
+                        "GEMINI_API_KEY": "test-gemini-key",
+                    },
+                    clear=True,
+                ),
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(
+                    cli_main(
+                        [
+                            "decoder-study",
+                            "execute-distinct",
+                            str(requests_path),
+                            str(external_collection),
+                            "--execute-live",
+                        ]
+                    ),
+                    0,
+                )
+            portable_summary = json.loads(
+                (
+                    external_collection / "execution-manifest.json"
+                ).read_text(encoding="utf-8")
+            )["execution_summary"]
+            self.assertEqual(
+                portable_summary["judgments_path"],
+                "judgments.jsonl",
             )
+            self.assertEqual(
+                portable_summary["audit_path"],
+                "provider-audit.jsonl",
+            )
+            self.assertEqual(
+                portable_summary["attempt_path"],
+                "transport-attempts.jsonl",
+            )
+            judgments_path = external_collection / "judgments.jsonl"
+            judgments = read_external_decoder_judgments(judgments_path)
+            source_metadata = {
+                judgment.decoder_instance_id: (
+                    judgment.decoder_family_id,
+                    judgment.judgment_origin,
+                    judgment.source_descriptor,
+                )
+                for judgment in judgments
+            }
+            source_ids = sorted(source_metadata)
 
             source_review = DecoderSourceReview.build(
                 review_id="gate4-source-review-1",
@@ -173,32 +361,26 @@ class GateReviewIntegrationTests(unittest.TestCase):
                     judgments_path.read_bytes()
                 ).hexdigest(),
                 decision="eligible_distinct_sources",
-                source_assessments=(
+                source_assessments=tuple(
                     DecoderSourceAssessment(
-                        "decoder-a",
-                        "family-a",
-                        "external_model",
-                        "independent source A",
+                        source_id,
+                        source_metadata[source_id][0],
+                        source_metadata[source_id][1],
+                        source_metadata[source_id][2],
                         True,
                         "Reviewed provider, training, prompt, and adjudication.",
-                    ),
-                    DecoderSourceAssessment(
-                        "decoder-b",
-                        "family-b",
-                        "external_model",
-                        "independent source B",
-                        True,
-                        "Reviewed provider, training, prompt, and adjudication.",
-                    ),
+                    )
+                    for source_id in source_ids
                 ),
-                pair_assessments=(
+                pair_assessments=tuple(
                     DecoderSourcePairAssessment(
-                        "decoder-a",
-                        "decoder-b",
+                        left,
+                        right,
                         True,
                         "Responsible researcher found no disqualifying shared "
                         "generation or adjudication dependency.",
-                    ),
+                    )
+                    for left, right in combinations(source_ids, 2)
                 ),
             )
             source_review_path = root / "source-review.json"
@@ -207,94 +389,27 @@ class GateReviewIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            suites = {
-                row["domain_id"]: row
-                for row in (
-                    json.loads(line)
-                    for line in (
-                        run_dir
-                        / "events"
-                        / "experiment-b-held-out-terminal-suites.jsonl"
-                    )
-                    .read_text(encoding="utf-8")
-                    .splitlines()
-                )
-            }
-            trajectories = [
-                json.loads(line)
-                for line in (
-                    run_dir / "events" / "experiment-b-trajectories.jsonl"
-                )
-                .read_text(encoding="utf-8")
-                .splitlines()
-            ]
-            eligible = [
-                row
-                for row in trajectories
-                if row["updater_id"]
-                in {"semantic_memory", "provenance_linked_memory"}
-                and row["policy_id"] == "soft_profile_conditioned"
-                and row["initial_profile_condition"] == "incorrect"
-            ]
-            action_records = []
-            for trajectory in eligible:
-                suite = suites[trajectory["domain_id"]]
-                actions = []
-                for item in suite["items"]:
-                    if item["question_type"] == "direct_preference_probe":
-                        actions.append(
-                            TerminalAction(
-                                item_id=item["item_id"],
-                                item_sha256=item["item_sha256"],
-                                wording_template_id=(
-                                    item["wording_template_id"]
-                                ),
-                                question_type=item["question_type"],
-                                declared_direction=1,
-                            )
-                        )
-                    else:
-                        actions.append(
-                            TerminalAction(
-                                item_id=item["item_id"],
-                                item_sha256=item["item_sha256"],
-                                wording_template_id=(
-                                    item["wording_template_id"]
-                                ),
-                                question_type=item["question_type"],
-                                selected_option_id=(
-                                    item["options"][0]["option_id"]
-                                ),
-                            )
-                        )
-                action_records.append(
-                    NativeTerminalActionRecord.build(
-                        record_id=(
-                            "recorded-native:" + trajectory["trajectory_id"]
-                        ),
-                        trajectory_id=trajectory["trajectory_id"],
-                        domain_id=trajectory["domain_id"],
-                        updater_id=trajectory["updater_id"],
-                        native_state_id=trajectory[
-                            "terminal_native_state"
-                        ]["state_id"],
-                        native_system_id="studied-native-system",
-                        native_system_version="v1-frozen",
-                        suite_id=suite["suite_id"],
-                        suite_sha256=suite["suite_sha256"],
-                        action_execution_mode="recorded_replay",
-                        execution_trace_sha256=sha256(
-                            trajectory["trajectory_id"].encode("utf-8")
-                        ).hexdigest(),
-                        recorded_at="2026-07-26T12:00:00+00:00",
-                        actions=actions,
-                    )
-                )
-            actions_path = root / "native-actions.jsonl"
-            _write_jsonl(
-                actions_path,
-                [row.to_dict() for row in action_records],
+            native_collection = root / "native-action-collection"
+            provider = OpenAINativeActionProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="GATE_REVIEW_NATIVE_TEST_KEY",
+                    max_requests=900,
+                    max_total_tokens=6_000_000,
+                ),
+                transport=_native_response,
+                epoch_time=lambda: 1_800_000_000.0,
             )
+            with patch.dict(
+                "os.environ",
+                {"GATE_REVIEW_NATIVE_TEST_KEY": "test-only"},
+                clear=True,
+            ):
+                execute_openai_native_actions(
+                    run_dir,
+                    native_collection,
+                    provider,
+                )
 
             output = root / "gate-review"
             result = import_native_gate_review(
@@ -302,9 +417,10 @@ class GateReviewIntegrationTests(unittest.TestCase):
                 requests_path=requests_path,
                 judgments_path=judgments_path,
                 truth_labels_path=truth_path,
-                actions_path=actions_path,
+                native_collection_dir=native_collection,
                 source_review_path=source_review_path,
                 output_dir=output,
+                external_collection_dir=external_collection,
             )
             self.assertEqual(result["claim_status"], "not_claimed")
             valid_review, review_errors = verify_gate_review(output)
@@ -328,6 +444,57 @@ class GateReviewIntegrationTests(unittest.TestCase):
                     "native_terminal_action_evidence"
                 ]["reference_or_projection_actions_accepted"]
             )
+            provenance = review["validation_summary"][
+                "native_terminal_action_evidence"
+            ]["collection_provenance"]
+            self.assertEqual(provenance["model"], "gpt-5.6-sol")
+            self.assertEqual(provenance["reasoning_effort"], "medium")
+            self.assertTrue(provenance["all_collection_files_digest_bound"])
+            decoder_provenance = review["validation_summary"][
+                "external_decoder_evidence"
+            ]["collection_provenance"]
+            self.assertEqual(
+                decoder_provenance["provenance_mode"],
+                "selected_live_provider_collection",
+            )
+            self.assertTrue(
+                decoder_provenance["all_collection_files_digest_bound"]
+            )
+            external_inputs = {
+                "decoder_collection_plan": "collection-plan.json",
+                "decoder_transport_attempts": "transport-attempts.jsonl",
+                "decoder_provider_audit": "provider-audit.jsonl",
+                "decoder_judgments": "judgments.jsonl",
+                "decoder_execution_manifest": "execution-manifest.json",
+            }
+            for input_name, filename in external_inputs.items():
+                with self.subTest(input_name=input_name):
+                    entry = review["inputs"][input_name]
+                    self.assertEqual(entry["filename"], filename)
+                    self.assertEqual(
+                        entry["sha256"],
+                        sha256(
+                            (external_collection / filename).read_bytes()
+                        ).hexdigest(),
+                    )
+            native_inputs = {
+                "native_collection_plan": "collection-plan.json",
+                "native_action_requests": "requests.jsonl",
+                "native_transport_attempts": "transport-attempts.jsonl",
+                "native_provider_audit": "provider-audit.jsonl",
+                "native_terminal_actions": "native-actions.jsonl",
+                "native_execution_manifest": "execution-manifest.json",
+            }
+            for input_name, filename in native_inputs.items():
+                with self.subTest(input_name=input_name):
+                    entry = review["inputs"][input_name]
+                    self.assertEqual(entry["filename"], filename)
+                    self.assertEqual(
+                        entry["sha256"],
+                        sha256(
+                            (native_collection / filename).read_bytes()
+                        ).hexdigest(),
+                    )
             self.assertEqual(
                 before,
                 sha256((run_dir / "SHA256SUMS").read_bytes()).hexdigest(),
@@ -340,27 +507,595 @@ class GateReviewIntegrationTests(unittest.TestCase):
                     requests_path=requests_path,
                     judgments_path=judgments_path,
                     truth_labels_path=truth_path,
-                    actions_path=actions_path,
+                    native_collection_dir=native_collection,
                     source_review_path=source_review_path,
                     output_dir=output,
+                    external_collection_dir=external_collection,
                 )
 
-            incomplete_actions = root / "incomplete-actions.jsonl"
-            _write_jsonl(
-                incomplete_actions,
-                [action_records[0].to_dict()],
-            )
-            with self.assertRaisesRegex(ValueError, "cover eligible"):
+            legacy_actions = native_collection / "native-actions.jsonl"
+            with self.assertRaisesRegex(
+                ValueError,
+                "complete native action collection directory",
+            ):
                 import_native_gate_review(
                     run_dir=run_dir,
                     requests_path=requests_path,
                     judgments_path=judgments_path,
                     truth_labels_path=truth_path,
-                    actions_path=incomplete_actions,
+                    native_collection_dir=legacy_actions,
+                    source_review_path=source_review_path,
+                    output_dir=root / "legacy-review",
+                    external_collection_dir=external_collection,
+                )
+            self.assertFalse((root / "legacy-review").exists())
+
+            incomplete_collection = root / "incomplete-native-collection"
+            shutil.copytree(native_collection, incomplete_collection)
+            (incomplete_collection / "provider-audit.jsonl").unlink()
+            with self.assertRaisesRegex(ValueError, "missing or unexpected"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=incomplete_collection,
                     source_review_path=source_review_path,
                     output_dir=root / "incomplete-review",
+                    external_collection_dir=external_collection,
                 )
             self.assertFalse((root / "incomplete-review").exists())
+
+            wrong_model_collection = root / "wrong-model-collection"
+            shutil.copytree(native_collection, wrong_model_collection)
+            wrong_plan_path = wrong_model_collection / "collection-plan.json"
+            wrong_plan = json.loads(
+                wrong_plan_path.read_text(encoding="utf-8")
+            )
+            wrong_plan["model"] = "gpt-5.6-terra"
+            wrong_plan["collection_config"]["model"] = "gpt-5.6-terra"
+            wrong_plan_path.write_text(
+                canonical_json(wrong_plan) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "gpt-5.6-sol/medium",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=wrong_model_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "wrong-model-review",
+                    external_collection_dir=external_collection,
+                )
+            self.assertFalse((root / "wrong-model-review").exists())
+
+            high_native_budget = root / "high-native-budget"
+            shutil.copytree(native_collection, high_native_budget)
+            high_native_plan_path = (
+                high_native_budget / "collection-plan.json"
+            )
+            high_native_plan = json.loads(
+                high_native_plan_path.read_text(encoding="utf-8")
+            )
+            high_native_plan["collection_config"]["max_requests"] = 901
+            high_native_plan_path.write_text(
+                canonical_json(high_native_plan) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "approved Gate 4 ceilings"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=high_native_budget,
+                    source_review_path=source_review_path,
+                    output_dir=root / "high-native-budget-review",
+                    external_collection_dir=external_collection,
+                )
+
+            wrong_native_ordinal = root / "wrong-native-ordinal"
+            shutil.copytree(native_collection, wrong_native_ordinal)
+            wrong_native_audit_path = (
+                wrong_native_ordinal / "provider-audit.jsonl"
+            )
+            wrong_native_audits = [
+                json.loads(line)
+                for line in wrong_native_audit_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            tampered_request_id = wrong_native_audits[0]["request_id"]
+            wrong_native_audits[0]["attempts"] = 2
+            _write_jsonl(wrong_native_audit_path, wrong_native_audits)
+            wrong_native_attempt_path = (
+                wrong_native_ordinal / "transport-attempts.jsonl"
+            )
+            wrong_native_attempts = [
+                json.loads(line)
+                for line in wrong_native_attempt_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            for attempt in wrong_native_attempts:
+                embedded = attempt.get("provider_audit")
+                if (
+                    isinstance(embedded, dict)
+                    and embedded.get("request_id") == tampered_request_id
+                ):
+                    embedded["attempts"] = 2
+            _write_jsonl(wrong_native_attempt_path, wrong_native_attempts)
+            wrong_native_manifest_path = (
+                wrong_native_ordinal / "execution-manifest.json"
+            )
+            wrong_native_manifest = json.loads(
+                wrong_native_manifest_path.read_text(encoding="utf-8")
+            )
+            wrong_native_manifest["provider_audit_sha256"] = sha256(
+                wrong_native_audit_path.read_bytes()
+            ).hexdigest()
+            wrong_native_manifest["transport_attempts_sha256"] = sha256(
+                wrong_native_attempt_path.read_bytes()
+            ).hexdigest()
+            wrong_native_manifest_path.write_text(
+                canonical_json(wrong_native_manifest) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "attempt count does not match",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=wrong_native_ordinal,
+                    source_review_path=source_review_path,
+                    output_dir=root / "wrong-native-ordinal-review",
+                    external_collection_dir=external_collection,
+                )
+
+            wrong_native_raw_actions = root / "wrong-native-raw-actions"
+            shutil.copytree(native_collection, wrong_native_raw_actions)
+            wrong_raw_audit_path = (
+                wrong_native_raw_actions / "provider-audit.jsonl"
+            )
+            wrong_raw_audits = [
+                json.loads(line)
+                for line in wrong_raw_audit_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            wrong_raw_audit = wrong_raw_audits[0]
+            wrong_raw_request_id = wrong_raw_audit["request_id"]
+            wrong_raw_payload = json.loads(
+                wrong_raw_audit["raw_response"]["output_text"]
+            )
+            direct_action = next(
+                action
+                for action in wrong_raw_payload["actions"]
+                if action["question_type"] == "direct_preference_probe"
+            )
+            direct_action["declared_direction"] *= -1
+            wrong_raw_audit["raw_response"]["output_text"] = json.dumps(
+                wrong_raw_payload
+            )
+            _write_jsonl(wrong_raw_audit_path, wrong_raw_audits)
+            wrong_raw_attempt_path = (
+                wrong_native_raw_actions / "transport-attempts.jsonl"
+            )
+            wrong_raw_attempts = [
+                json.loads(line)
+                for line in wrong_raw_attempt_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            for attempt in wrong_raw_attempts:
+                embedded = attempt.get("provider_audit")
+                if (
+                    isinstance(embedded, dict)
+                    and embedded.get("request_id") == wrong_raw_request_id
+                ):
+                    attempt["provider_audit"] = wrong_raw_audit
+                    attempt["response_record"] = wrong_raw_audit[
+                        "raw_response"
+                    ]
+            _write_jsonl(wrong_raw_attempt_path, wrong_raw_attempts)
+            wrong_raw_manifest_path = (
+                wrong_native_raw_actions / "execution-manifest.json"
+            )
+            wrong_raw_manifest = json.loads(
+                wrong_raw_manifest_path.read_text(encoding="utf-8")
+            )
+            wrong_raw_manifest["provider_audit_sha256"] = sha256(
+                wrong_raw_audit_path.read_bytes()
+            ).hexdigest()
+            wrong_raw_manifest["transport_attempts_sha256"] = sha256(
+                wrong_raw_attempt_path.read_bytes()
+            ).hexdigest()
+            wrong_raw_manifest_path.write_text(
+                canonical_json(wrong_raw_manifest) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "raw-response/action-record mismatch",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=wrong_native_raw_actions,
+                    source_review_path=source_review_path,
+                    output_dir=root / "wrong-native-raw-actions-review",
+                    external_collection_dir=external_collection,
+                )
+
+            incomplete_external = root / "incomplete-external-collection"
+            shutil.copytree(external_collection, incomplete_external)
+            (incomplete_external / "provider-audit.jsonl").unlink()
+            with self.assertRaisesRegex(ValueError, "missing or unexpected"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "incomplete-external-review",
+                    external_collection_dir=incomplete_external,
+                )
+
+            high_external_budget = root / "high-external-budget"
+            shutil.copytree(external_collection, high_external_budget)
+            high_external_plan_path = (
+                high_external_budget / "collection-plan.json"
+            )
+            high_external_plan = json.loads(
+                high_external_plan_path.read_text(encoding="utf-8")
+            )
+            high_external_plan["sources"][0]["max_output_tokens"] = 1_025
+            high_external_plan_path.write_text(
+                canonical_json(high_external_plan) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "approved per-source"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=(
+                        high_external_budget / "judgments.jsonl"
+                    ),
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "high-external-budget-review",
+                    external_collection_dir=high_external_budget,
+                )
+
+            mismatched_judgments = root / "mismatched-judgments.jsonl"
+            mismatched_judgments.write_bytes(
+                judgments_path.read_bytes() + b"\n"
+            )
+            with self.assertRaisesRegex(ValueError, "byte-identical"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=mismatched_judgments,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "mismatched-judgments-review",
+                    external_collection_dir=external_collection,
+                )
+
+            missing_external_digest = root / "missing-external-digest"
+            shutil.copytree(external_collection, missing_external_digest)
+            missing_digest_audit_path = (
+                missing_external_digest / "provider-audit.jsonl"
+            )
+            missing_digest_audits = [
+                json.loads(line)
+                for line in missing_digest_audit_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            missing_digest_request_id = missing_digest_audits[0][
+                "request_id"
+            ]
+            missing_digest_audits[0]["llm_response"][
+                "raw_response_sha256"
+            ] = None
+            _write_jsonl(missing_digest_audit_path, missing_digest_audits)
+            missing_digest_attempt_path = (
+                missing_external_digest / "transport-attempts.jsonl"
+            )
+            missing_digest_attempts = [
+                json.loads(line)
+                for line in missing_digest_attempt_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            for attempt in missing_digest_attempts:
+                embedded = attempt.get("provider_audit")
+                if (
+                    isinstance(embedded, dict)
+                    and embedded.get("request_id")
+                    == missing_digest_request_id
+                ):
+                    embedded["llm_response"][
+                        "raw_response_sha256"
+                    ] = None
+                    attempt["response_body_sha256"] = None
+            _write_jsonl(
+                missing_digest_attempt_path,
+                missing_digest_attempts,
+            )
+            missing_digest_manifest_path = (
+                missing_external_digest / "execution-manifest.json"
+            )
+            missing_digest_manifest = json.loads(
+                missing_digest_manifest_path.read_text(encoding="utf-8")
+            )
+            missing_digest_manifest["provider_audit_sha256"] = sha256(
+                missing_digest_audit_path.read_bytes()
+            ).hexdigest()
+            missing_digest_manifest[
+                "transport_attempts_sha256"
+            ] = sha256(
+                missing_digest_attempt_path.read_bytes()
+            ).hexdigest()
+            missing_digest_manifest_path.write_text(
+                canonical_json(missing_digest_manifest) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "raw_response_sha256|response metadata",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=(
+                        missing_external_digest / "judgments.jsonl"
+                    ),
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "missing-external-digest-review",
+                    external_collection_dir=missing_external_digest,
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "complete distinct-decoder collection directory",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "standalone-decoder-review",
+                    external_collection_dir=judgments_path,
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "choose exactly one external decoder provenance mode",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "implicit-generic-review",
+                )
+
+            generic_judgments = [
+                ExternalDecoderJudgment(
+                    request_id=request.request_id,
+                    request_sha256=request.request_sha256,
+                    decoder_instance_id=instance,
+                    decoder_family_id=family,
+                    judgment_origin="human_annotator",
+                    source_descriptor=descriptor,
+                    blind_to_system_identity=True,
+                    blind_to_latent_truth=True,
+                    probabilities=_ROWS,
+                )
+                for request in requests
+                for instance, family, descriptor in (
+                    (
+                        "human-decoder-a",
+                        "human-panel-a",
+                        "blinded human panel A",
+                    ),
+                    (
+                        "human-decoder-b",
+                        "human-panel-b",
+                        "blinded human panel B",
+                    ),
+                )
+            ]
+            generic_judgments_path = root / "generic-judgments.jsonl"
+            _write_jsonl(
+                generic_judgments_path,
+                [row.to_dict() for row in generic_judgments],
+            )
+            generic_review = DecoderSourceReview.build(
+                review_id="gate4-generic-source-review",
+                responsible_researcher_id="researcher-1",
+                reviewed_at="2026-07-26T12:00:00+00:00",
+                requests_sha256=sha256(
+                    requests_path.read_bytes()
+                ).hexdigest(),
+                judgments_sha256=sha256(
+                    generic_judgments_path.read_bytes()
+                ).hexdigest(),
+                decision="eligible_distinct_sources",
+                source_assessments=(
+                    DecoderSourceAssessment(
+                        "human-decoder-a",
+                        "human-panel-a",
+                        "human_annotator",
+                        "blinded human panel A",
+                        True,
+                        "Reviewed panel recruitment and adjudication.",
+                    ),
+                    DecoderSourceAssessment(
+                        "human-decoder-b",
+                        "human-panel-b",
+                        "human_annotator",
+                        "blinded human panel B",
+                        True,
+                        "Reviewed panel recruitment and adjudication.",
+                    ),
+                ),
+                pair_assessments=(
+                    DecoderSourcePairAssessment(
+                        "human-decoder-a",
+                        "human-decoder-b",
+                        True,
+                        "Panels were reviewed as distinct for this scope.",
+                    ),
+                ),
+            )
+            generic_review_path = root / "generic-source-review.json"
+            generic_review_path.write_text(
+                canonical_json(generic_review.to_dict()) + "\n",
+                encoding="utf-8",
+            )
+            generic_output = root / "generic-gate-review"
+            import_native_gate_review(
+                run_dir=run_dir,
+                requests_path=requests_path,
+                judgments_path=generic_judgments_path,
+                truth_labels_path=truth_path,
+                native_collection_dir=native_collection,
+                source_review_path=generic_review_path,
+                output_dir=generic_output,
+                allow_reviewed_generic_decoders=True,
+            )
+            generic_valid, generic_errors = verify_gate_review(
+                generic_output
+            )
+            self.assertTrue(generic_valid, generic_errors)
+            generic_artifact = json.loads(
+                (generic_output / "gate-review.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn(
+                "decoder_collection_plan",
+                generic_artifact["inputs"],
+            )
+            self.assertEqual(
+                generic_artifact["validation_summary"][
+                    "external_decoder_evidence"
+                ]["collection_provenance"]["provenance_mode"],
+                "reviewed_generic_import",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot equal or be inside the native action collection",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=native_collection / "review",
+                    external_collection_dir=external_collection,
+                )
+            self.assertFalse((native_collection / "review").exists())
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot equal or be inside the external decoder collection",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=external_collection / "review",
+                    external_collection_dir=external_collection,
+                )
+            self.assertFalse((external_collection / "review").exists())
+
+            external_lock_descriptor = os.open(
+                external_collection / ".external-decoder-command.lock",
+                os.O_RDWR,
+            )
+            external_lock_acquired = False
+            try:
+                external_lock_acquired = try_file_lock(
+                    external_lock_descriptor
+                )
+                self.assertTrue(external_lock_acquired)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "currently locked by a collector",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=root / "external-locked-review",
+                        external_collection_dir=external_collection,
+                    )
+            finally:
+                if external_lock_acquired:
+                    unlock_file(external_lock_descriptor)
+                os.close(external_lock_descriptor)
+            self.assertFalse((root / "external-locked-review").exists())
+
+            lock_descriptor = os.open(
+                native_collection / ".collection.lock",
+                os.O_RDWR,
+            )
+            native_lock_acquired = False
+            try:
+                native_lock_acquired = try_file_lock(lock_descriptor)
+                self.assertTrue(native_lock_acquired)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "currently locked by a collector",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=root / "locked-review",
+                        external_collection_dir=external_collection,
+                    )
+            finally:
+                if native_lock_acquired:
+                    unlock_file(lock_descriptor)
+                os.close(lock_descriptor)
+            self.assertFalse((root / "locked-review").exists())
 
 
 if __name__ == "__main__":

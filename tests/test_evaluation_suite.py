@@ -74,7 +74,7 @@ class OpenAIEvaluationSuiteTests(unittest.TestCase):
             self.assertTrue(Path(index["index_path"]).is_file())
 
             with patch(
-                "cape_loop.openai_provider.urlopen",
+                "cape_loop.openai_provider.build_opener",
                 side_effect=AssertionError("suite plan attempted network"),
             ):
                 keyless = orchestrate_openai_evaluation_suite(

@@ -1,0 +1,307 @@
+{
+  "$id": "urn:cape-loop:schema:openrouter-provider-audit:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A gateway execution sidecar retaining the requested OpenRouter model, selected upstream route, additive router metadata, and the provider-neutral replay response. It does not claim direct first-party provider origin.",
+  "properties": {
+    "acceptance_status": {
+      "enum": [
+        "accepted",
+        "rejected_openrouter_identity"
+      ]
+    },
+    "attempts": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "cache_status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "client_request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "estimated_max_tokens": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "first_party_origin_claimed": {
+      "const": false
+    },
+    "gateway": {
+      "const": "openrouter"
+    },
+    "generation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_requested": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "model_returned": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "provider": {
+      "const": "openrouter"
+    },
+    "provider_created_at": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "provider_response_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "raw_response": {
+      "type": "object"
+    },
+    "raw_response_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "replay_response": {
+      "additionalProperties": false,
+      "properties": {
+        "beliefs": {
+          "additionalProperties": false,
+          "properties": {
+            "attribute_1": {
+              "additionalProperties": false,
+              "properties": {
+                "+1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "+2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "-2",
+                "-1",
+                "+1",
+                "+2"
+              ],
+              "type": "object"
+            },
+            "attribute_2": {
+              "additionalProperties": false,
+              "properties": {
+                "+1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "+2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "-2",
+                "-1",
+                "+1",
+                "+2"
+              ],
+              "type": "object"
+            },
+            "attribute_3": {
+              "additionalProperties": false,
+              "properties": {
+                "+1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "+2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-1": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "-2": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "-2",
+                "-1",
+                "+1",
+                "+2"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "attribute_1",
+            "attribute_2",
+            "attribute_3"
+          ],
+          "type": "object"
+        },
+        "model_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "raw_response_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "prompt_sha256",
+        "model_id",
+        "beliefs"
+      ],
+      "type": "object"
+    },
+    "request_body_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "routing_attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "routing_metadata": {
+      "type": "object"
+    },
+    "routing_strategy": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "transport_attempts": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "upstream_model": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "upstream_provider": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "usage": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider",
+    "gateway",
+    "acceptance_status",
+    "request_id",
+    "prompt_sha256",
+    "request_body_sha256",
+    "model_requested",
+    "model_returned",
+    "upstream_provider",
+    "upstream_model",
+    "routing_strategy",
+    "routing_attempt",
+    "routing_metadata",
+    "provider_response_id",
+    "provider_created_at",
+    "usage",
+    "started_at",
+    "completed_at",
+    "transport_attempts",
+    "attempts",
+    "client_request_id",
+    "generation_id",
+    "cache_status",
+    "estimated_max_tokens",
+    "raw_response_sha256",
+    "raw_response",
+    "replay_response",
+    "first_party_origin_claimed"
+  ],
+  "title": "CAPE-Loop OpenRouter Chat Completions audit record",
+  "type": "object"
+}

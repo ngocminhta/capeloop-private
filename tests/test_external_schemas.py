@@ -179,6 +179,10 @@ class ExternalSchemaTests(unittest.TestCase):
             "heldout-paraphrase-evaluation",
             "heldout-paraphrase-criterion",
             "openai-provider-audit",
+            "external-decoder-provider-audit",
+            "external-decoder-transport-attempt",
+            "native-action-provider-audit",
+            "native-action-transport-attempt",
         )
         for name in names:
             with self.subTest(schema=name):

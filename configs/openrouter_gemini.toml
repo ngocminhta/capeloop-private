@@ -1,0 +1,88 @@
+schema_version = 1
+
+[run]
+name = "experiment-a-openrouter-gemini-pilot"
+seed = 1729
+output_root = "runs"
+deterministic = false
+
+[experiment]
+kind = "provenance_audit"
+domains = ["travel", "writing"]
+mechanisms = ["balanced", "restricted", "default", "suggested"]
+response_modes = ["controlled_anchor", "naturally_sampled"]
+prior_strengths = [0.0]
+policies = ["balanced"]
+updaters = [
+  "no_update",
+  "exact_action_aware",
+  "fitted_action_aware",
+  "fitted_action_unaware",
+  "llm_response_only",
+  "llm_full_context",
+  "llm_provenance_aware",
+  "provenance_discount",
+]
+users = 2
+trajectories_per_cell = 1
+turns = 1
+bootstrap_replicates = 0
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 512
+fit_steps = 600
+learning_rate = 0.04
+l2 = 0.001
+calibration = "temperature"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[llm]
+mode = "openrouter"
+calibration = "temperature"
+calibration_users = 1
+model_role = "primary"
+# Change this canonical author/model slug to switch models. If the replacement
+# is not served by Google AI Studio, also change or clear the route pin below.
+model = "google/gemini-3.6-flash"
+# Empty omits provider-specific reasoning controls for broad compatibility.
+reasoning_effort = ""
+api_key_env = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api"
+allow_custom_base_url = false
+timeout_seconds = 180.0
+max_retries = 2
+max_output_tokens = 2048
+max_requests = 900
+max_total_tokens = 6000000
+journal_dir = ""
+
+# Reproducible route policy. Remove the provider constraint only if you accept
+# router-selected hosting and will stratify results by retained route metadata.
+openrouter_upstream_provider = "google-ai-studio"
+openrouter_allow_fallbacks = false
+openrouter_require_parameters = true
+openrouter_data_collection = "deny"
+openrouter_zdr = false
+openrouter_http_referer = ""
+openrouter_app_title = "CAPE-Loop"
+
+[artifacts]
+retain_events = true
+retain_prompts = true
+checksum_manifest = true

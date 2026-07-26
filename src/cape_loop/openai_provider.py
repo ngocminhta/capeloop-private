@@ -21,7 +21,11 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import (
+    HTTPRedirectHandler,
+    Request,
+    build_opener,
+)
 import json
 import math
 import os
@@ -45,6 +49,10 @@ _RESPONSE_SCHEMA_NAME = "cape_loop_preference_beliefs"
 _REASONING_EFFORTS = frozenset(
     {"none", "low", "medium", "high", "xhigh", "max"}
 )
+# Provider output limits are request hints, not wire-level guarantees. Keep a
+# generous fixed ceiling so an invalid endpoint or oversized error cannot make
+# the dependency-free transport retain an unbounded response in memory.
+HTTP_RESPONSE_BODY_LIMIT_BYTES = 16 * 1024 * 1024
 
 
 def _canonical(value: Any) -> str:
@@ -141,16 +149,52 @@ class ProviderResponseError(OpenAIProviderError):
     """Raised for an invalid, incomplete, refused, or unparseable response."""
 
 
-class ProviderModelMismatch(ProviderResponseError):
+class HTTPResponseBodyTooLarge(OpenAIProviderError):
+    """A response exceeded the fixed wire-body memory safety limit."""
+
+    def __init__(self, *, status: int) -> None:
+        self.status = status
+        self.limit_bytes = HTTP_RESPONSE_BODY_LIMIT_BYTES
+        super().__init__(
+            "OpenAI response body exceeded the fixed "
+            f"{self.limit_bytes}-byte safety limit"
+        )
+
+
+class ProviderResultRejected(ProviderResponseError):
+    """A paid provider result that must be audited but not replayed."""
+
+    acceptance_status = "rejected_provider_result"
+
+    def __init__(
+        self,
+        result: Any,
+        message: str,
+        *,
+        acceptance_status: str | None = None,
+    ) -> None:
+        self.result = result
+        if acceptance_status is not None:
+            self.acceptance_status = acceptance_status
+        super().__init__(message)
+
+
+class ProviderModelMismatch(ProviderResultRejected):
     """A completed call whose returned model is not the requested model."""
 
-    def __init__(self, result: "OpenAIProviderResult") -> None:
-        self.result = result
+    acceptance_status = "rejected_model_mismatch"
+
+    def __init__(self, result: Any) -> None:
+        provider_label = getattr(result, "provider_label", "OpenAI")
         super().__init__(
-            "OpenAI returned a model inconsistent with the configured request: "
-            f"requested={result.model_requested!r}, "
-            f"returned={result.model_returned!r}; "
-            f"client_request_id={result.client_request_id}"
+            result,
+            (
+                f"{provider_label} returned a model inconsistent with the "
+                "configured request: "
+                f"requested={result.model_requested!r}, "
+                f"returned={result.model_returned!r}; "
+                f"client_request_id={result.client_request_id}"
+            ),
         )
 
 
@@ -420,6 +464,30 @@ class HTTPTransport(Protocol):
         """Execute one HTTP request."""
 
 
+class _RejectRedirects(HTTPRedirectHandler):
+    """Keep authorization material on the already validated origin."""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+def _read_http_body(response: Any, *, status: int) -> bytes:
+    """Read at most the fixed response limit plus one detection byte."""
+
+    body = response.read(HTTP_RESPONSE_BODY_LIMIT_BYTES + 1)
+    if len(body) > HTTP_RESPONSE_BODY_LIMIT_BYTES:
+        raise HTTPResponseBodyTooLarge(status=status)
+    return body
+
+
 def urllib_transport(
     *,
     url: str,
@@ -435,19 +503,26 @@ def urllib_transport(
         headers=dict(headers),
         method="POST",
     )
+    opener = build_opener(_RejectRedirects())
     try:
-        with urlopen(http_request, timeout=timeout) as response:
+        with opener.open(http_request, timeout=timeout) as response:
             return HTTPResult(
                 status=int(response.status),
                 headers=dict(response.headers.items()),
-                body=response.read(),
+                body=_read_http_body(
+                    response,
+                    status=int(response.status),
+                ),
             )
     except HTTPError as exc:
-        return HTTPResult(
-            status=int(exc.code),
-            headers=dict(exc.headers.items()) if exc.headers else {},
-            body=exc.read(),
-        )
+        try:
+            return HTTPResult(
+                status=int(exc.code),
+                headers=dict(exc.headers.items()) if exc.headers else {},
+                body=_read_http_body(exc, status=int(exc.code)),
+            )
+        finally:
+            exc.close()
 
 
 class ExecutionBudget:
@@ -540,6 +615,8 @@ class ExecutionBudget:
 @dataclass(frozen=True, slots=True)
 class OpenAIProviderResult:
     """One completed response plus the reproducibility sidecar."""
+
+    provider_label = "OpenAI"
 
     response: LLMResponse
     model_requested: str
@@ -635,10 +712,30 @@ def _safe_api_error(body: bytes, *, secret: str) -> str:
                 message = error["message"]
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
-    message = " ".join(message.split())[:500]
     if secret:
         message = message.replace(secret, "[redacted]")
-    return message
+    return " ".join(message.split())[:500]
+
+
+def _redact_provider_value(value: Any, secret: str) -> Any:
+    """Recursively remove an echoed credential from provider-controlled data."""
+
+    if isinstance(value, Mapping):
+        redacted: dict[str, Any] = {}
+        for key, nested in value.items():
+            safe_key = str(key)
+            if secret:
+                safe_key = safe_key.replace(secret, "[redacted]")
+            redacted[safe_key] = _redact_provider_value(nested, secret)
+        return redacted
+    if isinstance(value, list):
+        return [
+            _redact_provider_value(item, secret)
+            for item in value
+        ]
+    if isinstance(value, str) and secret:
+        return value.replace(secret, "[redacted]")
+    return value
 
 
 def _usage_total_tokens(usage: Mapping[str, Any]) -> int | None:
@@ -741,6 +838,7 @@ def _parse_provider_result(
     attempts: int,
     started_at: str,
     completed_at: str,
+    secret: str,
 ) -> OpenAIProviderResult:
     try:
         raw = json.loads(http_result.body.decode("utf-8"))
@@ -748,16 +846,19 @@ def _parse_provider_result(
         raise ProviderResponseError("OpenAI response body is not valid JSON") from exc
     if not isinstance(raw, Mapping):
         raise ProviderResponseError("OpenAI response body must be a JSON object")
-    payload = _extract_structured_payload(raw)
-    returned_model = raw.get("model")
+    safe_raw = _redact_provider_value(raw, secret)
+    if not isinstance(safe_raw, Mapping):
+        raise ProviderResponseError("OpenAI response body must be a JSON object")
+    payload = _extract_structured_payload(safe_raw)
+    returned_model = safe_raw.get("model")
     if not isinstance(returned_model, str) or not returned_model.strip():
         returned_model = "<missing>"
     else:
         returned_model = returned_model.strip()
-    response_id = raw.get("id")
+    response_id = safe_raw.get("id")
     if not isinstance(response_id, str) or not response_id.strip():
         raise ProviderResponseError("OpenAI response is missing its response ID")
-    usage = raw.get("usage")
+    usage = safe_raw.get("usage")
     if not isinstance(usage, Mapping):
         usage = {}
     raw_digest = sha256(http_result.body).hexdigest()
@@ -771,8 +872,13 @@ def _parse_provider_result(
             "raw_response_sha256": raw_digest,
         }
     )
-    headers = _lower_headers(http_result.headers)
-    created_at = raw.get("created_at")
+    headers = _redact_provider_value(
+        _lower_headers(http_result.headers),
+        secret,
+    )
+    if not isinstance(headers, Mapping):
+        headers = {}
+    created_at = safe_raw.get("created_at")
     if not (
         isinstance(created_at, (int, float))
         and not isinstance(created_at, bool)
@@ -795,7 +901,7 @@ def _parse_provider_result(
         server_request_id=headers.get("x-request-id"),
         processing_ms=headers.get("openai-processing-ms"),
         estimated_max_tokens=prepared.estimated_max_tokens,
-        raw_response=dict(raw),
+        raw_response=dict(safe_raw),
     )
 
 
@@ -819,6 +925,8 @@ def returned_model_is_consistent(
 
 class OpenAIResponsesProvider:
     """Synchronous, budgeted OpenAI Responses API client."""
+
+    provider_name = "openai"
 
     def __init__(
         self,
@@ -849,6 +957,21 @@ class OpenAIResponsesProvider:
             request_count=request_count,
             total_tokens=total_tokens,
         )
+
+    def returned_model_is_consistent(self, returned_model: str) -> bool:
+        """Validate the returned identity under the OpenAI snapshot policy."""
+
+        return returned_model_is_consistent(
+            self.config.model,
+            returned_model,
+        )
+
+    def manifest_fields(self) -> dict[str, Any]:
+        """Return provider-specific, credential-free manifest fields."""
+
+        return {
+            "reasoning_effort": self.config.reasoning_effort,
+        }
 
     def complete(self, request: LLMRequest) -> OpenAIProviderResult:
         """Execute one explicitly authorized, hash-bound live completion."""
@@ -888,6 +1011,9 @@ class OpenAIResponsesProvider:
                         headers=headers,
                         timeout=self.config.timeout_seconds,
                     )
+                except HTTPResponseBodyTooLarge as exc:
+                    self.budget.commit(None)
+                    raise ProviderResponseError(str(exc)) from exc
                 except (TimeoutError, ConnectionError, OSError) as exc:
                     if attempt > self.config.max_retries:
                         raise OpenAIProviderError(
@@ -910,6 +1036,7 @@ class OpenAIResponsesProvider:
                         attempts=attempt,
                         started_at=started_at,
                         completed_at=completed_at,
+                        secret=key,
                     )
                     self.budget.commit(_usage_total_tokens(parsed.usage))
                     if not returned_model_is_consistent(
@@ -934,7 +1061,13 @@ class OpenAIResponsesProvider:
                     status=result.status,
                     message=_safe_api_error(result.body, secret=key),
                     client_request_id=prepared.client_request_id,
-                    server_request_id=lowered.get("x-request-id"),
+                    server_request_id=(
+                        lowered.get("x-request-id", "").replace(
+                            key,
+                            "[redacted]",
+                        )
+                        or None
+                    ),
                 )
         except Exception:
             self.budget.rollback()
@@ -1087,7 +1220,11 @@ def _repair_trailing_jsonl(path: Path) -> bool:
     return True
 
 
-def _read_audit_records(path: Path) -> dict[str, Mapping[str, Any]]:
+def _read_audit_records(
+    path: Path,
+    *,
+    provider_name: str = "openai",
+) -> dict[str, Mapping[str, Any]]:
     if not path.exists():
         return {}
     records: dict[str, Mapping[str, Any]] = {}
@@ -1099,7 +1236,10 @@ def _read_audit_records(path: Path) -> dict[str, Mapping[str, Any]]:
                 raw = json.loads(line)
                 if not isinstance(raw, Mapping):
                     raise ValueError("audit line must be a JSON object")
-                if raw.get("schema_version") != 1 or raw.get("provider") != "openai":
+                if (
+                    raw.get("schema_version") != 1
+                    or raw.get("provider") != provider_name
+                ):
                     raise ValueError("unsupported provider audit record")
                 replay_raw = raw.get("replay_response")
                 if not isinstance(replay_raw, Mapping):
@@ -1112,6 +1252,13 @@ def _read_audit_records(path: Path) -> dict[str, Mapping[str, Any]]:
                     raise ValueError("audit and replay bindings differ")
                 if raw.get("model_returned") != replay.model_id:
                     raise ValueError("audit and replay model labels differ")
+                if (
+                    raw.get("raw_response_sha256")
+                    != replay.raw_response_sha256
+                ):
+                    raise ValueError(
+                        "audit and replay raw-response digests differ"
+                    )
                 if raw.get("acceptance_status", "accepted") != "accepted":
                     raise ValueError(
                         "provider audit records a rejected model mismatch; "
@@ -1130,19 +1277,22 @@ def _read_audit_records(path: Path) -> dict[str, Mapping[str, Any]]:
 def _validate_resumed_audit(
     audit: Mapping[str, Any],
     request: LLMRequest,
-    provider: OpenAIResponsesProvider,
+    provider: Any,
 ) -> None:
     """Bind a resumable record to the full current request configuration."""
 
+    provider_name = getattr(provider, "provider_name", "openai")
     prepared = provider.prepare(request)
     expected = {
         "request_id": request.request_id,
         "prompt_sha256": request.prompt_sha256,
         "request_body_sha256": prepared.body_sha256,
         "model_requested": provider.config.model,
-        "idempotency_key": prepared.idempotency_key,
         "client_request_id": prepared.client_request_id,
     }
+    idempotency_key = getattr(prepared, "idempotency_key", None)
+    if idempotency_key is not None:
+        expected["idempotency_key"] = idempotency_key
     mismatches = {
         field: {
             "retained": audit.get(field),
@@ -1154,23 +1304,23 @@ def _validate_resumed_audit(
     returned_model = audit.get("model_returned")
     if (
         not isinstance(returned_model, str)
-        or not returned_model_is_consistent(
-            provider.config.model,
-            returned_model,
-        )
+        or not provider.returned_model_is_consistent(returned_model)
     ):
         mismatches["model_returned"] = {
             "retained": returned_model,
-            "expected": (
-                provider.config.model
-                + " or its YYYY-MM-DD dated snapshot"
-            ),
+            "expected": provider.config.model,
         }
     if mismatches:
         raise ValueError(
-            "resumable OpenAI audit does not match the current request "
+            f"resumable {provider_name} audit does not match the current request "
             "body/model configuration: "
             + _canonical(mismatches)
+        )
+    if hasattr(provider, "validate_resumed_audit"):
+        provider.validate_resumed_audit(
+            audit,
+            request=request,
+            prepared=prepared,
         )
 
 
@@ -1200,13 +1350,13 @@ class ExecutionSummary:
 
 
 def execute_requests(
-    provider: OpenAIResponsesProvider,
+    provider: Any,
     requests: Iterable[LLMRequest],
     *,
     responses_path: str | Path,
     audit_path: str | Path,
 ) -> ExecutionSummary:
-    """Execute or resume requests into replay JSONL and an OpenAI audit JSONL.
+    """Execute or resume requests into replay JSONL and a provider audit JSONL.
 
     The audit line is durably appended before its replay response.  On resume,
     a completed audit record whose replay line was interrupted is reconciled
@@ -1232,13 +1382,17 @@ def execute_requests(
         if response_file.exists()
         else {}
     )
-    audit_records = _read_audit_records(audit_file)
+    provider_name = getattr(provider, "provider_name", "openai")
+    audit_records = _read_audit_records(
+        audit_file,
+        provider_name=provider_name,
+    )
     responses_without_audit = sorted(
         set(existing_responses) - set(audit_records)
     )
     if responses_without_audit:
         raise ValueError(
-            "OpenAI resume responses lack audit-first records: "
+            f"{provider_name} resume responses lack audit-first records: "
             + ", ".join(responses_without_audit)
         )
 
@@ -1275,8 +1429,13 @@ def execute_requests(
         if tokens is None:
             tokens = provider.prepare(request_by_id[request_id]).estimated_max_tokens
         restored_tokens += tokens
+    restored_request_count = (
+        provider.restored_request_count(tuple(audit_records.values()))
+        if hasattr(provider, "restored_request_count")
+        else len(existing_responses)
+    )
     provider.restore_budget(
-        request_count=len(existing_responses),
+        request_count=restored_request_count,
         total_tokens=restored_tokens,
     )
 
@@ -1287,11 +1446,11 @@ def execute_requests(
             continue
         try:
             result = provider.complete(request)
-        except ProviderModelMismatch as exc:
+        except ProviderResultRejected as exc:
             _append_jsonl(
                 audit_file,
                 exc.result.to_audit_record(
-                    acceptance_status="rejected_model_mismatch",
+                    acceptance_status=exc.acceptance_status,
                 ),
             )
             raise
@@ -1313,7 +1472,7 @@ def execute_requests(
 
 
 def execute_jsonl(
-    provider: OpenAIResponsesProvider,
+    provider: Any,
     requests_path: str | Path,
     *,
     responses_path: str | Path,
@@ -1329,7 +1488,7 @@ def execute_jsonl(
     )
 
 
-class ResumableOpenAICompletionProvider:
+class ResumableCompletionProvider:
     """Adaptive, journaled adapter returning replay-compatible responses.
 
     Unlike :func:`execute_jsonl`, this adapter does not require the full request
@@ -1341,7 +1500,7 @@ class ResumableOpenAICompletionProvider:
 
     def __init__(
         self,
-        provider: OpenAIResponsesProvider,
+        provider: Any,
         *,
         responses_path: str | Path,
         audit_path: str | Path,
@@ -1361,7 +1520,10 @@ class ResumableOpenAICompletionProvider:
             if self.responses_path.exists()
             else {}
         )
-        self._audits = _read_audit_records(self.audit_path)
+        self._audits = _read_audit_records(
+            self.audit_path,
+            provider_name=getattr(provider, "provider_name", "openai"),
+        )
         unexpected_responses = sorted(set(self._responses) - set(self._audits))
         if unexpected_responses:
             raise ValueError(
@@ -1394,8 +1556,13 @@ class ResumableOpenAICompletionProvider:
                     )
                 tokens = int(estimate)
             restored_tokens += tokens
+        restored_request_count = (
+            provider.restored_request_count(tuple(self._audits.values()))
+            if hasattr(provider, "restored_request_count")
+            else len(self._responses)
+        )
         provider.restore_budget(
-            request_count=len(self._responses),
+            request_count=restored_request_count,
             total_tokens=restored_tokens,
         )
         self._used_request_ids: list[str] = []
@@ -1410,7 +1577,8 @@ class ResumableOpenAICompletionProvider:
             != "accepted"
         ):
             raise ValueError(
-                "adaptive journal contains a rejected model mismatch for "
+                "adaptive journal contains a rejected model mismatch or "
+                "provider result for "
                 f"{request.request_id}; manual review is required"
             )
         existing = self._responses.get(request.request_id)
@@ -1429,9 +1597,9 @@ class ResumableOpenAICompletionProvider:
             return existing
         try:
             result = self.provider.complete(request)
-        except ProviderModelMismatch as exc:
+        except ProviderResultRejected as exc:
             rejected_audit = exc.result.to_audit_record(
-                acceptance_status="rejected_model_mismatch",
+                acceptance_status=exc.acceptance_status,
             )
             _append_jsonl(self.audit_path, rejected_audit)
             self._audits[request.request_id] = rejected_audit
@@ -1454,11 +1622,16 @@ class ResumableOpenAICompletionProvider:
 
     def to_manifest(self) -> dict[str, Any]:
         used = tuple(dict.fromkeys(self._used_request_ids))
+        provider_fields = (
+            self.provider.manifest_fields()
+            if hasattr(self.provider, "manifest_fields")
+            else {}
+        )
         return {
             "schema_version": 1,
-            "provider": "openai",
+            "provider": getattr(self.provider, "provider_name", "openai"),
             "model_requested": self.provider.config.model,
-            "reasoning_effort": self.provider.config.reasoning_effort,
+            **provider_fields,
             "requests_used": len(used),
             "requests_executed": self.executed_count,
             "requests_resumed": self.resumed_count,
@@ -1466,3 +1639,7 @@ class ResumableOpenAICompletionProvider:
             "responses_journal": str(self.responses_path),
             "audit_journal": str(self.audit_path),
         }
+
+
+class ResumableOpenAICompletionProvider(ResumableCompletionProvider):
+    """Backward-compatible name for the OpenAI adaptive journal adapter."""

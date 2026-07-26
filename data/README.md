@@ -36,24 +36,33 @@ checksummed run, by default under
 reuse completed provider calls. Do not move those journals into `data/` merely
 to make them visible.
 
-The only checked-in provider declaration is
-[`model-suites/openai-gpt-5.6.json`](model-suites/openai-gpt-5.6.json): GPT-5.6
-Sol/medium for the primary writer, GPT-5.6 Terra/medium for replication, and
-GPT-5.6 Luna/low for decoder/pilot work. It is configuration metadata, not a
-live-result dataset. No live provider execution was performed to create the
-checked-in repository.
+The checked-in provider declarations are:
+
+- [`model-suites/openai-gpt-5.6.json`](model-suites/openai-gpt-5.6.json):
+  GPT-5.6 Sol/medium for the primary writer, GPT-5.6 Terra/medium for
+  replication, and GPT-5.6 Luna/low for decoder/pilot work; and
+- [`model-suites/gate4-native-and-distinct-decoders.json`](model-suites/gate4-native-and-distinct-decoders.json):
+  OpenAI Sol/medium for native end-to-end actions plus Anthropic Sonnet 5 and
+  Google Gemini 3.6 Flash for the two blinded cross-provider Gate 4 decoders.
+
+These files are configuration/provenance metadata, not live-result datasets.
+The Gate 4 declaration explicitly does not claim statistical independence and
+requires a responsible-researcher source review. No live provider execution was
+performed to create the checked-in repository.
 
 Credentials must remain environment-only. [`.env.example`](../.env.example)
-contains an empty variable name template; never commit a populated `.env`,
-Authorization header, or API key. Live commands retain provider audit metadata
-and replay-compatible beliefs, not the credential.
+contains empty `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`
+placeholders; never commit a populated `.env`, Authorization header, or API
+key. Live commands retain redacted provider audit metadata and reusable
+beliefs, judgments, or actions—not the credential.
 
-The executor permits only the official `https://api.openai.com` origin by
-default. A custom HTTPS endpoint requires the separate
-`allow_custom_base_url = true` or `--allow-custom-base-url` opt-in, which means
-the configured environment credential will be sent to that reviewed endpoint
-during live execution. Record the exact endpoint and security review in release
-provenance; do not mistake HTTPS alone for provider identity.
+Each executor permits only its first-party official origin by default:
+`https://api.openai.com`, `https://api.anthropic.com`, or
+`https://generativelanguage.googleapis.com`. A custom HTTPS endpoint requires
+the provider's separate custom-origin opt-in and a dedicated non-default
+credential variable, which means that credential will be sent to the reviewed
+endpoint during live execution. Record the exact endpoint and security review
+in release provenance; do not mistake HTTPS alone for provider identity.
 
 Temperature-calibrated A/B/C runs retain a deliberate raw/derived boundary in
 their run artifact:
@@ -144,6 +153,7 @@ In a pull request, state:
 - expected consumers;
 - reproducibility and checksum information.
 
-See [Data model](../docs/data-model.md),
+See the [Dataset card](../docs/dataset-card.md),
+[Data model](../docs/data-model.md),
 [Ethics and limitations](../docs/ethics-and-limitations.md), and
 [Reproducibility](../REPRODUCIBILITY.md).

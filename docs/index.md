@@ -22,11 +22,14 @@ The shortest path through the documentation is:
 | --- | --- |
 | [Repository map](repository-map.md) | Where does each component live? |
 | [Component reference](components.md) | What does each runtime component do? |
+| [Dataset card](dataset-card.md) | What data is generated, how is it split, and what external evidence is absent? |
 | [Data model](data-model.md) | What records connect policy to memory update? |
 | [Data splits](data-splits.md) | How are train, development, and test surfaces made disjoint and audited? |
 | [Configuration](configuration.md) | How is a run declared in TOML? |
 | [LLM exchange](llm-exchange.md) | How are external model requests represented and supplied response corpora replayed? |
 | [Native memory](native-memory.md) | How are non-probabilistic memory systems evaluated? |
+| [Gate 4 live collection](gate4-live-collection.md) | How are distinct-family decoder judgments and real native terminal actions collected safely? |
+| [Mixed-effects analysis](mixed-effects-analysis.md) | How are the proposal's confirmatory models fit and audited in R? |
 | [Outputs](outputs.md) | Which files does a run produce? |
 | [Extending](extending.md) | How do I add a domain, policy, updater, or metric? |
 | [Ethics and limitations](ethics-and-limitations.md) | What should not be inferred or released? |

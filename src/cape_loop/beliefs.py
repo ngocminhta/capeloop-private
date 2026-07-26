@@ -52,7 +52,7 @@ def _validate_probability_vector(
     values = tuple(probabilities)
     if len(values) != expected_length:
         raise ValueError(f"{name} must contain {expected_length} probabilities")
-    normalized = normalize_weights(list(values))
+    normalize_weights(list(values))
     if not math.isclose(
         math.fsum(float(value) for value in values),
         1.0,
@@ -390,4 +390,3 @@ class JointThetaPsiBelief:
 
 
 ThetaPsiBelief = JointThetaPsiBelief
-

@@ -729,8 +729,36 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                     "decoder_requests",
                     "decoder_judgments",
                     "decoder_truth_labels",
+                    "native_collection_plan",
+                    "native_action_requests",
+                    "native_transport_attempts",
+                    "native_provider_audit",
                     "native_terminal_actions",
+                    "native_execution_manifest",
                     "decoder_source_review",
+                ],
+                "oneOf": [
+                    {
+                        "required": [
+                            "decoder_collection_plan",
+                            "decoder_transport_attempts",
+                            "decoder_provider_audit",
+                            "decoder_execution_manifest",
+                        ]
+                    },
+                    {
+                        "not": {
+                            "anyOf": [
+                                {"required": [name]}
+                                for name in (
+                                    "decoder_collection_plan",
+                                    "decoder_transport_attempts",
+                                    "decoder_provider_audit",
+                                    "decoder_execution_manifest",
+                                )
+                            ]
+                        }
+                    },
                 ],
                 "additionalProperties": False,
                 "properties": {
@@ -750,9 +778,18 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                     }
                     for name in (
                         "decoder_requests",
+                        "decoder_collection_plan",
+                        "decoder_transport_attempts",
+                        "decoder_provider_audit",
                         "decoder_judgments",
+                        "decoder_execution_manifest",
                         "decoder_truth_labels",
+                        "native_collection_plan",
+                        "native_action_requests",
+                        "native_transport_attempts",
+                        "native_provider_audit",
                         "native_terminal_actions",
+                        "native_execution_manifest",
                         "decoder_source_review",
                     )
                 },
@@ -1023,7 +1060,522 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "replay_response": _LLM_RESPONSE_RECORD,
         },
     },
+    "openrouter-provider-audit": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:openrouter-provider-audit:v1",
+        "title": "CAPE-Loop OpenRouter Chat Completions audit record",
+        "description": (
+            "A gateway execution sidecar retaining the requested OpenRouter "
+            "model, selected upstream route, additive router metadata, and "
+            "the provider-neutral replay response. It does not claim direct "
+            "first-party provider origin."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "provider",
+            "gateway",
+            "acceptance_status",
+            "request_id",
+            "prompt_sha256",
+            "request_body_sha256",
+            "model_requested",
+            "model_returned",
+            "upstream_provider",
+            "upstream_model",
+            "routing_strategy",
+            "routing_attempt",
+            "routing_metadata",
+            "provider_response_id",
+            "provider_created_at",
+            "usage",
+            "started_at",
+            "completed_at",
+            "transport_attempts",
+            "attempts",
+            "client_request_id",
+            "generation_id",
+            "cache_status",
+            "estimated_max_tokens",
+            "raw_response_sha256",
+            "raw_response",
+            "replay_response",
+            "first_party_origin_claimed",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "provider": {"const": "openrouter"},
+            "gateway": {"const": "openrouter"},
+            "acceptance_status": {
+                "enum": [
+                    "accepted",
+                    "rejected_openrouter_identity",
+                ]
+            },
+            "request_id": _NONEMPTY_STRING,
+            "prompt_sha256": _SHA256,
+            "request_body_sha256": _SHA256,
+            "model_requested": _NONEMPTY_STRING,
+            "model_returned": _NONEMPTY_STRING,
+            "upstream_provider": _NONEMPTY_STRING,
+            "upstream_model": _NONEMPTY_STRING,
+            "routing_strategy": _NONEMPTY_STRING,
+            "routing_attempt": {"type": "integer", "minimum": 1},
+            "routing_metadata": {"type": "object"},
+            "provider_response_id": _NONEMPTY_STRING,
+            "provider_created_at": {"type": ["number", "null"]},
+            "usage": {"type": "object"},
+            "started_at": {"type": "string", "format": "date-time"},
+            "completed_at": {"type": "string", "format": "date-time"},
+            "transport_attempts": {"type": "integer", "minimum": 1},
+            "attempts": {"type": "integer", "minimum": 1},
+            "client_request_id": _NONEMPTY_STRING,
+            "generation_id": {"type": ["string", "null"]},
+            "cache_status": {"type": ["string", "null"]},
+            "estimated_max_tokens": {"type": "integer", "minimum": 1},
+            "raw_response_sha256": {
+                "anyOf": [_SHA256, {"type": "null"}]
+            },
+            "raw_response": {"type": "object"},
+            "replay_response": _LLM_RESPONSE_RECORD,
+            "first_party_origin_claimed": {"const": False},
+        },
+    },
 }
+
+
+def _embedded_record(schema_name: str) -> dict[str, Any]:
+    """Return a standalone record schema without document-level metadata."""
+
+    return {
+        key: value
+        for key, value in SCHEMAS[schema_name].items()
+        if key not in {"$schema", "$id", "title", "description"}
+    }
+
+
+SCHEMAS.update(
+    {
+        "external-decoder-provider-audit": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": (
+                "urn:cape-loop:schema:"
+                "external-decoder-provider-audit:v1"
+            ),
+            "title": "CAPE-Loop external decoder provider audit",
+            "description": (
+                "An audit-first Anthropic or Google Gemini response record "
+                "with an embedded import-compatible decoder judgment."
+            ),
+            "type": "object",
+            "required": [
+                "schema_version",
+                "kind",
+                "acceptance_status",
+                "provider",
+                "request_id",
+                "request_sha256",
+                "prompt_sha256",
+                "decoder_instance_id",
+                "decoder_family_id",
+                "source_descriptor",
+                "request_body_sha256",
+                "model_requested",
+                "model_returned",
+                "provider_response_id",
+                "usage",
+                "started_at",
+                "completed_at",
+                "attempts",
+                "client_request_id",
+                "server_request_id",
+                "estimated_max_tokens",
+                "judgment",
+                "llm_response",
+                "raw_response",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "schema_version": {"const": 1},
+                "kind": {"const": "external-decoder-provider-audit"},
+                "acceptance_status": {
+                    "enum": [
+                        "accepted",
+                        "rejected_identity_mismatch",
+                    ]
+                },
+                "provider": {
+                    "enum": ["anthropic", "google_gemini"]
+                },
+                "request_id": _NONEMPTY_STRING,
+                "request_sha256": _SHA256,
+                "prompt_sha256": _SHA256,
+                "decoder_instance_id": _NONEMPTY_STRING,
+                "decoder_family_id": _NONEMPTY_STRING,
+                "source_descriptor": _NONEMPTY_STRING,
+                "request_body_sha256": _SHA256,
+                "model_requested": _NONEMPTY_STRING,
+                "model_returned": _NONEMPTY_STRING,
+                "provider_response_id": _NONEMPTY_STRING,
+                "usage": {"type": "object"},
+                "started_at": {"type": "string", "format": "date-time"},
+                "completed_at": {"type": "string", "format": "date-time"},
+                "attempts": {"type": "integer", "minimum": 1},
+                "client_request_id": _NONEMPTY_STRING,
+                "server_request_id": {"type": ["string", "null"]},
+                "estimated_max_tokens": {
+                    "type": "integer",
+                    "minimum": 1,
+                },
+                "judgment": _embedded_record(
+                    "external-decoder-judgment"
+                ),
+                "llm_response": _LLM_RESPONSE_RECORD,
+                "raw_response": {"type": "object"},
+            },
+        },
+        "native-action-provider-audit": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "urn:cape-loop:schema:native-action-provider-audit:v1",
+            "title": "CAPE-Loop OpenAI native-action provider audit",
+            "description": (
+                "An audit-first Responses API record whose embedded action "
+                "record is bound to retained native memory and a held-out "
+                "terminal suite."
+            ),
+            "type": "object",
+            "required": [
+                "schema_version",
+                "provider",
+                "workflow",
+                "acceptance_status",
+                "request_id",
+                "trajectory_id",
+                "prompt_sha256",
+                "native_state_id",
+                "suite_sha256",
+                "request_body_sha256",
+                "model_requested",
+                "model_returned",
+                "provider_response_id",
+                "usage",
+                "started_at",
+                "completed_at",
+                "attempts",
+                "idempotency_key",
+                "client_request_id",
+                "server_request_id",
+                "estimated_max_tokens",
+                "raw_response_sha256",
+                "raw_response",
+                "action_record",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "schema_version": {"const": 1},
+                "provider": {"const": "openai"},
+                "workflow": {"const": "native_terminal_actions"},
+                "acceptance_status": {
+                    "enum": [
+                        "accepted",
+                        "rejected_model_mismatch",
+                    ]
+                },
+                "request_id": _NONEMPTY_STRING,
+                "trajectory_id": _NONEMPTY_STRING,
+                "prompt_sha256": _SHA256,
+                "native_state_id": _SHA256,
+                "suite_sha256": _SHA256,
+                "request_body_sha256": _SHA256,
+                "model_requested": _NONEMPTY_STRING,
+                "model_returned": _NONEMPTY_STRING,
+                "provider_response_id": _NONEMPTY_STRING,
+                "usage": {"type": "object"},
+                "started_at": {"type": "string", "format": "date-time"},
+                "completed_at": {"type": "string", "format": "date-time"},
+                "attempts": {"type": "integer", "minimum": 1},
+                "idempotency_key": _NONEMPTY_STRING,
+                "client_request_id": _NONEMPTY_STRING,
+                "server_request_id": {"type": ["string", "null"]},
+                "estimated_max_tokens": {
+                    "type": "integer",
+                    "minimum": 1,
+                },
+                "raw_response_sha256": _SHA256,
+                "raw_response": {"type": "object"},
+                "action_record": _embedded_record(
+                    "native-terminal-action-record"
+                ),
+            },
+        },
+    }
+)
+
+SCHEMAS.update(
+    {
+        "external-decoder-transport-attempt": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": (
+                "urn:cape-loop:schema:"
+                "external-decoder-transport-attempt:v1"
+            ),
+            "title": "CAPE-Loop external decoder transport attempt",
+            "description": (
+                "A durable started or settled physical HTTP-attempt event. "
+                "The Python reader additionally enforces ordering, digest "
+                "bindings, and outcome/audit consistency."
+            ),
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "provider",
+                        "request_id",
+                        "request_sha256",
+                        "prompt_sha256",
+                        "decoder_instance_id",
+                        "request_body_sha256",
+                        "model_requested",
+                        "client_request_id",
+                        "estimated_max_tokens",
+                        "attempt_ordinal",
+                        "started_at",
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "external-decoder-transport-attempt"
+                        },
+                        "event": {"const": "started"},
+                        "attempt_id": _SHA256,
+                        "provider": {
+                            "enum": ["anthropic", "google_gemini"]
+                        },
+                        "request_id": _NONEMPTY_STRING,
+                        "request_sha256": _SHA256,
+                        "prompt_sha256": _SHA256,
+                        "decoder_instance_id": _NONEMPTY_STRING,
+                        "request_body_sha256": _SHA256,
+                        "model_requested": _NONEMPTY_STRING,
+                        "client_request_id": _NONEMPTY_STRING,
+                        "estimated_max_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "attempt_ordinal": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "started_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "settled_at",
+                        "outcome",
+                        "http_status",
+                        "charged_tokens",
+                        "server_request_id",
+                        "response_body_sha256",
+                        "provider_audit",
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "external-decoder-transport-attempt"
+                        },
+                        "event": {"const": "settled"},
+                        "attempt_id": _SHA256,
+                        "settled_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                        "outcome": {
+                            "enum": [
+                                "transport_error",
+                                "http_error",
+                                "invalid_provider_metadata",
+                                "invalid_response",
+                                "identity_mismatch",
+                                "success",
+                            ]
+                        },
+                        "http_status": {
+                            "type": ["integer", "null"],
+                            "minimum": 100,
+                            "maximum": 599,
+                        },
+                        "charged_tokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                        },
+                        "server_request_id": {
+                            "type": ["string", "null"]
+                        },
+                        "response_body_sha256": {
+                            "anyOf": [_SHA256, {"type": "null"}]
+                        },
+                        "provider_audit": {
+                            "anyOf": [
+                                _embedded_record(
+                                    "external-decoder-provider-audit"
+                                ),
+                                {"type": "null"},
+                            ]
+                        },
+                    },
+                },
+            ],
+        },
+        "native-action-transport-attempt": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "urn:cape-loop:schema:native-action-transport-attempt:v1",
+            "title": "CAPE-Loop native-action transport attempt",
+            "description": (
+                "A durable started or settled physical OpenAI HTTP-attempt "
+                "event, bound to the reviewed native-action collection plan."
+            ),
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "collection_plan_sha256",
+                        "collection_config_sha256",
+                        "request_id",
+                        "prompt_sha256",
+                        "native_state_id",
+                        "suite_sha256",
+                        "request_body_sha256",
+                        "model_requested",
+                        "idempotency_key",
+                        "client_request_id",
+                        "estimated_max_tokens",
+                        "attempt_ordinal",
+                        "started_at",
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "native-action-transport-attempt"
+                        },
+                        "event": {"const": "started"},
+                        "attempt_id": _SHA256,
+                        "collection_plan_sha256": _SHA256,
+                        "collection_config_sha256": _SHA256,
+                        "request_id": _NONEMPTY_STRING,
+                        "prompt_sha256": _SHA256,
+                        "native_state_id": _SHA256,
+                        "suite_sha256": _SHA256,
+                        "request_body_sha256": _SHA256,
+                        "model_requested": _NONEMPTY_STRING,
+                        "idempotency_key": _NONEMPTY_STRING,
+                        "client_request_id": _NONEMPTY_STRING,
+                        "estimated_max_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "attempt_ordinal": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "started_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "settled_at",
+                        "outcome",
+                        "http_status",
+                        "charged_tokens",
+                        "server_request_id",
+                        "response_body_sha256",
+                        "response_record",
+                        "provider_audit",
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "native-action-transport-attempt"
+                        },
+                        "event": {"const": "settled"},
+                        "attempt_id": _SHA256,
+                        "settled_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                        "outcome": {
+                            "enum": [
+                                "transport_error",
+                                "http_error",
+                                "invalid_response",
+                                "model_mismatch",
+                                "success",
+                            ]
+                        },
+                        "http_status": {
+                            "type": ["integer", "null"],
+                            "minimum": 100,
+                            "maximum": 599,
+                        },
+                        "charged_tokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                        },
+                        "server_request_id": {
+                            "type": ["string", "null"]
+                        },
+                        "response_body_sha256": {
+                            "anyOf": [_SHA256, {"type": "null"}]
+                        },
+                        "response_record": {
+                            "anyOf": [
+                                {"type": "object"},
+                                {"type": "null"},
+                            ]
+                        },
+                        "provider_audit": {
+                            "anyOf": [
+                                _embedded_record(
+                                    "native-action-provider-audit"
+                                ),
+                                {"type": "null"},
+                            ]
+                        },
+                    },
+                },
+            ],
+        },
+    }
+)
 
 
 def export_schemas(destination: str | Path) -> tuple[Path, ...]:

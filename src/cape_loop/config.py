@@ -34,10 +34,10 @@ KNOWN_RESPONSE_MODES = frozenset({"controlled_anchor", "naturally_sampled"})
 KNOWN_RESPONSE_MODEL_FAMILIES = frozenset(
     {"random_utility", "rule_based"}
 )
-KNOWN_LLM_MODES = frozenset({"replay", "openai"})
+KNOWN_LLM_MODES = frozenset({"replay", "openai", "openrouter"})
 KNOWN_LLM_MODEL_ROLES = frozenset({"primary", "replication", "decoder"})
 KNOWN_REASONING_EFFORTS = frozenset(
-    {"none", "low", "medium", "high", "xhigh", "max"}
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 )
 KNOWN_POLICIES = frozenset(
     {"balanced", "soft_profile_conditioned", "exploratory", "fixed_bias", "hard_filter"}
@@ -583,6 +583,13 @@ class LLMSection:
     max_requests: int = 100
     max_total_tokens: int = 500_000
     journal_dir: str = ""
+    openrouter_upstream_provider: str = ""
+    openrouter_allow_fallbacks: bool = False
+    openrouter_require_parameters: bool = True
+    openrouter_data_collection: str = "deny"
+    openrouter_zdr: bool = False
+    openrouter_http_referer: str = ""
+    openrouter_app_title: str = "CAPE-Loop"
 
     @classmethod
     def parse(cls, raw: Mapping[str, Any]) -> "LLMSection":
@@ -606,9 +613,21 @@ class LLMSection:
                 "max_requests",
                 "max_total_tokens",
                 "journal_dir",
+                "openrouter_upstream_provider",
+                "openrouter_allow_fallbacks",
+                "openrouter_require_parameters",
+                "openrouter_data_collection",
+                "openrouter_zdr",
+                "openrouter_http_referer",
+                "openrouter_app_title",
             },
         )
-        result = cls(**raw)
+        prepared = dict(raw)
+        if prepared.get("mode") == "openrouter":
+            prepared.setdefault("api_key_env", "OPENROUTER_API_KEY")
+            prepared.setdefault("base_url", "https://openrouter.ai/api")
+            prepared.setdefault("max_retries", 2)
+        result = cls(**prepared)
         for name in (
             "mode",
             "responses_file",
@@ -619,6 +638,10 @@ class LLMSection:
             "api_key_env",
             "base_url",
             "journal_dir",
+            "openrouter_upstream_provider",
+            "openrouter_data_collection",
+            "openrouter_http_referer",
+            "openrouter_app_title",
         ):
             if not isinstance(getattr(result, name), str):
                 raise ConfigError(f"llm.{name} must be a string")
@@ -648,6 +671,30 @@ class LLMSection:
                 "llm.reasoning_effort must be empty or one of "
                 f"{sorted(KNOWN_REASONING_EFFORTS)}"
             )
+        if (
+            result.reasoning_effort == "minimal"
+            and result.mode != "openrouter"
+        ):
+            raise ConfigError(
+                "llm.reasoning_effort = 'minimal' is supported only in "
+                "OpenRouter mode"
+            )
+        if result.mode == "openrouter" and (
+            not result.model
+            or result.model != result.model.strip()
+            or "/" not in result.model
+            or result.model.startswith(("~", "/"))
+            or result.model.endswith("/")
+            or any(character.isspace() for character in result.model)
+            or ":" in result.model
+            or result.model.lower().endswith("-latest")
+            or result.model.lower() == "openrouter/auto"
+        ):
+            raise ConfigError(
+                "OpenRouter mode requires an explicit author/model slug; "
+                "aliases, route variants, and openrouter/auto are not "
+                "reproducible"
+            )
         if not result.api_key_env or not (
             result.api_key_env[0].isascii()
             and result.api_key_env[0].isalpha()
@@ -659,6 +706,27 @@ class LLMSection:
         ):
             raise ConfigError(
                 "llm.api_key_env must be a valid environment-variable name"
+            )
+        if (
+            result.mode == "openrouter"
+            and result.api_key_env
+            in {
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "GEMINI_API_KEY",
+            }
+        ):
+            raise ConfigError(
+                "OpenRouter mode requires a dedicated credential variable; "
+                "a first-party provider key must never be sent to OpenRouter"
+            )
+        if (
+            result.mode == "openai"
+            and result.api_key_env == "OPENROUTER_API_KEY"
+        ):
+            raise ConfigError(
+                "OpenAI mode requires a dedicated credential variable; "
+                "OPENROUTER_API_KEY must never be sent to OpenAI"
             )
         parsed_base_url = urlsplit(result.base_url)
         if (
@@ -676,25 +744,48 @@ class LLMSection:
             raise ConfigError(
                 "llm.allow_custom_base_url must be a Boolean"
             )
-        if not result.allow_custom_base_url and (
-            parsed_base_url.hostname != "api.openai.com"
-            or parsed_base_url.port is not None
-            or parsed_base_url.path not in {"", "/"}
-        ):
-            raise ConfigError(
-                "llm.base_url must be the official "
-                "https://api.openai.com origin unless "
-                "llm.allow_custom_base_url = true"
-            )
+        if not result.allow_custom_base_url:
+            if result.mode == "openrouter":
+                official_origin = (
+                    parsed_base_url.hostname == "openrouter.ai"
+                    and parsed_base_url.port is None
+                    and parsed_base_url.path.rstrip("/") == "/api"
+                )
+                if not official_origin:
+                    raise ConfigError(
+                        "OpenRouter mode requires the official "
+                        "https://openrouter.ai/api path unless "
+                        "llm.allow_custom_base_url = true"
+                    )
+            elif (
+                parsed_base_url.hostname != "api.openai.com"
+                or parsed_base_url.port is not None
+                or parsed_base_url.path not in {"", "/"}
+            ):
+                raise ConfigError(
+                    "llm.base_url must be the official "
+                    "https://api.openai.com origin unless "
+                    "llm.allow_custom_base_url = true"
+                )
+        default_credential = (
+            "OPENROUTER_API_KEY"
+            if result.mode == "openrouter"
+            else "OPENAI_API_KEY"
+        )
+        official_hostname = (
+            "openrouter.ai"
+            if result.mode == "openrouter"
+            else "api.openai.com"
+        )
         if (
             result.allow_custom_base_url
-            and parsed_base_url.hostname != "api.openai.com"
-            and result.api_key_env == "OPENAI_API_KEY"
+            and parsed_base_url.hostname != official_hostname
+            and result.api_key_env == default_credential
         ):
             raise ConfigError(
                 "a custom llm.base_url requires a dedicated credential "
                 "environment variable; set llm.api_key_env to a name other "
-                "than OPENAI_API_KEY"
+                f"than {default_credential}"
             )
         if _require_finite_number(
             result.timeout_seconds, "llm.timeout_seconds"
@@ -703,6 +794,62 @@ class LLMSection:
         _require_integer(result.max_retries, "llm.max_retries", minimum=0)
         for name in ("max_output_tokens", "max_requests", "max_total_tokens"):
             _require_integer(getattr(result, name), f"llm.{name}", minimum=1)
+        for name in (
+            "openrouter_allow_fallbacks",
+            "openrouter_require_parameters",
+            "openrouter_zdr",
+        ):
+            if not isinstance(getattr(result, name), bool):
+                raise ConfigError(f"llm.{name} must be a Boolean")
+        if result.openrouter_data_collection not in {"allow", "deny"}:
+            raise ConfigError(
+                "llm.openrouter_data_collection must be 'allow' or 'deny'"
+            )
+        provider_slug = result.openrouter_upstream_provider
+        if provider_slug and (
+            not provider_slug[0].isalnum()
+            or any(
+                not (
+                    character.isalnum()
+                    or character in "._/-"
+                )
+                for character in provider_slug
+            )
+            or "//" in provider_slug
+            or ".." in provider_slug
+        ):
+            raise ConfigError(
+                "llm.openrouter_upstream_provider must be one exact "
+                "OpenRouter provider slug"
+            )
+        if "\r" in result.openrouter_app_title or "\n" in (
+            result.openrouter_app_title
+        ):
+            raise ConfigError(
+                "llm.openrouter_app_title must not contain newlines"
+            )
+        if len(result.openrouter_app_title) > 200:
+            raise ConfigError(
+                "llm.openrouter_app_title must contain at most 200 characters"
+            )
+        if result.openrouter_http_referer:
+            referer = urlsplit(result.openrouter_http_referer)
+            if (
+                referer.scheme not in {"http", "https"}
+                or not referer.netloc
+                or referer.username is not None
+                or referer.password is not None
+            ):
+                raise ConfigError(
+                    "llm.openrouter_http_referer must be an absolute "
+                    "HTTP(S) URL"
+                )
+            if "\r" in result.openrouter_http_referer or "\n" in (
+                result.openrouter_http_referer
+            ):
+                raise ConfigError(
+                    "llm.openrouter_http_referer must not contain newlines"
+                )
         return result
 
 

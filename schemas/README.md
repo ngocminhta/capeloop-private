@@ -15,7 +15,12 @@ therefore necessary but not sufficient for a scientifically valid run.
 The directory covers the core run and LLM records plus public held-out,
 external-decoder, provider-audit, human-collection, and Gate 4 review
 contracts. Gate 4 publishes strict schemas for recorded native actions,
-responsible-researcher decoder-source review, and the immutable review object.
+responsible-researcher decoder-source review, the immutable review object, and
+the audit-first Anthropic/Gemini decoder and OpenAI native-action provider
+journals. The Gate 4 review input schema always requires all six native
+collection evidence entries. Its decoder branch requires either all four
+selected-provider sidecars alongside `decoder_judgments`, or none of those
+sidecars for the explicitly reviewed-generic mode.
 Other experiment-specific event/metric rows, beliefs, native memory states,
 split manifests, and model records do not yet have standalone exported schemas.
 Experiment A therefore uses an explicitly documented normalized artifact pair:
@@ -23,11 +28,21 @@ updater rows in `events/experiment-a.jsonl` join by `exact_reference_id` to one
 full exact state per trial in
 `events/experiment-a-exact-references.jsonl`.
 
+`openrouter-provider-audit.schema.json` is the public v1 contract for one
+OpenRouter Chat Completions audit row. It keeps `provider`/`gateway` fixed to
+`openrouter`, separates requested and returned model labels from the reported
+`upstream_provider`/`upstream_model`, and retains routing strategy, routing
+attempt, additive router metadata, generation/cache identifiers, usage,
+timings, hashes, redacted raw response, and provider-neutral replay response.
+Its `first_party_origin_claimed` field is always `false`. Schema validity
+therefore demonstrates record shape, not direct first-party origin, upstream
+authentication, statistical independence, or strict Gate 4 eligibility.
+
 Version placement is record-specific. User state, LLM request/response, and run
-manifest carry `schema_version: 1`. Interaction, trajectory, and human-rating
-records do not; their v1 boundary is the schema `$id`. Nested options, contexts,
-provenance, observations, profile updates, and beliefs are not recursively
-given a `schema_version`.
+manifest plus provider-audit sidecars carry `schema_version: 1`. Interaction,
+trajectory, and human-rating records do not; their v1 boundary is the schema
+`$id`. Nested options, contexts, provenance, observations, profile updates, and
+beliefs are not recursively given a `schema_version`.
 
 Schema IDs are stable `urn:cape-loop:schema:…:v1` identifiers. A breaking
 record change requires a new version boundary rather than silently modifying

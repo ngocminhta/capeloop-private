@@ -29,7 +29,6 @@ from cape_loop.heldout import (
     generate_paraphrase_cases,
     score_heldout_terminal_actions,
 )
-from cape_loop.schemas import THETA_VALUES
 
 
 class HeldOutParaphraseTests(unittest.TestCase):
@@ -515,4 +514,3 @@ class CorrectionDebtTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -199,10 +199,22 @@ and is identified by a content digest.
 ## What is not implemented
 
 The current native state, consolidation, persona projection, and both local
-decoders are deterministic Python implementations. The repository includes an
-external LLM-decoder exchange/analysis path and a stage-gated correction-debt
-runner, but no checked-in external judgments, production LLM-backed native
-memory writer, embedding store, vector database, or production-agent connector.
+decoders are deterministic Python implementations. A separate
+`native_action_provider.py` adapter can send an exact retained terminal state
+and held-out suite to the declared OpenAI-backed native action system. It
+produces hash-bound, model-mediated actions eligible for Gate 4 import; it does
+not change how the native memory was written.
+
+The repository also includes first-party Anthropic and Gemini external-decoder
+collection and a stage-gated correction-debt runner, but no checked-in external
+judgments or native actions, production LLM-backed native memory writer,
+embedding store, vector database, or general production-agent connector. The
+human study is deferred.
 
 Accordingly, a native failure would support a claim only about these inspectable
-reference loops. No current artifact claims that such a failure was observed.
+reference loops or the exact declared provider-backed system that actually
+produced the retained evidence. No current artifact claims that such a failure
+was observed.
+
+See [Gate 4 live collection](gate4-live-collection.md) for the exact native
+action request, execution, audit, resume, and import workflow.

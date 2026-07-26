@@ -175,10 +175,13 @@ The confirmatory bundle adds:
 
 The dependency-free CR1 regression is an auditable marginal robustness
 analysis. It is **not** the proposal's confirmatory generalized mixed-effects
-model with user random slopes and scenario random intercepts. That model,
-model diagnostics, and any inferential paper claim remain an external
-statistical stage. A configured bootstrap count of zero uses 200 replicates as
-an explicitly recorded smoke fallback, not a paper default.
+model with user random slopes and scenario random intercepts. The optional
+[R mixed-effects harness](mixed-effects-analysis.md) now implements that exact
+model, planned contrasts, source-digest checks, and convergence/singularity
+diagnostics. Executing it on verified paper runs and reviewing any inferential
+claim remain a separate statistical stage. A configured bootstrap count of
+zero uses 200 replicates as an explicitly recorded smoke fallback, not a paper
+default.
 
 Human-derived evidence strength is not fabricated. The fitted ordering artifact
 records that volunteered-control strength is unavailable until eligible
@@ -445,10 +448,15 @@ transition strength differs.
 
 `_gate_4_for_b` has an internal post-validation evidence-injection boundary so
 the criterion logic can be audited without weakening it. Completed runs remain
-immutable. `gate-review import-native` validates and binds both external
-evidence packets to eligible trajectory IDs, recomputes Gate 4, and writes a
-separate checksum-bound artifact. It never rewrites the run's gate report.
-Ordinary Experiment B runs remain incomplete until that import exists.
+immutable. `gate-review import-native` validates and binds the complete
+selected Anthropic/Gemini decoder collection and complete OpenAI native-action
+collection to eligible trajectory IDs, recomputes Gate 4, and writes a separate
+checksum-bound artifact. Every plan, physical attempt, accepted audit,
+judgment/action record, execution manifest, and evidence-file digest is
+checked under the collectors' shared locks. The explicit reviewed-generic
+decoder alternative does not claim provider-collection provenance. The import
+never rewrites the run's gate report. Ordinary Experiment B runs remain
+incomplete until that import exists.
 
 ## Experiment C: evaluation validity
 

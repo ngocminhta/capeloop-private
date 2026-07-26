@@ -686,7 +686,7 @@ call is made.
 unavailable. It is metadata only in v1 because raw provider output is not part
 of the response envelope.
 
-### OpenAI provider audit and suite index
+### Direct OpenAI and OpenRouter provider audits
 
 `openai-provider-audit.schema.json` wraps one provider attempt around its
 provider-neutral replay envelope. In addition to request/prompt/body hashes, it
@@ -695,6 +695,42 @@ IDs, usage, timing, safe raw response metadata, and `acceptance_status`.
 `accepted` records may enter replay. `rejected_model_mismatch` records preserve
 a charged completed attempt whose model label was missing or inconsistent, but
 must not enter `llm/responses.jsonl`.
+
+`openrouter-provider-audit.schema.json` wraps the corresponding OpenRouter
+gateway result. It deliberately keeps three identities separate:
+
+```text
+gateway/provider:       "openrouter"
+requested/returned:     model_requested, model_returned
+observed upstream route: upstream_provider, upstream_model
+```
+
+The row also requires `routing_strategy`, positive `routing_attempt`, the full
+additive `routing_metadata` object, `provider_response_id`,
+`provider_created_at`, optional response-header `generation_id`, optional
+`cache_status`, raw `usage`, start/completion times, transport-attempt counts,
+the conservative token reservation, request/prompt/body/raw-response hashes, a
+redacted `raw_response`, and the provider-neutral `replay_response`.
+`acceptance_status` is either `accepted` or
+`rejected_openrouter_identity`.
+
+The schema fixes `first_party_origin_claimed` to `false`. A valid row therefore
+records what the gateway reported; it does not authenticate the upstream as a
+direct first-party source or establish independent errors. Python validation
+adds cross-field acceptance checks that JSON Schema alone cannot express:
+requested and returned models must match, the strategy must be direct, exactly
+one endpoint must be selected, its model must match the response model,
+disabled fallback must not have occurred, cache hits are unusable, and a
+nonempty material router pipeline is rejected. Only `accepted` rows may enter
+`llm/responses.jsonl`.
+
+OpenRouter may expose additional router-metadata fields over time, so
+`routing_metadata` is retained as an open object even though the enclosing
+audit row rejects unknown top-level keys. CAPE-Loop captures generation
+identifiers but does not automatically query OpenRouter's separate generation
+record endpoint.
+
+### OpenAI suite index
 
 The `llm evaluation-suite` combined index is a containing v1 artifact rather
 than a standalone generated schema. It binds the primary/replication source and
@@ -735,6 +771,7 @@ The checked-in `schemas/` directory contains:
 | `llm-request.schema.json` | `LLMRequest.to_dict()` |
 | `llm-response.schema.json` | `LLMResponse.parse()` and `.to_dict()` |
 | `openai-provider-audit.schema.json` | `OpenAIProviderResult.to_audit_record()` |
+| `openrouter-provider-audit.schema.json` | `OpenRouterProviderResult.to_audit_record()` |
 | `run-manifest.schema.json` | `RunArtifacts.create()` / `manifest.json` |
 | `human-rating.schema.json` | human-study rating import |
 
