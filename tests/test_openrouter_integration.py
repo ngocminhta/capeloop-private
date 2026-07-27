@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -19,9 +20,17 @@ from cape_loop.config import (
     load_config,
 )
 from cape_loop.decoder_study import ExternalDecoderRequest
-from cape_loop.llm_exchange import LLMRequest, write_requests
-from cape_loop.openrouter_provider import OPENROUTER_EXAMPLE_MODEL
+from cape_loop.llm_exchange import (
+    ATTRIBUTES,
+    VALUES,
+    LLMRequest,
+    LLMResponse,
+    write_requests,
+)
 from cape_loop.openrouter_provider import (
+    OPENROUTER_EXAMPLE_MODEL,
+    OpenRouterChatProvider,
+    PreparedOpenRouterRequest,
     ResumableOpenRouterCompletionProvider,
 )
 from cape_loop.runner import (
@@ -74,7 +83,7 @@ class OpenRouterConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             checked.llm.openrouter_upstream_provider,
-            "google-ai-studio",
+            "google-vertex/global",
         )
 
     def test_noncanonical_or_unsafe_routes_fail_closed(self) -> None:
@@ -137,7 +146,7 @@ class OpenRouterConfigurationTests(unittest.TestCase):
         self.assertFalse(manifest["first_party_origin_claimed"])
         self.assertEqual(
             manifest["provider_preferences"]["only"],
-            ["google-ai-studio"],
+            ["google-vertex/global"],
         )
 
     def test_runner_requires_explicit_live_authorization(self) -> None:
@@ -146,6 +155,7 @@ class OpenRouterConfigurationTests(unittest.TestCase):
                 run=RunSection(
                     name="openrouter-no-live",
                     output_root=directory,
+                    deterministic=False,
                 ),
                 experiment=ExperimentSection(
                     kind="provenance_audit",
@@ -201,7 +211,7 @@ class OpenRouterConfigurationTests(unittest.TestCase):
             )
             self.assertEqual(
                 adapter.provider.config.upstream_provider,
-                "google-ai-studio",
+                "google-vertex/global",
             )
 
 
@@ -272,7 +282,9 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
                 )
             self.assertIn("--execute-live", stderr.getvalue())
 
-    def test_decoder_plan_marks_routed_evidence_non_gate4(self) -> None:
+    def test_decoder_plan_matches_live_request_identity_body_and_bound(
+        self,
+    ) -> None:
         request = ExternalDecoderRequest.build(
             request_id="openrouter-decoder",
             pseudonymous_state_id="state-openrouter",
@@ -285,8 +297,41 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
                 "persona_text": "",
             },
         )
+        dispatched_requests: list[LLMRequest] = []
+        dispatched_preparations: list[PreparedOpenRouterRequest] = []
+
+        class CapturingAdapter:
+            def __init__(
+                self,
+                provider: OpenRouterChatProvider,
+                **_: object,
+            ) -> None:
+                self.provider = provider
+
+            def complete(self, provider_request: LLMRequest) -> LLMResponse:
+                dispatched_requests.append(provider_request)
+                dispatched_preparations.append(
+                    self.provider.prepare(provider_request)
+                )
+                return LLMResponse(
+                    request_id=provider_request.request_id,
+                    prompt_sha256=provider_request.prompt_sha256,
+                    model_id=self.provider.config.model,
+                    beliefs={
+                        attribute: {value: 0.25 for value in VALUES}
+                        for attribute in ATTRIBUTES
+                    },
+                )
+
+            def to_manifest(self) -> dict[str, object]:
+                return {
+                    "schema_version": 1,
+                    "model": self.provider.config.model,
+                }
+
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "decoder.jsonl"
+            root = Path(directory)
+            path = root / "decoder.jsonl"
             path.write_text(
                 json.dumps(request.to_dict(), sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -298,9 +343,63 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
                 )
             self.assertEqual(status, 0)
             payload = json.loads(stdout.getvalue())
+
+            execution_stdout = io.StringIO()
+            with (
+                patch(
+                    "cape_loop.cli.ResumableOpenRouterCompletionProvider",
+                    CapturingAdapter,
+                ),
+                redirect_stdout(execution_stdout),
+            ):
+                execution_status = cli_main(
+                    [
+                        "decoder-study",
+                        "execute-openrouter",
+                        str(path),
+                        str(root / "output"),
+                        "--execute-live",
+                    ]
+                )
+
+            self.assertEqual(execution_status, 0)
             self.assertFalse(payload["strict_gate4_eligible"])
             self.assertFalse(payload["statistical_independence_claimed"])
             self.assertFalse(payload["first_party_origin_claimed"])
+            self.assertEqual(len(dispatched_requests), 1)
+            self.assertEqual(len(dispatched_preparations), 1)
+
+            model = OPENROUTER_EXAMPLE_MODEL
+            model_digest = sha256(model.encode("utf-8")).hexdigest()[:12]
+            instance_id = f"openrouter-{model_digest}"
+            provider_request = dispatched_requests[0]
+            prepared = dispatched_preparations[0]
+            source = payload["sources"][0]
+            self.assertEqual(source["decoder_instance_id"], instance_id)
+            self.assertEqual(
+                provider_request.request_id,
+                (
+                    f"external-decoder:{instance_id}:"
+                    f"{request.request_sha256}"
+                ),
+            )
+            self.assertEqual(
+                source["request_body_sha256"],
+                [
+                    {
+                        "request_id": request.request_id,
+                        "provider_request_id": provider_request.request_id,
+                        "sha256": prepared.body_sha256,
+                        "estimated_max_tokens": (
+                            prepared.estimated_max_tokens
+                        ),
+                    }
+                ],
+            )
+            self.assertEqual(
+                source["conservative_max_tokens"],
+                prepared.estimated_max_tokens,
+            )
 
 
 if __name__ == "__main__":

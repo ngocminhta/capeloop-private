@@ -1,0 +1,481 @@
+{
+  "$id": "urn:cape-loop:schema:h7-volunteered-review:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A derived, checksum-bound review that supplies H7's volunteered positive-control component without modifying the source run.",
+  "properties": {
+    "analysis_settings": {
+      "type": "object"
+    },
+    "artifact_kind": {
+      "const": "h7_volunteered_control_review"
+    },
+    "claim_status": {
+      "const": "not_claimed"
+    },
+    "collection_plan": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings_file_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "plan_file_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "plan_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "requests_file_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_sha256",
+        "plan_file_sha256",
+        "bindings_file_sha256",
+        "requests_file_sha256"
+      ],
+      "type": "object"
+    },
+    "interpretation": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider_bound_evidence": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_record_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "case_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "claim_status": {
+            "const": "not_claimed"
+          },
+          "directional_log_odds_update": {
+            "type": "number"
+          },
+          "domain_id": {
+            "enum": [
+              "travel",
+              "writing"
+            ]
+          },
+          "model_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "posterior_probabilities": {
+            "additionalProperties": false,
+            "properties": {
+              "attribute_1": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_2": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_3": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "attribute_1",
+              "attribute_2",
+              "attribute_3"
+            ],
+            "type": "object"
+          },
+          "prior_probabilities": {
+            "additionalProperties": false,
+            "properties": {
+              "attribute_1": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_2": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_3": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "attribute_1",
+              "attribute_2",
+              "attribute_3"
+            ],
+            "type": "object"
+          },
+          "prompt_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "openai",
+              "openrouter"
+            ]
+          },
+          "raw_response_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "request_body_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "request_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "target_attribute": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "target_direction": {
+            "enum": [
+              -1,
+              1
+            ]
+          },
+          "updater_id": {
+            "enum": [
+              "llm_full_context",
+              "llm_provenance_aware"
+            ]
+          },
+          "user_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "case_id",
+          "user_id",
+          "domain_id",
+          "target_attribute",
+          "target_direction",
+          "updater_id",
+          "provider",
+          "model_id",
+          "request_id",
+          "prompt_sha256",
+          "request_body_sha256",
+          "raw_response_sha256",
+          "audit_record_sha256",
+          "prior_probabilities",
+          "posterior_probabilities",
+          "directional_log_odds_update",
+          "claim_status"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "provider_evidence": {
+      "type": "object"
+    },
+    "recomputation_scope": {
+      "type": "object"
+    },
+    "recomputed_h7": {
+      "type": "object"
+    },
+    "review_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "review_version": {
+      "const": "h7-volunteered-control-review-v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_h7_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_run": {
+      "additionalProperties": false,
+      "properties": {
+        "checksums_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "config_file_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "experiment_a_metrics_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "hypothesis_estimands_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "population_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "manifest_sha256",
+        "config_file_sha256",
+        "checksums_sha256",
+        "population_sha256",
+        "experiment_a_metrics_sha256",
+        "hypothesis_estimands_sha256"
+      ],
+      "type": "object"
+    },
+    "volunteered_preference_updates": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "directional_log_odds_update": {
+            "type": "number"
+          },
+          "updater_id": {
+            "enum": [
+              "llm_full_context",
+              "llm_provenance_aware"
+            ]
+          },
+          "user_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_id",
+          "user_id",
+          "updater_id",
+          "directional_log_odds_update"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "review_version",
+    "source_run",
+    "collection_plan",
+    "provider_evidence",
+    "analysis_settings",
+    "volunteered_preference_updates",
+    "provider_bound_evidence",
+    "source_h7_sha256",
+    "recomputed_h7",
+    "recomputation_scope",
+    "claim_status",
+    "interpretation",
+    "review_sha256"
+  ],
+  "title": "CAPE-Loop H7 volunteered-control review",
+  "type": "object"
+}

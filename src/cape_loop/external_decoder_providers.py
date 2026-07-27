@@ -1445,15 +1445,18 @@ class ExternalDecoderProvider:
                 raise ExternalDecoderResponseError(str(exc)) from exc
             except (TimeoutError, ConnectionError, OSError) as exc:
                 settle(outcome="transport_error")
-                if attempt > self.config.max_retries:
-                    raise ExternalDecoderProviderError(
-                        f"{self.config.provider} transport failed after "
-                        f"{attempt} attempts; "
-                        f"client_request_id={prepared.client_request_id}; "
-                        f"error_type={type(exc).__name__}"
-                    ) from exc
-                self._sleep(self._backoff_seconds(attempt, None))
-                continue
+                # A timeout/connection failure can occur after the provider
+                # accepted and billed the request. Without provider-supported
+                # idempotency there is no safe automatic retry, even inside
+                # this process. The durable nonfinal settlement makes the
+                # same ambiguity block a later resume as well.
+                raise ExternalDecoderProviderError(
+                    f"{self.config.provider} transport outcome is ambiguous; "
+                    "automatic retry is disabled and manual review is "
+                    "required; "
+                    f"client_request_id={prepared.client_request_id}; "
+                    f"error_type={type(exc).__name__}"
+                ) from exc
 
             response_digest = sha256(http_result.body).hexdigest()
             lowered_headers = _lower_headers(http_result.headers)

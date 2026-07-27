@@ -93,7 +93,7 @@ class ConfigTests(unittest.TestCase):
                 experiment=ExperimentSection(users=True),
             ).validated()
 
-    def test_sensitivity_rejects_adaptive_llm_replay(self) -> None:
+    def test_sensitivity_rejects_point_specific_llm_calibration(self) -> None:
         config = AppConfig(
             experiment=ExperimentSection(
                 kind="sensitivity",
@@ -105,7 +105,10 @@ class ConfigTests(unittest.TestCase):
             ),
             llm=LLMSection(responses_file="responses.jsonl"),
         )
-        with self.assertRaises(ConfigError):
+        with self.assertRaisesRegex(
+            ConfigError,
+            "llm.calibration = 'none'",
+        ):
             config.validate_experiment_contract()
 
     def test_sensitivity_rejects_inactive_generic_turn_count(self) -> None:

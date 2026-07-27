@@ -76,9 +76,11 @@ duplicate entries.
 | `output_root` | string | `"runs"` | Nonempty default output parent |
 | `deterministic` | Boolean | `true` | Recorded in the manifest |
 
-The implementation is semantic-key deterministic regardless of array traversal.
-`run.deterministic` is a recorded declaration; there is no alternate
-nondeterministic execution engine.
+The simulation implementation is semantic-key deterministic regardless of
+array traversal. `run.deterministic` is a recorded whole-run declaration, not
+an alternate execution engine. It must be `false` when an `llm_*` updater uses
+live OpenAI or OpenRouter generation, because seeded simulator state does not
+make an external model response deterministic.
 
 The run directory is:
 
@@ -119,6 +121,16 @@ completed run.
 
 `users`, `trajectories_per_cell`, and `turns` must be positive.
 `bootstrap_replicates` must be nonnegative.
+
+For `closed_loop`, the same `bootstrap_replicates` value requests both the
+clustered inferential bootstrap and the Experiment B pilot-power simulation
+count. Power simulation alone is bounded to the inclusive range 200–10,000:
+zero therefore retains the inexpensive 200-replicate planning smoke fallback,
+and requests above 10,000 are capped in the power artifact. The candidate user
+counts (16, 32, 64, 128), alpha (0.05), target power (0.80), factor contrast,
+and lower-Wilson-bound decision rule are frozen in code rather than exposed as
+quietly mutable paper settings. The resulting candidate is advisory and never
+commits the final sample size automatically.
 
 `prior_strengths` is Experiment A's executable prior-concentration factor.
 Every value must be finite, unique, and in `[0, 1)`. For each latent user, a
@@ -216,17 +228,20 @@ After field-level validation, these rules are enforced:
 | `provenance_audit` | `policies = ["balanced"]`; `trajectories_per_cell = 1`; `turns = 1`; prior strengths are unique values in `[0, 1)`; non-negative `bootstrap_replicates` (zero selects the 200-replicate smoke fallback) |
 | `closed_loop` | mechanisms are exactly ranking/default/suggestion; response modes are exactly naturally sampled; `prior_strengths = [0.0]`; nonnegative `bootstrap_replicates` (`0` is smoke-only and cannot satisfy Gates 2/3) |
 | `evaluation_validity` | mechanisms are exactly ranking/default/suggestion; response modes are exactly naturally sampled; policies are exactly balanced/fixed-bias/soft-profile-conditioned; `prior_strengths = [0.0]` |
-| `sensitivity` | mechanisms are exactly ranking/default/suggestion; response modes are exactly naturally sampled; policies are exactly balanced/soft-profile-conditioned; `prior_strengths = [0.0]`; `turns = 1`; `bootstrap_replicates = 0` |
+| `sensitivity` | mechanisms are exactly ranking/default/suggestion; response modes are exactly naturally sampled; policies are exactly balanced/soft-profile-conditioned; `prior_strengths = [0.0]`; `turns = 1`; `bootstrap_replicates = 0`; an `llm_*` updater additionally requires `llm.calibration = "none"`, `artifacts.retain_prompts = true`, and `artifacts.retain_events = true` |
 
 For set-based requirements, ordering is not significant. For the one-element
 provenance-audit policy and response-mode tuples, the exact listed tuple is
 required.
 
-Sensitivity additionally rejects every updater ID beginning with `llm_`.
-Sequential adaptive prompts depend on dynamics changed by each grid point, so a
-single external replay corpus is not a valid sensitivity input. Its generic
-`experiment.turns` must be `1`; the executed lengths come exclusively from
-`sensitivity.trajectory_lengths`.
+Sensitivity passes one shared, content-addressed completion provider through
+all grid points. This supports replay, direct OpenAI, and OpenRouter without
+mistaking point-specific prompts for a fixed corpus. Point-specific LLM
+temperature fitting is deliberately unsupported: use raw vectors with
+`llm.calibration = "none"`. Full prompts and trajectory events are mandatory
+so every consumed response remains reconstructable and linked to its adaptive
+history. The generic `experiment.turns` must be `1`; executed lengths come
+exclusively from `sensitivity.trajectory_lengths`.
 
 Experiment A may use a reviewed subset of mechanisms or response modes, but a
 subset may make a gate criterion incomplete. The other runners require the
@@ -309,13 +324,26 @@ paper-intended test set.
 | --- | --- | --- |
 | `decision_noise_values` | `[0.6, 1.0, 1.6]` | nonempty; finite, positive, and unique |
 | `presentation_multipliers` | `[0.5, 1.0, 1.5]` | nonempty; finite, nonnegative, and unique |
+| `rank_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
+| `default_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
+| `suggestion_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
 | `profile_strength_values` | `[0.65, 0.80, 0.90]` | nonempty; finite, unique, and each in `[0.5, 1)` |
+| `prior_uncertainty_values` | `[0.0]` | nonempty; finite, unique, and each in `[0, 1)` |
 | `trajectory_lengths` | `[4, 8, 12]` | nonempty; unique positive integers |
+| `response_model_families` | `["random_utility"]` | unique values from `random_utility`, `rule_based` |
+| `rule_noise_values` | `[0.15]` | nonempty; finite, unique values in `[0, 1]`; used only for rule-based points |
+| `phase_min_selection_cost` | `0.0` | finite; phase selection-cost threshold |
+| `phase_max_aware_ece` | `0.10` | finite value in `[0, 1]` |
+| `phase_min_attribution_cost` | `0.0` | finite; phase attribution-cost threshold |
+| `phase_min_self_confirming_rate` | `0.0` | finite value in `[0, 1]` |
+| `phase_min_suggestion_rejection_rate` | `0.20` | finite value in `[0, 1]`; frozen “often rejects” criterion |
 
-These fields are consumed only by `kind = "sensitivity"`. The checked-in
-Cartesian product has 81 points. Each point creates a random-utility response
-model with the declared decision-noise and presentation scaling; the current
-runner does not sweep the separate rule-based response-model class.
+These fields are consumed only by `kind = "sensitivity"`. The compact
+checked-in Cartesian product has 81 points. The broader configuration crosses
+the random-utility and noisy rule-based response families. The suggestion
+rejection rate counts only profile-conditioned suggestions where the
+counter-profile option remains displayed; selecting that alternative is a
+rejection.
 
 ## `[llm]`
 
@@ -332,7 +360,7 @@ runner does not sweep the separate rule-based response-model class.
 | `base_url` | string / `"https://api.openai.com"` | Provider HTTPS origin/path; official origin required unless the separate opt-in below is true |
 | `allow_custom_base_url` | Boolean / `false` | Explicitly permit sending the configured credential to the reviewed non-official HTTPS endpoint |
 | `timeout_seconds` | number / `180.0` | Positive timeout for each HTTP attempt |
-| `max_retries` | integer / `4` | Nonnegative retry count for transient transport/HTTP failures |
+| `max_retries` | integer / `4` | Nonnegative retry count for failures the selected adapter explicitly admits; OpenRouter transport ambiguity stops immediately |
 | `max_output_tokens` | integer / `4096` | Positive per-response output ceiling |
 | `max_requests` | integer / `100` | Positive hard request ceiling for one provider ledger |
 | `max_total_tokens` | integer / `500000` | Positive hard conservative-token ceiling for one provider ledger |
@@ -478,7 +506,7 @@ api_key_env = "OPENROUTER_API_KEY"
 base_url = "https://openrouter.ai/api"
 allow_custom_base_url = false
 
-openrouter_upstream_provider = "google-ai-studio"
+openrouter_upstream_provider = "google-vertex/global"
 openrouter_allow_fallbacks = false
 openrouter_require_parameters = true
 openrouter_data_collection = "deny"
@@ -489,22 +517,26 @@ openrouter_app_title = "CAPE-Loop"
 
 The standalone OpenRouter CLI defaults to no upstream-provider pin, so one
 `--model author/model` argument switches its model. The checked-in adaptive
-pilot pins Google AI Studio for route reproducibility. When changing that
-pilot to a model not served there, also replace the provider slug or set
+pilot pins the Google Vertex global endpoint for route reproducibility. When
+changing that pilot to a model not served there, also replace the provider
+slug or set
 `openrouter_upstream_provider = ""`; an unpinned route is accepted only with
 its selected upstream identity retained for analysis.
 
-Preparing a request sends `stream = false`, `max_completion_tokens`, and a
+Preparing a request sends `stream = false`, `max_tokens`, and a
 strict `response_format.type = "json_schema"`. The provider preferences contain
 the declared fallback, parameter-support, data-collection, ZDR, and optional
 provider constraints. The transport always sends
 `X-OpenRouter-Metadata: enabled` and `X-OpenRouter-Cache: false`; attribution
 headers are separate and optional. A successful response must report the exact
 requested model, a `direct` routing strategy, exactly one selected upstream
-endpoint whose model matches the response, no disallowed fallback, no cache
-hit, and no material router pipeline transformation. Structured message
-content is parsed and validated locally before it can become an
-`LLMResponse`.
+endpoint whose model is the canonical model or one of its dated snapshots, no
+disallowed fallback, no cache hit, and no material router pipeline
+transformation. A configured endpoint slug is enforced in the request with
+both `provider.only` and `provider.order`; OpenRouter returns a display provider
+name rather than that exact slug, so the display field is retained but is not
+treated as exact-slug attestation. Structured message content is parsed and
+validated locally before it can become an `LLMResponse`.
 
 The API key is read from `OPENROUTER_API_KEY` only after `--execute-live` and is
 never retained. The official base path is required by default. As with direct
@@ -517,17 +549,21 @@ OpenRouter journals use:
 ```text
 <output-root>/.llm-journals/<run-id>/openrouter/<model-role>/provider-audit.jsonl
 <output-root>/.llm-journals/<run-id>/openrouter/<model-role>/responses.jsonl
+<output-root>/.llm-journals/<run-id>/openrouter/<model-role>/transport-attempts.jsonl
 ```
 
 The checksummed run receives `llm/provider-audit.jsonl` and
-`llm/provider-manifest.json`. Audit rows separate the gateway from the selected
-upstream route through `gateway`, `model_requested`, `model_returned`,
-`upstream_provider`, `upstream_model`, `routing_strategy`,
-`routing_attempt`, and the full additive `routing_metadata`; they also retain
-the provider response ID, `X-Generation-Id` when present, cache status, usage,
-timing, body/prompt hashes, redacted raw response, and provider-neutral replay
-response. The implementation records `first_party_origin_claimed = false` and
-does not automatically call OpenRouter's generation-lookup endpoint.
+`llm/transport-attempts.jsonl` plus `llm/provider-manifest.json`. Audit rows
+separate the gateway from the selected upstream route through `gateway`,
+`model_requested`, `model_returned`, `upstream_provider`, `upstream_model`,
+`routing_strategy`, `routing_attempt`, and the full additive
+`routing_metadata`; they also retain the submitted upstream constraint and
+provider preferences, their request-constraint evidence label, the explicit
+display-identity interpretation boundary, provider response ID,
+`X-Generation-Id` when present, cache status, usage, timing, body/prompt
+hashes, redacted raw response, and provider-neutral replay response. The
+implementation records `first_party_origin_claimed = false` and does not
+automatically call OpenRouter's generation-lookup endpoint.
 
 OpenRouter's official documentation defines the
 [Chat Completions request](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),

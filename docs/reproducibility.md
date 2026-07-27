@@ -310,6 +310,9 @@ Those configurations are larger than the smoke suite.
 - [ ] Trajectory/user is the resampling unit.
 - [ ] Missing/failed cells and exclusions are retained.
 - [ ] Bootstrap seeds and tie rules are recorded.
+- [ ] Experiment C rankings are reviewed across at least two distinct seeds
+      with otherwise identical scientific config and executable source; retain
+      all exact agreements and disagreements.
 
 ### Artifact integrity
 

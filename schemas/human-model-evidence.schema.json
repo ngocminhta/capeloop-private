@@ -1,0 +1,81 @@
+{
+  "$id": "urn:cape-loop:schema:human-model-evidence:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One held-out fitted-aware or LLM evidence-strength observation for the H8 human-versus-model comparison. Runtime validation also requires stable role/metric/artifact metadata within a source.",
+  "properties": {
+    "cluster_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "condition": {
+      "enum": [
+        "volunteered",
+        "balanced",
+        "restricted",
+        "default",
+        "suggested"
+      ]
+    },
+    "evaluation_split": {
+      "const": "test"
+    },
+    "evidence_metric": {
+      "const": "positive_part_anchor_directional_log_odds_update"
+    },
+    "evidence_strength": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "scenario_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_artifact_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_record_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_role": {
+      "enum": [
+        "fitted_action_aware",
+        "ordinary_llm",
+        "provenance_aware_llm"
+      ]
+    },
+    "source_run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "zero_means_no_evidence": {
+      "const": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_run_id",
+    "source_artifact_sha256",
+    "source_record_id",
+    "source_id",
+    "source_role",
+    "cluster_id",
+    "scenario_id",
+    "condition",
+    "evidence_strength",
+    "evidence_metric",
+    "zero_means_no_evidence",
+    "evaluation_split"
+  ],
+  "title": "CAPE-Loop H8 model evidence-strength record",
+  "type": "object"
+}

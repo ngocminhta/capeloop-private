@@ -1585,14 +1585,15 @@ class OpenAINativeActionProvider:
                         "error_type": type(exc).__name__,
                     },
                 )
-                if attempt > self.config.max_retries:
-                    raise OpenAIProviderError(
-                        "native action transport failed after "
-                        f"{attempt} attempts; error_type="
-                        f"{type(exc).__name__}"
-                    ) from exc
-                self._sleep(self._backoff(attempt, None))
-                continue
+                # No provider idempotency guarantee is available for this
+                # action request. A connection failure may have happened
+                # after acceptance and billing, so repeating it would risk a
+                # duplicate paid action with an unknowable first result.
+                raise NativeActionManualReviewRequired(
+                    "native action transport outcome is ambiguous; automatic "
+                    "retry is disabled and manual review is required; "
+                    f"error_type={type(exc).__name__}"
+                ) from exc
 
             lowered = _lower_headers(http.headers)
             safe_headers = _redact_provider_value(lowered, secret)

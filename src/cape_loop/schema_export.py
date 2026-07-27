@@ -41,6 +41,84 @@ _PROBABILITY_ROWS = {
     "maxItems": 3,
 }
 
+_TERMINAL_BATTERY_SCORE = {
+    "type": "object",
+    "required": [
+        "profile_brier",
+        "behavioral_accuracy",
+        "tie_excluded_behavioral_accuracy",
+        "fractional_behavioral_accuracy",
+        "cross_context_accuracy",
+        "mean_intrinsic_regret",
+        "predicted_option_ids",
+        "predicted_utility_tie_count",
+        "intrinsic_utility_tie_count",
+        "evaluated_item_count",
+        "profile_ece",
+        "profile_calibration_sample_unit",
+        "profile_calibration_prediction_count",
+        "profile_reliability_bins",
+        "profile_calibration_interpretation",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "profile_brier": {"type": "number"},
+        "behavioral_accuracy": {"type": "number"},
+        "tie_excluded_behavioral_accuracy": {
+            "type": ["number", "null"]
+        },
+        "fractional_behavioral_accuracy": {"type": "number"},
+        "cross_context_accuracy": {"type": ["number", "null"]},
+        "mean_intrinsic_regret": {"type": "number"},
+        "predicted_option_ids": {
+            "type": "array",
+            "items": _NONEMPTY_STRING,
+        },
+        "predicted_utility_tie_count": {"type": "number"},
+        "intrinsic_utility_tie_count": {"type": "number"},
+        "evaluated_item_count": {"type": "integer", "minimum": 1},
+        "profile_ece": {"type": ["number", "null"]},
+        "profile_calibration_sample_unit": {
+            "const": "preference_attribute_forecast"
+        },
+        "profile_calibration_prediction_count": {
+            "type": "integer",
+            "minimum": 0,
+        },
+        "profile_reliability_bins": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "bin_index",
+                    "lower",
+                    "upper",
+                    "prediction_count",
+                    "mean_confidence",
+                    "empirical_accuracy",
+                ],
+                "additionalProperties": False,
+                "properties": {
+                    "bin_index": {"type": "integer", "minimum": 0},
+                    "lower": {"type": "number"},
+                    "upper": {"type": "number"},
+                    "prediction_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                    },
+                    "mean_confidence": {
+                        "type": ["number", "null"]
+                    },
+                    "empirical_accuracy": {
+                        "type": ["number", "null"]
+                    },
+                },
+            },
+        },
+        "profile_calibration_interpretation": _NONEMPTY_STRING,
+    },
+}
+
 _LLM_RESPONSE_RECORD = {
     "type": "object",
     "required": [
@@ -528,6 +606,158 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "evaluation_split": _SPLIT,
         },
     },
+    "experiment-c-decoder-codebook": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:experiment-c-decoder-codebook:v1",
+        "title": "CAPE-Loop Experiment C external-decoder codebook row",
+        "description": (
+            "A researcher-only binding from one blinded native terminal state "
+            "to an exact content-addressed Experiment C metric and state row."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "request_id",
+            "pseudonymous_state_id",
+            "evaluation_split",
+            "regime",
+            "replicate",
+            "user_id",
+            "domain_id",
+            "updater_id",
+            "stable_row_key_sha256",
+            "source_metric_row_sha256",
+            "battery_id",
+            "battery_digest",
+            "terminal_state_id",
+            "terminal_state_sha256",
+            "source_state_file",
+            "source_state_record_id",
+            "source_state_record_sha256",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "request_id": _NONEMPTY_STRING,
+            "pseudonymous_state_id": _NONEMPTY_STRING,
+            "evaluation_split": {"enum": ["development", "test"]},
+            "regime": {
+                "enum": [
+                    "fixed_balanced",
+                    "fixed_biased",
+                    "endogenous_closed_loop",
+                ]
+            },
+            "replicate": {"type": "integer", "minimum": 0},
+            "user_id": _NONEMPTY_STRING,
+            "domain_id": _NONEMPTY_STRING,
+            "updater_id": {
+                "enum": [
+                    "episodic_memory",
+                    "semantic_memory",
+                    "provenance_linked_memory",
+                ]
+            },
+            "stable_row_key_sha256": _SHA256,
+            "source_metric_row_sha256": _SHA256,
+            "battery_id": _NONEMPTY_STRING,
+            "battery_digest": _SHA256,
+            "terminal_state_id": _SHA256,
+            "terminal_state_sha256": _SHA256,
+            "source_state_file": {
+                "enum": [
+                    "events/experiment-c-replays.jsonl",
+                    "events/experiment-c-endogenous.jsonl",
+                ]
+            },
+            "source_state_record_id": _NONEMPTY_STRING,
+            "source_state_record_sha256": _SHA256,
+        },
+    },
+    "experiment-c-external-score": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:experiment-c-external-score:v1",
+        "title": "CAPE-Loop calibrated Experiment C external decoder score",
+        "description": (
+            "One development-calibrated external-family belief scored on the "
+            "exact common terminal battery. Exactly two such rows are averaged "
+            "for each eligible native Experiment C metric row."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "source_metric_row_sha256",
+            "stable_row_key_sha256",
+            "request_id",
+            "request_sha256",
+            "pseudonymous_state_id",
+            "evaluation_split",
+            "regime",
+            "replicate",
+            "user_id",
+            "domain_id",
+            "updater_id",
+            "battery_id",
+            "battery_digest",
+            "decoder_instance_id",
+            "decoder_family_id",
+            "source_descriptor",
+            "judgment_origin",
+            "blind_to_system_identity",
+            "blind_to_latent_truth",
+            "calibration_fitted_split",
+            "calibration_temperature",
+            "calibration_example_count",
+            "calibrated_marginals",
+            "terminal_score",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "source_metric_row_sha256": _SHA256,
+            "stable_row_key_sha256": _SHA256,
+            "request_id": _NONEMPTY_STRING,
+            "request_sha256": _SHA256,
+            "pseudonymous_state_id": _NONEMPTY_STRING,
+            "evaluation_split": {"enum": ["development", "test"]},
+            "regime": {
+                "enum": [
+                    "fixed_balanced",
+                    "fixed_biased",
+                    "endogenous_closed_loop",
+                ]
+            },
+            "replicate": {"type": "integer", "minimum": 0},
+            "user_id": _NONEMPTY_STRING,
+            "domain_id": _NONEMPTY_STRING,
+            "updater_id": {
+                "enum": [
+                    "episodic_memory",
+                    "semantic_memory",
+                    "provenance_linked_memory",
+                ]
+            },
+            "battery_id": _NONEMPTY_STRING,
+            "battery_digest": _SHA256,
+            "decoder_instance_id": _NONEMPTY_STRING,
+            "decoder_family_id": _NONEMPTY_STRING,
+            "source_descriptor": _NONEMPTY_STRING,
+            "judgment_origin": {"const": "external_model"},
+            "blind_to_system_identity": {"const": True},
+            "blind_to_latent_truth": {"const": True},
+            "calibration_fitted_split": {"const": "development"},
+            "calibration_temperature": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+            },
+            "calibration_example_count": {
+                "type": "integer",
+                "minimum": 1,
+            },
+            "calibrated_marginals": _PROBABILITY_ROWS,
+            "terminal_score": _TERMINAL_BATTERY_SCORE,
+        },
+    },
     "native-terminal-action-record": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:cape-loop:schema:native-terminal-action-record:v1",
@@ -839,6 +1069,64 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "comprehension_passed": {"type": "boolean"},
         },
     },
+    "human-model-evidence": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:human-model-evidence:v1",
+        "title": "CAPE-Loop H8 model evidence-strength record",
+        "description": (
+            "One held-out fitted-aware or LLM evidence-strength observation "
+            "for the H8 human-versus-model comparison. Runtime validation also "
+            "requires stable role/metric/artifact metadata within a source."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "source_run_id",
+            "source_artifact_sha256",
+            "source_record_id",
+            "source_id",
+            "source_role",
+            "cluster_id",
+            "scenario_id",
+            "condition",
+            "evidence_strength",
+            "evidence_metric",
+            "zero_means_no_evidence",
+            "evaluation_split",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "source_run_id": _NONEMPTY_STRING,
+            "source_artifact_sha256": _SHA256,
+            "source_record_id": _NONEMPTY_STRING,
+            "source_id": _NONEMPTY_STRING,
+            "source_role": {
+                "enum": [
+                    "fitted_action_aware",
+                    "ordinary_llm",
+                    "provenance_aware_llm",
+                ]
+            },
+            "cluster_id": _NONEMPTY_STRING,
+            "scenario_id": _NONEMPTY_STRING,
+            "condition": {
+                "enum": [
+                    "volunteered",
+                    "balanced",
+                    "restricted",
+                    "default",
+                    "suggested",
+                ]
+            },
+            "evidence_strength": {"type": "number", "minimum": 0},
+            "evidence_metric": {
+                "const": "positive_part_anchor_directional_log_odds_update"
+            },
+            "zero_means_no_evidence": {"const": True},
+            "evaluation_split": {"const": "test"},
+        },
+    },
     "heldout-paraphrase-case": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:cape-loop:schema:heldout-paraphrase-case:v1",
@@ -1097,6 +1385,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "generation_id",
             "cache_status",
             "estimated_max_tokens",
+            "upstream_provider_constraint",
+            "provider_preferences",
+            "route_constraint_evidence",
+            "selected_upstream_identity_semantics",
             "raw_response_sha256",
             "raw_response",
             "replay_response",
@@ -1134,6 +1426,24 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "generation_id": {"type": ["string", "null"]},
             "cache_status": {"type": ["string", "null"]},
             "estimated_max_tokens": {"type": "integer", "minimum": 1},
+            "upstream_provider_constraint": {
+                "type": ["string", "null"]
+            },
+            "provider_preferences": {"type": "object"},
+            "route_constraint_evidence": {
+                "enum": [
+                    "request_body_provider_only_and_order",
+                    (
+                        "request_body_provider_preferences_without_exact_"
+                        "route_constraint"
+                    ),
+                ]
+            },
+            "selected_upstream_identity_semantics": {
+                "const": (
+                    "router_display_identity_not_exact_route_slug_attestation"
+                )
+            },
             "raw_response_sha256": {
                 "anyOf": [_SHA256, {"type": "null"}]
             },
@@ -1153,6 +1463,161 @@ def _embedded_record(schema_name: str) -> dict[str, Any]:
         for key, value in SCHEMAS[schema_name].items()
         if key not in {"$schema", "$id", "title", "description"}
     }
+
+
+SCHEMAS.update(
+    {
+        "llm-provider-transport-attempt": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": (
+                "urn:cape-loop:schema:"
+                "llm-provider-transport-attempt:v1"
+            ),
+            "title": "CAPE-Loop direct LLM provider transport attempt",
+            "description": (
+                "One fsynced started or settled event around a physical "
+                "OpenAI/OpenRouter HTTP attempt. Final settlements embed the "
+                "accepted/rejected provider audit so a paid response can be "
+                "recovered after process failure."
+            ),
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "provider",
+                        "request_id",
+                        "prompt_sha256",
+                        "endpoint",
+                        "request_body_sha256",
+                        "model_requested",
+                        "client_request_id",
+                        "idempotency_key",
+                        "estimated_max_tokens",
+                        "attempt_ordinal",
+                        "started_at",
+                    ],
+                    "additionalProperties": False,
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "llm-provider-transport-attempt"
+                        },
+                        "event": {"const": "started"},
+                        "attempt_id": _SHA256,
+                        "provider": {
+                            "enum": ["openai", "openrouter"]
+                        },
+                        "request_id": _NONEMPTY_STRING,
+                        "prompt_sha256": _SHA256,
+                        "endpoint": {
+                            "type": "string",
+                            "format": "uri",
+                            "minLength": 1,
+                        },
+                        "request_body_sha256": _SHA256,
+                        "model_requested": _NONEMPTY_STRING,
+                        "client_request_id": _NONEMPTY_STRING,
+                        "idempotency_key": {
+                            "anyOf": [
+                                _NONEMPTY_STRING,
+                                {"type": "null"},
+                            ]
+                        },
+                        "estimated_max_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "attempt_ordinal": {
+                            "type": "integer",
+                            "minimum": 1,
+                        },
+                        "started_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                    },
+                },
+                {
+                    "type": "object",
+                    "required": [
+                        "schema_version",
+                        "kind",
+                        "event",
+                        "attempt_id",
+                        "settled_at",
+                        "outcome",
+                        "automatic_retry_safe",
+                        "http_status",
+                        "charged_tokens",
+                        "server_request_id",
+                        "response_body_sha256",
+                        "response_record",
+                        "provider_audit",
+                    ],
+                    "additionalProperties": False,
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "kind": {
+                            "const": "llm-provider-transport-attempt"
+                        },
+                        "event": {"const": "settled"},
+                        "attempt_id": _SHA256,
+                        "settled_at": {
+                            "type": "string",
+                            "format": "date-time",
+                        },
+                        "outcome": {
+                            "enum": [
+                                "transport_error",
+                                "http_error",
+                                "invalid_response",
+                                "rejected_provider_result",
+                                "success",
+                            ]
+                        },
+                        "automatic_retry_safe": {"type": "boolean"},
+                        "http_status": {
+                            "type": ["integer", "null"],
+                            "minimum": 100,
+                            "maximum": 599,
+                        },
+                        "charged_tokens": {
+                            "type": "integer",
+                            "minimum": 0,
+                        },
+                        "server_request_id": {
+                            "type": ["string", "null"]
+                        },
+                        "response_body_sha256": {
+                            "anyOf": [_SHA256, {"type": "null"}]
+                        },
+                        "response_record": {
+                            "anyOf": [
+                                {"type": "object"},
+                                {"type": "null"},
+                            ]
+                        },
+                        "provider_audit": {
+                            "anyOf": [
+                                _embedded_record(
+                                    "openai-provider-audit"
+                                ),
+                                _embedded_record(
+                                    "openrouter-provider-audit"
+                                ),
+                                {"type": "null"},
+                            ]
+                        },
+                    },
+                },
+            ],
+        }
+    }
+)
 
 
 SCHEMAS.update(
@@ -1573,6 +2038,356 @@ SCHEMAS.update(
                     },
                 },
             ],
+        },
+    }
+)
+
+
+_H7_SOURCE_RUN_BINDING = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "run_id",
+        "manifest_sha256",
+        "config_file_sha256",
+        "checksums_sha256",
+        "population_sha256",
+        "experiment_a_metrics_sha256",
+        "hypothesis_estimands_sha256",
+    ],
+    "properties": {
+        "run_id": _NONEMPTY_STRING,
+        "manifest_sha256": _SHA256,
+        "config_file_sha256": _SHA256,
+        "checksums_sha256": _SHA256,
+        "population_sha256": _SHA256,
+        "experiment_a_metrics_sha256": _SHA256,
+        "hypothesis_estimands_sha256": _SHA256,
+    },
+}
+
+_H7_PROBABILITY_BELIEFS = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["attribute_1", "attribute_2", "attribute_3"],
+    "properties": {
+        attribute: _PROBABILITY_ROW
+        for attribute in ("attribute_1", "attribute_2", "attribute_3")
+    },
+}
+
+_H7_CASE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "schema_version",
+        "case_id",
+        "user_id",
+        "domain_id",
+        "target_attribute",
+        "target_direction",
+        "surface_statement",
+        "source_user_sha256",
+        "prior_probabilities",
+        "case_sha256",
+    ],
+    "properties": {
+        "schema_version": {"const": 1},
+        "case_id": _NONEMPTY_STRING,
+        "user_id": _NONEMPTY_STRING,
+        "domain_id": {"enum": ["travel", "writing"]},
+        "target_attribute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+        },
+        "target_direction": {"enum": [-1, 1]},
+        "surface_statement": _NONEMPTY_STRING,
+        "source_user_sha256": _SHA256,
+        "prior_probabilities": _H7_PROBABILITY_BELIEFS,
+        "case_sha256": _SHA256,
+    },
+}
+
+_H7_REQUEST_BINDING = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "schema_version",
+        "case_id",
+        "case_sha256",
+        "user_id",
+        "updater_id",
+        "view",
+        "llm_request",
+        "binding_sha256",
+    ],
+    "properties": {
+        "schema_version": {"const": 1},
+        "case_id": _NONEMPTY_STRING,
+        "case_sha256": _SHA256,
+        "user_id": _NONEMPTY_STRING,
+        "updater_id": {
+            "enum": ["llm_full_context", "llm_provenance_aware"]
+        },
+        "view": {"enum": ["full_context", "provenance_aware"]},
+        "llm_request": _embedded_record("llm-request"),
+        "binding_sha256": _SHA256,
+    },
+}
+
+_H7_VOLUNTEERED_EVIDENCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "schema_version",
+        "case_id",
+        "user_id",
+        "domain_id",
+        "target_attribute",
+        "target_direction",
+        "updater_id",
+        "provider",
+        "model_id",
+        "request_id",
+        "prompt_sha256",
+        "request_body_sha256",
+        "raw_response_sha256",
+        "audit_record_sha256",
+        "prior_probabilities",
+        "posterior_probabilities",
+        "directional_log_odds_update",
+        "claim_status",
+    ],
+    "properties": {
+        "schema_version": {"const": 1},
+        "case_id": _NONEMPTY_STRING,
+        "user_id": _NONEMPTY_STRING,
+        "domain_id": {"enum": ["travel", "writing"]},
+        "target_attribute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+        },
+        "target_direction": {"enum": [-1, 1]},
+        "updater_id": {
+            "enum": ["llm_full_context", "llm_provenance_aware"]
+        },
+        "provider": {"enum": ["openai", "openrouter"]},
+        "model_id": _NONEMPTY_STRING,
+        "request_id": _NONEMPTY_STRING,
+        "prompt_sha256": _SHA256,
+        "request_body_sha256": _SHA256,
+        "raw_response_sha256": _SHA256,
+        "audit_record_sha256": _SHA256,
+        "prior_probabilities": _H7_PROBABILITY_BELIEFS,
+        "posterior_probabilities": _H7_PROBABILITY_BELIEFS,
+        "directional_log_odds_update": {"type": "number"},
+        "claim_status": {"const": "not_claimed"},
+    },
+}
+
+SCHEMAS.update(
+    {
+        "h7-volunteered-request-binding": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": (
+                "urn:cape-loop:schema:"
+                "h7-volunteered-request-binding:v1"
+            ),
+            "title": "CAPE-Loop H7 volunteered request binding",
+            "description": (
+                "A provider-neutral direct-statement request plus the "
+                "withheld source-user, case, updater, and view bindings."
+            ),
+            **_H7_REQUEST_BINDING,
+        },
+        "h7-volunteered-collection-plan": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": (
+                "urn:cape-loop:schema:"
+                "h7-volunteered-collection-plan:v1"
+            ),
+            "title": "CAPE-Loop H7 volunteered collection plan",
+            "description": (
+                "The complete content-addressed direct-statement corpus "
+                "derived from one verified Experiment A run."
+            ),
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "schema_version",
+                "artifact_kind",
+                "plan_version",
+                "source_run",
+                "roles",
+                "cases",
+                "request_bindings",
+                "case_count",
+                "request_count",
+                "independent_user_count",
+                "plan_sha256",
+                "claim_status",
+                "interpretation",
+            ],
+            "properties": {
+                "schema_version": {"const": 1},
+                "artifact_kind": {
+                    "const": "h7_volunteered_collection_plan"
+                },
+                "plan_version": {
+                    "const": "h7-volunteered-control-plan-v1"
+                },
+                "source_run": _H7_SOURCE_RUN_BINDING,
+                "roles": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["updater_id", "view"],
+                        "properties": {
+                            "updater_id": {
+                                "enum": [
+                                    "llm_full_context",
+                                    "llm_provenance_aware",
+                                ]
+                            },
+                            "view": {
+                                "enum": [
+                                    "full_context",
+                                    "provenance_aware",
+                                ]
+                            },
+                        },
+                    },
+                },
+                "cases": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _H7_CASE,
+                },
+                "request_bindings": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": _H7_REQUEST_BINDING,
+                },
+                "case_count": {"type": "integer", "minimum": 1},
+                "request_count": {"type": "integer", "minimum": 2},
+                "independent_user_count": {
+                    "type": "integer",
+                    "minimum": 2,
+                },
+                "plan_sha256": _SHA256,
+                "claim_status": {"const": "not_claimed"},
+                "interpretation": _NONEMPTY_STRING,
+            },
+        },
+        "h7-volunteered-evidence": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "urn:cape-loop:schema:h7-volunteered-evidence:v1",
+            "title": "CAPE-Loop H7 provider-bound volunteered evidence",
+            "description": (
+                "One accepted direct-statement provider response and its "
+                "directional log-odds update."
+            ),
+            **_H7_VOLUNTEERED_EVIDENCE,
+        },
+        "h7-volunteered-review": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "urn:cape-loop:schema:h7-volunteered-review:v1",
+            "title": "CAPE-Loop H7 volunteered-control review",
+            "description": (
+                "A derived, checksum-bound review that supplies H7's "
+                "volunteered positive-control component without modifying "
+                "the source run."
+            ),
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "schema_version",
+                "artifact_kind",
+                "review_version",
+                "source_run",
+                "collection_plan",
+                "provider_evidence",
+                "analysis_settings",
+                "volunteered_preference_updates",
+                "provider_bound_evidence",
+                "source_h7_sha256",
+                "recomputed_h7",
+                "recomputation_scope",
+                "claim_status",
+                "interpretation",
+                "review_sha256",
+            ],
+            "properties": {
+                "schema_version": {"const": 1},
+                "artifact_kind": {
+                    "const": "h7_volunteered_control_review"
+                },
+                "review_version": {
+                    "const": "h7-volunteered-control-review-v1"
+                },
+                "source_run": _H7_SOURCE_RUN_BINDING,
+                "collection_plan": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "plan_sha256",
+                        "plan_file_sha256",
+                        "bindings_file_sha256",
+                        "requests_file_sha256",
+                    ],
+                    "properties": {
+                        "plan_sha256": _SHA256,
+                        "plan_file_sha256": _SHA256,
+                        "bindings_file_sha256": _SHA256,
+                        "requests_file_sha256": _SHA256,
+                    },
+                },
+                "provider_evidence": {"type": "object"},
+                "analysis_settings": {"type": "object"},
+                "volunteered_preference_updates": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "case_id",
+                            "user_id",
+                            "updater_id",
+                            "directional_log_odds_update",
+                        ],
+                        "properties": {
+                            "case_id": _NONEMPTY_STRING,
+                            "user_id": _NONEMPTY_STRING,
+                            "updater_id": {
+                                "enum": [
+                                    "llm_full_context",
+                                    "llm_provenance_aware",
+                                ]
+                            },
+                            "directional_log_odds_update": {
+                                "type": "number"
+                            },
+                        },
+                    },
+                },
+                "provider_bound_evidence": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": _H7_VOLUNTEERED_EVIDENCE,
+                },
+                "source_h7_sha256": _SHA256,
+                "recomputed_h7": {"type": "object"},
+                "recomputation_scope": {"type": "object"},
+                "claim_status": {"const": "not_claimed"},
+                "interpretation": _NONEMPTY_STRING,
+                "review_sha256": _SHA256,
+            },
         },
     }
 )

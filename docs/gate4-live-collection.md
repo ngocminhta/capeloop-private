@@ -6,9 +6,9 @@ terminal actions. The repository implements collection, validation, audit, and
 resume mechanics. It does not turn provider metadata into a scientific
 independence claim.
 
-No live Anthropic, Google, or OpenAI call was made while creating this
-repository. No provider judgment, native action, or Gate 4 result is checked
-in. The current state is `protocol_ready`, and all generated manifests retain
+No provider judgment, native action, or Gate 4 result is checked in.
+Development-time transport smokes are outside the Gate 4 corpus. The current
+state is `protocol_ready`, and all generated manifests retain
 `claim_status = "not_claimed"`.
 
 ## Evidence flow
@@ -313,6 +313,10 @@ errors are recursively redacted if a response unexpectedly echoes a secret.
 Each logical request permits four retries by default, for at most five physical
 attempts, with bounded exponential backoff and jitter. HTTP 408, 409, 425, 429,
 and 5xx responses are retryable; other HTTP failures fail immediately.
+Timeouts, connection failures, and other transport exceptions are ambiguous:
+the provider may already have accepted and billed the request. They are
+durably charged and stop immediately for manual review rather than being
+retried automatically.
 `Retry-After` in seconds or HTTP-date form is honored. Every attempted
 transport is charged one request and its conservative token reservation unless
 settled provider usage supplies the charged token count.
@@ -480,8 +484,21 @@ automated path it rebuilds both collection plans, validates every physical
 attempt, provider audit, judgment/action row, actual model and origin, and both
 portable execution manifests. It holds the decoder collector's outer and inner
 locks and the native collector lock through validation, input hashing, and
-review creation. It creates a new checksum-bound review and never mutates the
-Experiment B run.
+publication. A sibling `.<OUTPUT>.gate4-review.lock` serializes imports aimed
+at the same destination without weakening those shared collector locks.
+
+Publication is transactional. The importer creates a hidden same-parent
+`.<OUTPUT>.*.staging` directory, exclusively creates and fsyncs each review
+file, fsyncs the staged directory, then re-verifies the complete source run,
+its exact source binding, every directly supplied input path and byte
+snapshot, and every admitted file and lock in both collection directories.
+It self-verifies the staged checksums and review semantics against the source
+run before checking the destination again. Only then does an atomic rename
+make the complete directory visible, followed by a parent-directory fsync.
+An existing or raced destination is never intentionally overwritten. A write,
+input-race, source-race, or staged-verification failure removes the private
+stage and sibling lock; it cannot leave a partial public review. The Experiment
+B run and evidence collections are never modified.
 
 Import accepts lower collection budgets but rejects upward overrides beyond
 the approved ceilings: per external source, 900 attempts, 6,000,000 total
@@ -494,6 +511,15 @@ digests. `gate-review verify` verifies the review directory itself; full
 recomputation also needs the verified source run and those exact inputs. A
 checksum-valid review is still `not_claimed` until the authors review the
 analysis, limitations, and claim scope.
+
+Verification rejects a symlinked review root, symlinked retained files, unsafe
+checksum paths, and any missing or unexpected directory entry. The Python API
+can additionally bind verification to a supplied source run. Programmatic
+consumers that need only the official decoder admission step may call
+`validate_official_external_decoder_collection`; it holds both decoder
+collection locks and rechecks the source, collection, and supplied judgment
+snapshot before returning the parsed judgments, manifest entries, and
+provenance summary.
 
 For reviewed human or other generic decoder evidence, replace
 `--external-collection-dir ...` with

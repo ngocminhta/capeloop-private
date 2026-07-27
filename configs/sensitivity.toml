@@ -53,6 +53,7 @@ decision_noise_values = [0.6, 1.0, 1.6]
 presentation_multipliers = [0.5, 1.0, 1.5]
 profile_strength_values = [0.65, 0.80, 0.90]
 trajectory_lengths = [4, 8, 12]
+phase_min_suggestion_rejection_rate = 0.20
 
 [artifacts]
 retain_events = true

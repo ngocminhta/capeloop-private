@@ -53,6 +53,7 @@ from .openai_provider import (
     execute_jsonl,
     execute_requests,
 )
+from .provider_attempts import DurableProviderAttemptLedger
 
 
 OPENROUTER_OFFICIAL_BASE_URL = "https://openrouter.ai/api"
@@ -174,24 +175,34 @@ def _usage_total_tokens(usage: Mapping[str, Any]) -> int | None:
     return None
 
 
-def _normalized_provider_identity(value: str) -> str:
-    return "".join(
-        character.lower()
-        for character in value
-        if character.isalnum()
+def _upstream_model_is_consistent(
+    requested_model: str,
+    selected_model: str,
+) -> bool:
+    """Accept the canonical model or a conservative dated snapshot label."""
+
+    if selected_model == requested_model:
+        return True
+    return bool(
+        re.fullmatch(
+            re.escape(requested_model)
+            + r"-(?:\d{8}|\d{4}-\d{2}-\d{2})",
+            selected_model,
+        )
     )
 
 
-def _upstream_provider_is_consistent(
-    configured_slug: str,
-    returned_name: str,
-) -> bool:
-    if not configured_slug:
-        return True
-    returned = _normalized_provider_identity(returned_name)
-    full = _normalized_provider_identity(configured_slug)
-    base = _normalized_provider_identity(configured_slug.split("/", 1)[0])
-    return returned in {full, base}
+def _route_constraint_evidence(
+    config: "OpenRouterProviderConfig",
+) -> str:
+    if config.upstream_provider:
+        return "request_body_provider_only_and_order"
+    return "request_body_provider_preferences_without_exact_route_constraint"
+
+
+_SELECTED_UPSTREAM_IDENTITY_SEMANTICS = (
+    "router_display_identity_not_exact_route_slug_attestation"
+)
 
 
 def belief_json_schema() -> dict[str, Any]:
@@ -527,7 +538,7 @@ def prepare_openrouter_request(
                 "schema": belief_json_schema(),
             },
         },
-        "max_completion_tokens": config.max_output_tokens,
+        "max_tokens": config.max_output_tokens,
         "stream": False,
         "provider": config.provider_preferences(),
         "metadata": {
@@ -712,17 +723,6 @@ class ExecutionBudget:
             )
         self._reservation = estimated_max_tokens
 
-    def begin_attempt(self) -> None:
-        """Charge one physical HTTP attempt before dispatch."""
-
-        if self._reservation is None:
-            raise RuntimeError("no in-flight budget reservation")
-        if self.request_count + 1 > self.max_requests:
-            raise OpenRouterBudgetExceeded(
-                f"HTTP attempt would exceed max_requests={self.max_requests}"
-            )
-        self.request_count += 1
-
     def commit(self, actual_total_tokens: int | None) -> None:
         if self._reservation is None:
             raise RuntimeError("no in-flight budget reservation")
@@ -744,6 +744,7 @@ class ExecutionBudget:
                 "provider-reported tokens exceed the conservative "
                 "preflight reservation"
             )
+        self.request_count += 1
         self.total_tokens += charged
         self._reservation = None
 
@@ -857,6 +858,10 @@ class OpenRouterProviderResult:
     generation_id: str | None
     cache_status: str | None
     estimated_max_tokens: int
+    upstream_provider_constraint: str | None
+    provider_preferences: Mapping[str, Any]
+    route_constraint_evidence: str
+    selected_upstream_identity_semantics: str
     raw_response: Mapping[str, Any]
 
     def to_audit_record(
@@ -895,6 +900,12 @@ class OpenRouterProviderResult:
             "generation_id": self.generation_id,
             "cache_status": self.cache_status,
             "estimated_max_tokens": self.estimated_max_tokens,
+            "upstream_provider_constraint": self.upstream_provider_constraint,
+            "provider_preferences": self.provider_preferences,
+            "route_constraint_evidence": self.route_constraint_evidence,
+            "selected_upstream_identity_semantics": (
+                self.selected_upstream_identity_semantics
+            ),
             "raw_response_sha256": self.response.raw_response_sha256,
             "raw_response": self.raw_response,
             "replay_response": self.response.to_dict(),
@@ -1051,6 +1062,14 @@ def _parse_provider_result(
         generation_id=generation_id,
         cache_status=cache_status,
         estimated_max_tokens=prepared.estimated_max_tokens,
+        upstream_provider_constraint=(
+            config.upstream_provider or None
+        ),
+        provider_preferences=config.provider_preferences(),
+        route_constraint_evidence=_route_constraint_evidence(config),
+        selected_upstream_identity_semantics=(
+            _SELECTED_UPSTREAM_IDENTITY_SEMANTICS
+        ),
         raw_response=dict(safe_raw),
     )
 
@@ -1123,6 +1142,12 @@ class OpenRouterChatProvider:
             "router_metadata_requested": True,
             "first_party_origin_claimed": False,
             "request_budget_unit": "physical_http_attempt",
+            "route_constraint_evidence": _route_constraint_evidence(
+                self.config
+            ),
+            "selected_upstream_identity_semantics": (
+                _SELECTED_UPSTREAM_IDENTITY_SEMANTICS
+            ),
         }
 
     def validate_resumed_audit(
@@ -1134,7 +1159,6 @@ class OpenRouterChatProvider:
     ) -> None:
         """Revalidate retained routing provenance before replaying it."""
 
-        del prepared
         routing = audit.get("routing_metadata")
         if not isinstance(routing, Mapping):
             raise ValueError(
@@ -1166,7 +1190,22 @@ class OpenRouterChatProvider:
             "usage": raw_usage,
             "gateway": "openrouter",
             "first_party_origin_claimed": False,
+            "upstream_provider_constraint": (
+                self.config.upstream_provider or None
+            ),
+            "provider_preferences": self.config.provider_preferences(),
+            "route_constraint_evidence": _route_constraint_evidence(
+                self.config
+            ),
+            "selected_upstream_identity_semantics": (
+                _SELECTED_UPSTREAM_IDENTITY_SEMANTICS
+            ),
         }
+        if prepared.body.get("provider") != expected["provider_preferences"]:
+            raise ValueError(
+                "current OpenRouter request body does not contain the "
+                "configured provider preferences"
+            )
         try:
             (
                 _metadata,
@@ -1273,7 +1312,12 @@ class OpenRouterChatProvider:
                 + _canonical(mismatches)
             )
 
-    def complete(self, request: LLMRequest) -> OpenRouterProviderResult:
+    def complete(
+        self,
+        request: LLMRequest,
+        *,
+        attempt_ledger: DurableProviderAttemptLedger | None = None,
+    ) -> OpenRouterProviderResult:
         if not self.config.live_execution:
             raise OpenRouterLiveExecutionRequired(
                 "live OpenRouter execution is disabled; set "
@@ -1281,28 +1325,89 @@ class OpenRouterChatProvider:
                 "route, and budgets"
             )
         prepared = self.prepare(request)
-        self.budget.reserve(prepared.estimated_max_tokens)
-        key = os.environ.get(self.config.api_key_env)
-        if not isinstance(key, str) or not key.strip():
-            self.budget.rollback()
-            raise OpenRouterMissingAPIKey(
-                "missing API key in environment variable "
-                f"{self.config.api_key_env}"
-            )
-        key = key.strip()
-        if "\r" in key or "\n" in key:
-            self.budget.rollback()
-            raise OpenRouterMissingAPIKey(
-                f"{self.config.api_key_env} contains an invalid newline"
-            )
-        headers = dict(prepared.headers)
-        headers["Authorization"] = "Bearer " + key
+        key: str | None = None
+        headers: dict[str, str] | None = None
         started_at = _utc_timestamp(self._epoch_time())
         last_result: HTTPResult | None = None
         try:
             for attempt in range(1, self.config.max_retries + 2):
-                self.budget.begin_attempt()
+                self.budget.reserve(prepared.estimated_max_tokens)
+                if key is None:
+                    loaded = os.environ.get(self.config.api_key_env)
+                    if not isinstance(loaded, str) or not loaded.strip():
+                        self.budget.rollback()
+                        raise OpenRouterMissingAPIKey(
+                            "missing API key in environment variable "
+                            f"{self.config.api_key_env}"
+                        )
+                    loaded = loaded.strip()
+                    if "\r" in loaded or "\n" in loaded:
+                        self.budget.rollback()
+                        raise OpenRouterMissingAPIKey(
+                            f"{self.config.api_key_env} contains an invalid "
+                            "newline"
+                        )
+                    key = loaded
+                    headers = dict(prepared.headers)
+                    headers["Authorization"] = "Bearer " + key
+                attempt_started_at = _utc_timestamp(self._epoch_time())
                 try:
+                    attempt_id = (
+                        attempt_ledger.start(
+                            request,
+                            prepared,
+                            started_at=attempt_started_at,
+                        )
+                        if attempt_ledger is not None
+                        else None
+                    )
+                except Exception:
+                    self.budget.rollback()
+                    raise
+
+                def settle(
+                    *,
+                    outcome: str,
+                    automatic_retry_safe: bool = False,
+                    http_status: int | None = None,
+                    server_request_id: str | None = None,
+                    response_body_sha256: str | None = None,
+                    response_record: Mapping[str, Any] | None = None,
+                    charged_tokens: int | None = None,
+                    provider_audit: Mapping[str, Any] | None = None,
+                ) -> None:
+                    charged = (
+                        prepared.estimated_max_tokens
+                        if charged_tokens is None
+                        else charged_tokens
+                    )
+                    if charged > prepared.estimated_max_tokens:
+                        raise OpenRouterResponseError(
+                            "provider token usage exceeds the conservative "
+                            "reservation; manual review is required"
+                        )
+                    if attempt_ledger is not None:
+                        if attempt_id is None:
+                            raise RuntimeError(
+                                "provider attempt journal identity is missing"
+                            )
+                        attempt_ledger.settle(
+                            attempt_id,
+                            settled_at=_utc_timestamp(self._epoch_time()),
+                            outcome=outcome,
+                            automatic_retry_safe=automatic_retry_safe,
+                            http_status=http_status,
+                            charged_tokens=charged,
+                            server_request_id=server_request_id,
+                            response_body_sha256=response_body_sha256,
+                            response_record=response_record,
+                            provider_audit=provider_audit,
+                        )
+                    self.budget.commit(charged)
+
+                try:
+                    if headers is None or key is None:
+                        raise RuntimeError("live credential was not initialized")
                     result = self._transport(
                         url=prepared.endpoint,
                         body=prepared.body_bytes,
@@ -1310,9 +1415,18 @@ class OpenRouterChatProvider:
                         timeout=self.config.timeout_seconds,
                     )
                 except OpenRouterHTTPResponseBodyTooLarge as exc:
-                    self.budget.commit(None)
+                    settle(
+                        outcome="invalid_response",
+                        http_status=exc.status,
+                    )
                     raise OpenRouterResponseError(str(exc)) from exc
                 except (TimeoutError, ConnectionError, OSError) as exc:
+                    settle(
+                        outcome="transport_error",
+                        response_record={
+                            "error_type": type(exc).__name__,
+                        },
+                    )
                     raise OpenRouterProviderError(
                         "OpenRouter transport outcome is ambiguous after "
                         f"attempt {attempt}; automatic retry is disabled "
@@ -1322,8 +1436,26 @@ class OpenRouterChatProvider:
                         f"error_type={type(exc).__name__}"
                     ) from exc
                 last_result = result
+                lowered = _lower_headers(result.headers)
+                generation_id = (
+                    lowered.get("x-generation-id", "").replace(
+                        key,
+                        "[redacted]",
+                    )
+                    or None
+                )
+                response_digest = sha256(result.body).hexdigest()
                 if 200 <= result.status <= 299:
+                    safe_response: Mapping[str, Any] | None = None
                     try:
+                        try:
+                            decoded = json.loads(result.body.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            decoded = None
+                        if isinstance(decoded, Mapping):
+                            candidate = _redact_provider_value(decoded, key)
+                            if isinstance(candidate, Mapping):
+                                safe_response = dict(candidate)
                         parsed = _parse_provider_result(
                             request=request,
                             prepared=prepared,
@@ -1335,19 +1467,66 @@ class OpenRouterChatProvider:
                             secret=key,
                         )
                     except Exception:
-                        self.budget.commit(None)
+                        settle(
+                            outcome="invalid_response",
+                            http_status=result.status,
+                            server_request_id=generation_id,
+                            response_body_sha256=response_digest,
+                            response_record=(
+                                safe_response
+                                if safe_response is not None
+                                else {
+                                    "body_excerpt": " ".join(
+                                        result.body.decode(
+                                            "utf-8",
+                                            errors="replace",
+                                        )
+                                        .replace(key, "[redacted]")
+                                        .split()
+                                    )[:500]
+                                }
+                            ),
+                        )
                         raise
-                    self.budget.commit(_usage_total_tokens(parsed.usage))
                     rejection_reasons = self._rejection_reasons(parsed)
+                    audit = parsed.to_audit_record(
+                        acceptance_status=(
+                            "rejected_openrouter_identity"
+                            if rejection_reasons
+                            else "accepted"
+                        )
+                    )
+                    settle(
+                        outcome=(
+                            "rejected_provider_result"
+                            if rejection_reasons
+                            else "success"
+                        ),
+                        http_status=result.status,
+                        server_request_id=generation_id,
+                        response_body_sha256=response_digest,
+                        response_record=dict(parsed.raw_response),
+                        charged_tokens=_usage_total_tokens(parsed.usage),
+                        provider_audit=audit,
+                    )
                     if rejection_reasons:
                         raise OpenRouterResultRejected(
                             parsed,
                             rejection_reasons,
                         )
                     return parsed
-                lowered = _lower_headers(result.headers)
+                safe_message = _safe_api_error(result.body, secret=key)
+                transient = result.status in _TRANSIENT_STATUSES
+                settle(
+                    outcome="http_error",
+                    automatic_retry_safe=transient,
+                    http_status=result.status,
+                    server_request_id=generation_id,
+                    response_body_sha256=response_digest,
+                    response_record={"error": safe_message},
+                )
                 if (
-                    result.status in _TRANSIENT_STATUSES
+                    transient
                     and attempt <= self.config.max_retries
                 ):
                     self._sleep(
@@ -1359,15 +1538,9 @@ class OpenRouterChatProvider:
                     continue
                 raise OpenRouterHTTPError(
                     status=result.status,
-                    message=_safe_api_error(result.body, secret=key),
+                    message=safe_message,
                     client_request_id=prepared.client_request_id,
-                    generation_id=(
-                        lowered.get("x-generation-id", "").replace(
-                            key,
-                            "[redacted]",
-                        )
-                        or None
-                    ),
+                    generation_id=generation_id,
                 )
         except Exception:
             self.budget.rollback()
@@ -1390,15 +1563,11 @@ class OpenRouterChatProvider:
             reasons.append("router metadata requested model differs")
         if result.routing_strategy != "direct":
             reasons.append("routing strategy is not direct")
-        if result.upstream_model != result.model_returned:
-            reasons.append("selected upstream model differs from response model")
-        if not _upstream_provider_is_consistent(
-            self.config.upstream_provider,
-            result.upstream_provider,
+        if not _upstream_model_is_consistent(
+            self.config.model,
+            result.upstream_model,
         ):
-            reasons.append(
-                "selected upstream provider differs from the configured route"
-            )
+            reasons.append("selected upstream model is outside requested family")
         if (
             not self.config.allow_fallbacks
             and result.routing_attempt != 1
@@ -1440,17 +1609,21 @@ class OpenRouterChatProvider:
             reasons.append("requested model differs")
         if routing.get("strategy") != "direct":
             reasons.append("strategy is not direct")
-        if audit.get("upstream_model") != audit.get("model_returned"):
-            reasons.append("selected model differs")
+        upstream_model = audit.get("upstream_model")
         upstream_provider = audit.get("upstream_provider")
         if (
-            not isinstance(upstream_provider, str)
-            or not _upstream_provider_is_consistent(
-                self.config.upstream_provider,
-                upstream_provider,
+            not isinstance(upstream_model, str)
+            or not _upstream_model_is_consistent(
+                self.config.model,
+                upstream_model,
             )
         ):
-            reasons.append("selected upstream provider differs")
+            reasons.append("selected model is outside requested family")
+        if (
+            not isinstance(upstream_provider, str)
+            or not upstream_provider.strip()
+        ):
+            reasons.append("selected upstream provider is missing")
         if (
             not self.config.allow_fallbacks
             and routing.get("attempt") != 1
@@ -1515,7 +1688,6 @@ class ResumableOpenRouterCompletionProvider(ResumableCompletionProvider):
         audits = tuple(self._audits[request_id] for request_id in used)
         manifest.update(
             {
-                "transport_attempts": self.provider.budget.request_count,
                 "upstream_providers_returned": sorted(
                     {
                         str(audit["upstream_provider"])
@@ -1545,6 +1717,7 @@ def execute_openrouter_requests(
     *,
     responses_path: str | Path,
     audit_path: str | Path,
+    attempts_path: str | Path | None = None,
 ) -> ExecutionSummary:
     """Execute or resume a static request corpus through OpenRouter."""
 
@@ -1553,6 +1726,7 @@ def execute_openrouter_requests(
         requests,
         responses_path=responses_path,
         audit_path=audit_path,
+        attempts_path=attempts_path,
     )
 
 
@@ -1562,6 +1736,7 @@ def execute_openrouter_jsonl(
     *,
     responses_path: str | Path,
     audit_path: str | Path,
+    attempts_path: str | Path | None = None,
 ) -> ExecutionSummary:
     """Execute or resume exported request JSONL through OpenRouter."""
 
@@ -1570,4 +1745,5 @@ def execute_openrouter_jsonl(
         requests_path,
         responses_path=responses_path,
         audit_path=audit_path,
+        attempts_path=attempts_path,
     )

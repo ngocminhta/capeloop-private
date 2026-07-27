@@ -352,8 +352,16 @@ calibrated responses separately. `llm.calibration = "none"` is an explicit
 ablation. The code enforces `test_labels_used = false`; meaningful fitted
 temperatures still require real imported or live responses.
 
-Sensitivity rejects all `llm_*` updaters because sequential adaptive requests
-cannot be safely reused across changed grid dynamics.
+Sensitivity supports replay, direct OpenAI, and OpenRouter `llm_*` updaters
+with `llm.calibration = "none"`, retained prompts/events, and an explicit
+nondeterministic run declaration for live modes. Every grid point receives its
+own content-bound adaptive requests; requests are never reused across changed
+dynamics. Before credential access or artifact creation, live runs require the
+retry-expanded worst-case physical request count for the complete declared
+grid to fit `llm.max_requests`. The cumulative token ceiling is enforced
+conservatively before each adaptive dispatch; because future prompts depend on
+earlier model outputs, the runner does not pretend to know an exact whole-grid
+prompt-token total in advance.
 
 See [LLM exchange](llm-exchange.md).
 
@@ -365,14 +373,23 @@ Modules: `openai_provider.py`, `evaluation_suite.py`
 strict Structured Outputs request. Preparing or planning a request does not
 read a credential. An actual call requires explicit live authorization, reads
 only the configured environment variable, and reserves that provider
-instance's request/token budget before transport. Static and adaptive adapters
-append the provider audit before exposing the replay response. The shared
-transport refuses redirects and applies the same 16 MiB wire-body ceiling to
-successful and error responses.
+instance's request/token budget before transport. `provider_attempts.py`
+frames each physical dispatch with fsynced `started`/`settled` evidence; final
+settlements embed the provider audit before static or adaptive adapters expose
+the replay response. The shared transport refuses redirects and applies the
+same 16 MiB wire-body ceiling to successful and error responses.
+Static corpus execution additionally holds a nonblocking sibling lock over the
+entire reconciliation-and-append transaction, preventing concurrent local
+executors from dispatching the same retained request.
 
 The returned model must equal the requested model or its dated snapshot. A
 missing or different label is charged and retained as a rejected audit, but is
 never written as replay input; the journal then requires manual review.
+Request ceilings count physical dispatches. Failed attempts conservatively
+consume their complete reservation, and keyless plans test the retry-expanded
+worst case. An unresolved or nonfinal prior invocation blocks automatic
+restart; a final settlement whose public audit append was interrupted is
+reconciled without another provider call.
 
 `evaluation_suite.py` treats the checked primary and replication TOML files as
 immutable inputs. It verifies their matched design and fixed Sol/Terra roles,
@@ -402,13 +419,20 @@ that OpenRouter marks as data collecting, and optionally constrains both
 `provider.order` and `provider.only` to one upstream slug. ZDR and attribution
 headers are separately configurable.
 
-The parser requires one stopped choice, exact returned-model equality, one
-selected upstream endpoint, a direct routing strategy, an upstream model
-matching the returned model, no disallowed fallback, no cache hit, and no
-material router-pipeline stage. It parses
+The parser requires one stopped choice, exact top-level returned-model
+equality, one selected upstream endpoint, a direct first routing attempt, an
+upstream model equal to the canonical model or a dated snapshot of it, no
+disallowed fallback, no cache hit, and no material router-pipeline stage. It parses
 `choices[0].message.content` as JSON and revalidates all probability vectors
 locally. A completed response that fails route/model acceptance is durably
 audited but cannot enter replay.
+
+When an upstream slug is pinned, the route evidence is the submitted
+`provider.only` plus `provider.order` constraint with fallbacks disabled.
+OpenRouter's response metadata uses a display provider name and a
+provider-specific model snapshot; it does not echo the exact endpoint slug.
+Those display fields are retained but are not represented as exact-slug
+attestation.
 
 `OpenRouterProviderResult.to_audit_record()` implements
 `openrouter-provider-audit.schema.json`. The record distinguishes the gateway
@@ -416,15 +440,24 @@ from the observed upstream route with `gateway`, `model_requested`,
 `model_returned`, `upstream_provider`, `upstream_model`, `routing_strategy`,
 `routing_attempt`, and the additive `routing_metadata`. It also retains
 provider/generation IDs when returned, cache status, raw usage, timings and
-hashes, a redacted raw response, and the provider-neutral replay response.
-Resume revalidates those identities and route-acceptance rules before using an
-accepted audit.
+hashes, a redacted raw response, and the provider-neutral replay response. It
+also retains the configured upstream constraint, exact provider preferences,
+request-constraint evidence label, and display-identity interpretation
+boundary. Resume revalidates those identities, configuration fields, and
+route-acceptance rules before using an accepted audit.
 
 The runner places its recovery files under
 `.llm-journals/<run-id>/openrouter/<model-role>/` and copies only used records
-into the checksummed run's `llm/` directory. The decoder CLI can place multiple
-exact models in separate `journals/<model-digest>/` directories and emit one
-combined `judgments.jsonl` plus execution manifest.
+into the checksummed run's `llm/provider-audit.jsonl` and
+`llm/transport-attempts.jsonl`, with both digests in
+`llm/provider-manifest.json`. The decoder CLI can place multiple exact models
+in separate `journals/<model-digest>/` directories and emit one combined
+`judgments.jsonl` plus execution manifest. Its plan uses the same
+model-derived decoder instance ID as execution and reports each canonical
+request-body digest and conservative token bound. Generic OpenAI and
+OpenRouter decoder collection share an output-level nonblocking lock across
+reconciliation, dispatch, and final writes, preventing duplicate paid calls
+from concurrent local commands targeting one output directory.
 
 Every audit fixes `first_party_origin_claimed = false`; decoder manifests also
 fix `strict_gate4_eligible = false` and
@@ -524,9 +557,23 @@ prior is supplied to every updater/mechanism in a matched cell, and natural
 responses share the same semantic noise key across prior strata. The primary
 marginal OLS includes numeric `prior_strength` when more than one level is
 configured. A content-addressed control battery fixes all three positive and
-three negative protocols from the proposal, but labels them as protocol-only
-until their direct-statement, longitudinal, correction, indifference, or
-randomized-response executors produce observations.
+three negative protocols from the proposal. `control_study.py` materializes
+them as typed, content-addressed stimuli and runs separate transparent
+reference/no-update executors. It also creates view-safe provider-neutral
+requests and exact response bindings. Diagnostic reference results cannot
+substitute for external model evidence, and the one-step anchor rows are never
+relabeled as control outcomes.
+
+`h7_control_review.py` implements the distinct user-clustered volunteered
+positive-control boundary. From a verified Experiment A run it exhaustively
+crosses every retained test user, domain, and attribute with
+`llm_full_context` and `llm_provenance_aware`. It accepts no partial corpus:
+provider responses require matching accepted OpenAI/OpenRouter audit rows,
+request/prompt/body/raw-response hashes, embedded replay equality, and a fixed
+provider/model across both arms. Only then are directional log-odds changes
+converted to `VolunteeredPreferenceUpdate`. The review is a new, self-digested
+artifact outside the source run; it recomputes the volunteered and overall
+Experiment A H7 criteria without imputing or changing the source.
 
 Experiment B statistics apply deterministic percentile bootstraps to
 complete-trajectory paired estimands. Primary intervals resample equally
@@ -535,6 +582,18 @@ as a sensitivity view. The artifact covers evidence selection, same-history
 attribution, SCI, LCG, five-clause profile rate, and later-action-influence
 rate, and marks fewer than eight user clusters inadequate. This analysis is
 also explicitly not a mixed-effects model or GLMM.
+
+`power.py` separately reduces Experiment B's frozen
+full-context-versus-fitted-aware × soft-versus-balanced ×
+incorrect-versus-correct terminal-error interaction to one value per complete
+latent user. It checks every eight-cell domain×replicate block, reports
+incomplete users, content-digests the contributing pilot rows, and runs a
+deterministic centered-residual simulation for 16, 32, 64, and 128 users.
+Simulation work is bounded to 10,000 replicates per candidate. Binomial Monte
+Carlo uncertainty accompanies every power estimate, and a lower-Wilson-bound
+rule supplies only an investigator-reviewable planning candidate. The JSON and
+Markdown outputs explicitly remain pilot-design artifacts rather than
+confirmatory mixed-effects results or empirical claims.
 
 For temperature-calibrated LLM updaters in B/C, `llm_outcomes.py` performs a
 strictly local paired diagnostic: it recovers the terminal content-addressed
@@ -558,6 +617,16 @@ key, rejects duplicates or incomplete layouts, and reduces all domains and
 trajectory replicates to one value per complete latent-user cluster before
 paired resampling. Its ranking output records that independent unit and the
 effective development/test cluster counts.
+
+`experiment_c_robustness.py` is the separate offline cross-run reviewer for
+that output. It admits two to 32 checksum-valid completed Experiment C runs,
+requires distinct seeds plus identical normalized scientific config, updater
+set/order, ranking threshold, and executable source digest, and then compares
+the three point rankings, open/closed inferential top tiers and partial orders,
+Gate 5 decision/status, and ESR selection sets. Each dimension retains
+content-addressed value patterns, exact rational modal/pairwise agreement, and
+all disagreements. It stages and verifies a three-file immutable artifact
+outside every source run and cannot change `claim_status = "not_claimed"`.
 
 Power helpers also retain Benjamini–Hochberg utilities for legacy analyses;
 Experiment A's wired confirmatory family uses Holm correction.
@@ -590,7 +659,8 @@ external import exists.
 ## Runner, artifacts, reporting, and schemas
 
 Modules: `runner.py`, `artifacts.py`, `release.py`, `gate_review.py`,
-`reporting.py`, `schema_export.py`
+`h7_control_review.py`, `experiment_c_robustness.py`, `reporting.py`,
+`schema_export.py`
 
 `runner.py` validates the experiment contract, prepares fits/splits, dispatches
 the runner, writes exact filenames, captures failures, and finalizes checksums.
@@ -620,7 +690,8 @@ specified destination.
 
 ## Human collection and pragmatic analysis
 
-Modules: `human_study.py`, `decoder_study.py`, `verbalization.py`
+Modules: `human_study.py`, `decoder_study.py`, `human_comparison.py`,
+`verbalization.py`
 
 The human-study component constructs fixed study items, hides condition/source
 IDs in participant records, deterministically orders items, and builds a
@@ -630,6 +701,16 @@ comprehension status, response time, and 1–7 ratings. Analysis includes only
 consented, comprehension-passing rows and reports condition summaries, an
 observed evidence-strength ordering, and paired participant bootstrap
 contrasts.
+
+The H8 comparison consumes a separate strict model-evidence exchange. It pairs
+balanced and policy-conditioned observations by scenario inside each
+participant or held-out test-user cluster, shifts the human 1–7 scale to its
+declared no-support zero, and compares dimensionless within-source discount
+fractions. Scenarios are averaged inside clusters before an independent
+participant/test-user bootstrap. The primary ordinary-LLM source ID is required
+on the command line; temporal preregistration remains an external record that
+the CLI cannot prove. A completed computation still writes
+`claim_status = "not_claimed"`.
 
 These are collection and analysis contracts, not a recruitment or survey
 service. A consent-version field does not confer ethics approval. Institutional

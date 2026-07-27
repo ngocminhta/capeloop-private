@@ -179,6 +179,7 @@ class ExternalSchemaTests(unittest.TestCase):
             "heldout-paraphrase-evaluation",
             "heldout-paraphrase-criterion",
             "openai-provider-audit",
+            "llm-provider-transport-attempt",
             "external-decoder-provider-audit",
             "external-decoder-transport-attempt",
             "native-action-provider-audit",

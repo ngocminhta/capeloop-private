@@ -155,7 +155,9 @@ The automated suite maps directly to the proposal's 17 requirements:
 14. blinded native decoders;
 15. constrained verbalization;
 16. complete five-part self-confirmation predicate;
-17. reproducible bootstrap ranks.
+17. reproducible bootstrap ranks within each run plus immutable comparison of
+    point rankings, inferential orders, Gate 5, and ESR selections across
+    distinct compatible random-seed runs.
 
 Additional tests cover serialization, invalid record rejection, likelihood
 stability, CLI smoke runs, artifact checksums, and train/dev/test leakage.

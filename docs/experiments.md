@@ -130,9 +130,16 @@ events/experiment-a-exact-references.jsonl # when retain_events = true
 events/experiment-a-exclusions.jsonl       # when retain_events = true
 events/experiment-a-held-out-paraphrases.jsonl # when retain_events = true
 models/experiment-a-control-battery.json
+models/experiment-a-control-plan.json
 models/held-out-paraphrase-suite.json
+llm/experiment-a-control-exchange.json
+llm/experiment-a-control-request-bindings.jsonl
+llm/experiment-a-control-requests.jsonl
 metrics/experiment-a.jsonl
 metrics/experiment-a-confirmatory.json
+metrics/experiment-a-control-reference.json
+metrics/experiment-a-control-baseline.json
+metrics/experiment-a-hypothesis-estimands.json
 metrics/experiment-a-oracle-slopes.jsonl
 metrics/experiment-a-evidence-strength.json
 metrics/experiment-a-raw-calibrated-scores.jsonl
@@ -173,6 +180,13 @@ The confirmatory bundle adds:
 - paired user-cluster pilot-power simulation when enough complete differences
   exist.
 
+The separate hypothesis-estimand artifact prevents those general-purpose ACUE
+analyses from being mistaken for H1 or H2. It reports H1's anchor-directional
+and update-strength contrasts, H2's explicit distance-to-unaware versus
+distance-to-aware comparison, and H7's mitigation/valid-learning component.
+See [H1, H2, and H7 estimands](hypothesis-estimands.md) for the frozen formulas
+and incomplete-data rules.
+
 The dependency-free CR1 regression is an auditable marginal robustness
 analysis. It is **not** the proposal's confirmatory generalized mixed-effects
 model with user random slopes and scenario random intercepts. The optional
@@ -188,10 +202,27 @@ records that volunteered-control strength is unavailable until eligible
 external judgments are imported. Separately,
 `experiment-a-control-battery.json` fixes the proposal's volunteered, repeated
 balanced, direct-correction, indifferent, randomized-choice, and
-target-nondistinguishing protocols. The artifact is explicitly
-`fixed_protocol_not_scored_by_one_step_choice_runner`: it preregisters inputs
-and expected diagnostics but does not impute outcomes for signals the anchor
-choice schema cannot faithfully execute.
+target-nondistinguishing protocols. It remains explicitly
+`fixed_protocol_not_scored_by_one_step_choice_runner`: those signals are not
+relabeled anchor choices.
+
+The runner now materializes a separate content-addressed six-control plan,
+transparent reference and no-update baseline reports, and a provenance-aware
+provider-neutral request packet. Reference/baseline outcomes are labeled
+diagnostic rather than external evidence. Imported provider responses are
+scored only after exact request, prompt, plan, and stimulus binding through
+`cape-loop control-study analyze`. See
+[Experiment A control execution](experiment-a-controls.md).
+
+H7's user-clustered volunteered valid-learning criterion is intentionally
+separate from that single fixed protocol case. `control-study h7-plan`
+exhaustively creates direct statements for every retained test
+user/domain/attribute and crosses the ordinary full-context and
+provenance-aware views. `h7-review` admits only complete accepted
+OpenAI/OpenRouter evidence, converts the bound posteriors to
+`VolunteeredPreferenceUpdate`, and recomputes H7 in a new immutable artifact;
+`h7-verify` repeats the full computation. See
+[H7 volunteered-preference controls](h7-volunteered-controls.md).
 
 ### Held-out paraphrase transfer and Gate 1
 
@@ -289,6 +320,42 @@ These are paired, cluster-aware nonparametric intervals. They are not a GLMM or
 a user-level mixed-effects model; the latter remains a separate proposal
 analysis requiring an appropriate statistical environment.
 
+### Pilot power for the frozen three-way interaction
+
+Every Experiment B run also writes a bounded pilot-design power curve for the
+proposal's primary `Updater × Policy × InitialProfile` terminal-error
+interaction. The frozen scalar contrast is:
+
+```text
+[(target soft - target balanced)
+ - (fitted-aware soft - fitted-aware balanced)] at incorrect initialization
+-
+[(target soft - target balanced)
+ - (fitted-aware soft - fitted-aware balanced)] at correct initialization
+```
+
+`target` is `llm_full_context` when present and otherwise the deterministic
+`full_context_blind` reference. The analysis is `not_estimable` rather than
+changing the estimand when neither target is configured or fewer than two
+complete users remain. Each included domain×replicate stratum must contain all
+eight updater×policy×initial-profile cells. Stratum contrasts are averaged
+within latent user, so repeated domains and trajectories never become
+independent units.
+
+The simulator centers the complete-user pilot contrasts, adds back their pilot
+mean as the declared target effect, resamples complete users, and applies a
+two-sided normal-reference one-sample test at alpha 0.05. It evaluates the
+frozen candidate user counts 16, 32, 64, and 128. The configured
+`experiment.bootstrap_replicates` supplies the requested simulation count, with
+a 200-replicate smoke minimum and a hard 10,000-replicate ceiling. Every point
+reports its binomial Monte Carlo standard error and 95% Wilson interval.
+
+The computational decision rule identifies the first candidate whose lower
+95% Monte Carlo bound is at least 0.80. That result is advisory: the artifact
+sets `automatic_sample_size_commitment = false`, requires investigator review,
+and does not replace preregistration or the optional confirmatory mixed-effects
+model. It is pilot-design evidence, never empirical support for a paper claim.
+
 A self-confirmation assessment is reportable only when the implemented
 five-clause predicate is satisfied: wrong initialization, policy-conditioned
 evidence, excess confidence beyond the shadow, later action influence, and
@@ -377,11 +444,14 @@ metrics/experiment-b-native-decoders.jsonl
 metrics/experiment-b-held-out-actions.jsonl
 metrics/experiment-b-terminal-calibration.json
 metrics/experiment-b-decomposition.jsonl
+metrics/experiment-b-h7-mitigation.json
 metrics/experiment-b-self-confirmation.jsonl
 metrics/experiment-b-inference.json
+metrics/experiment-b-power.json
 metrics/experiment-b-llm-raw-calibrated-terminal.jsonl
 metrics/experiment-b-llm-raw-calibrated-terminal-manifest.json
 tables/experiment-b-decomposition.csv
+tables/experiment-b-power.md
 tables/experiment-b-llm-raw-calibrated-terminal.csv
 decoder/external-requests.jsonl
 decoder/truth-labels.researcher-only.jsonl
@@ -413,6 +483,13 @@ both cached vectors for the same final prompt and common battery, adding no
 provider calls. Multi-turn rows are conditional on the calibrated active
 history and set `full_counterfactual_rerun_required = true`; they are not a
 recursive raw trajectory and do not replace Gate 2/3 inputs.
+
+The H7 mitigation artifact pairs `llm_full_context` and
+`llm_provenance_aware` under soft profile conditioning with incorrect initial
+profiles. It tests reductions in same-history attribution error and the
+five-clause self-confirming-profile rate. It does not, by itself, establish
+H7; the Experiment A superiority and balanced/volunteered retention criteria
+remain required.
 
 ### Gate 2–4 behavior
 
@@ -601,6 +678,17 @@ selection-regret checks. Point Kendall tau, marginal rank intervals, and raw
 reversal probabilities remain visible but are not gate-sufficient. The gate
 never changes `claim_status` from `not_claimed`.
 
+### Reproduction across random seeds
+
+The separate offline reviewer admits two to 32 checksum-valid completed
+Experiment C runs with distinct seeds and otherwise identical scientific
+configuration/source identity. It compares all three point rankings,
+open/closed inferential top tiers and partial orders, Gate 5 decision/status,
+and ESR selection sets. It reports exact rational stability proportions and
+every disagreement without pooling bootstrap draws or creating a claim. See
+[Experiment C multi-seed robustness](experiment-c-robustness.md) for its CLI,
+strict admission checks, artifact layout, and interpretation boundary.
+
 ## Sensitivity grid
 
 Use:
@@ -655,9 +743,21 @@ Each point:
 - retains information gain and regret both cumulatively and per turn so
   trajectory-length comparisons do not rely on mechanically larger totals.
 
-The runner rejects all `llm_*` updaters because grid-dependent adaptive prompts
-cannot reuse one fixed replay corpus and would create an uncontrolled paid-call
-surface.
+The runner supports `llm_response_only`, `llm_full_context`, and
+`llm_provenance_aware` in replay, direct OpenAI, or OpenRouter mode. One shared
+content-addressed provider follows the entire grid, so repeated prompts reuse
+the same bound response while genuinely changed histories produce distinct
+request hashes. LLM sensitivity has a stricter contract:
+
+- `llm.calibration = "none"`; no point-specific probability calibrator is fit;
+- prompts and trajectory events must both be retained;
+- replay responses must cover every prompt actually reached by the adaptive
+  grid; and
+- before live execution, the exact logical update bound is multiplied by
+  `max_retries + 1` and must fit within `llm.max_requests`.
+
+`configs/sensitivity_llm_openrouter_smoke.toml` is a one-point, two-domain
+transport smoke configuration. It is not a robustness grid or paper result.
 `experiment.turns` must be `1`; each point's actual trajectory length comes
 only from `[sensitivity].trajectory_lengths`.
 
@@ -669,10 +769,16 @@ metrics/sensitivity.jsonl
 metrics/sensitivity-decomposition.jsonl
 metrics/sensitivity-grand.jsonl
 metrics/sensitivity-phase-points.jsonl
+metrics/sensitivity-phase-domains.jsonl
 metrics/sensitivity-phase-boundaries.jsonl
 metrics/sensitivity-phase-specification.json
 tables/sensitivity.csv
 events/sensitivity-trajectories.jsonl  # when retain_events = true
+llm/sensitivity-request-preflight.json # when an LLM updater is configured
+llm/requests.jsonl                     # mandatory for LLM sensitivity
+llm/responses.jsonl                    # when an LLM updater is configured
+llm/provider-audit.jsonl               # live modes
+llm/transport-attempts.jsonl           # live modes
 metrics/gate-report.json
 metrics/summary.json
 ```
@@ -685,17 +791,29 @@ denominators are named explicitly; `sensitivity-grand.jsonl` is descriptive
 only.
 
 Phase criteria are declared by metric, relation, and threshold in the resolved
-configuration. A point remains incomplete when a required metric is missing;
-missing is never coerced to false. Boundary rows identify adjacent observed
-grid values where a criterion or joint-region label changes while all other
-boundary axes are fixed. They are observed-grid intervals, not interpolated
-causal thresholds.
+configuration. The fifth frozen criterion requires the phase-target users to
+reject at least 20% of profile-consistent suggestions by default. The
+opportunity and rejection counts are retained per point; a point with no
+eligible suggestion remains incomplete rather than receiving a zero rate.
+Boundary rows identify adjacent observed grid values where a criterion or
+joint-region label changes while all other boundary axes are fixed. They are
+observed-grid intervals, not interpolated causal thresholds.
 
-The phase target prefers `llm_full_context`, then the structured
-`full_context_blind` proxy. Every grand row states the selected updater and
-whether it is a live LLM target, and the specification records that a
-confirmatory phase diagram requires live LLM evidence. Gate 6 checks grid
-completion but does not convert proxy phase rows into a robustness claim.
+The phase target prefers `llm_full_context`, then
+`llm_provenance_aware`, `llm_response_only`, and the structured
+`full_context_blind` proxy. Every grand row states the selected updater,
+whether it is an external LLM, and whether execution was replay or live.
+
+Gate 6 now reports the proposal's six clauses separately. Another-response-
+model, broad-parameter, both-domain, and exact/fitted-reference clauses are
+computed from completed point and domain phase rows. Multiple independent LLM
+families and held-out paraphrases remain explicitly incomplete inside any one
+run. Once complete live-model sensitivity and Experiment A runs exist,
+`gate6-review build` can bind explicit family/source declarations to exact
+provider evidence, recompute the held-out transfer, and aggregate all six
+clauses in a separate checksum-bound artifact. Model labels or ordinary
+wording templates are never promoted into family identity, independence, or a
+paper claim.
 
 ## Human pragmatic-study collection and analysis
 
@@ -737,6 +855,30 @@ consent language, define a data-retention policy, or confer ethics/IRB approval.
 Those decisions must be supplied by the responsible institution before
 collection. A metadata field saying `consented = true` is validated as data; it
 is not proof that valid consent occurred.
+
+For H8, convert one verified Experiment A run's held-out controlled-anchor
+metrics, then run the atomic human/model comparison:
+
+```bash
+PYTHONPATH=src python -m cape_loop human-study \
+  evidence-from-experiment-a RUN_DIR model-evidence.jsonl \
+  --source fitted=fitted_action_aware \
+  --source primary=llm_full_context
+
+PYTHONPATH=src python -m cape_loop human-study compare \
+  RESPONSES.jsonl RESEARCHER-CODEBOOK.json model-evidence.jsonl h8.json \
+  --primary-llm-source-id primary
+```
+
+The converter accepts only the fitted-aware updater and actual `llm_*`
+updaters, verifies converted user/domain pairs against the retained test
+population, and emits the positive part of the anchor-directional log-odds
+update. It never invents the volunteered condition absent from Experiment A.
+Every row binds its source run, record, and metric-file digest. H8 pairs
+balanced and policy observations within scenario, averages scenarios inside
+participant/test-user clusters, and independently bootstraps those clusters.
+Missing sources, mechanisms, or adequate cluster counts stay `incomplete` with
+`criterion_met = null`; all outputs retain `claim_status = "not_claimed"`.
 
 ## Stage-gated correction debt
 

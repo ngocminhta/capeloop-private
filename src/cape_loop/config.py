@@ -39,6 +39,13 @@ KNOWN_LLM_MODEL_ROLES = frozenset({"primary", "replication", "decoder"})
 KNOWN_REASONING_EFFORTS = frozenset(
     {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
 )
+NON_OPENAI_API_KEY_ENVS = frozenset(
+    {
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+    }
+)
 KNOWN_POLICIES = frozenset(
     {"balanced", "soft_profile_conditioned", "exploratory", "fixed_bias", "hard_filter"}
 )
@@ -416,6 +423,7 @@ class SensitivitySection:
     phase_max_aware_ece: float = 0.10
     phase_min_attribution_cost: float = 0.0
     phase_min_self_confirming_rate: float = 0.0
+    phase_min_suggestion_rejection_rate: float = 0.20
 
     @classmethod
     def parse(cls, raw: Mapping[str, Any]) -> "SensitivitySection":
@@ -434,6 +442,7 @@ class SensitivitySection:
             "phase_max_aware_ece",
             "phase_min_attribution_cost",
             "phase_min_self_confirming_rate",
+            "phase_min_suggestion_rejection_rate",
         }
         _only_keys("sensitivity", raw, allowed)
         prepared = dict(raw)
@@ -510,6 +519,7 @@ class SensitivitySection:
             "phase_max_aware_ece",
             "phase_min_attribution_cost",
             "phase_min_self_confirming_rate",
+            "phase_min_suggestion_rejection_rate",
         ):
             value = _require_finite_number(
                 getattr(result, name),
@@ -518,6 +528,7 @@ class SensitivitySection:
             if name in {
                 "phase_max_aware_ece",
                 "phase_min_self_confirming_rate",
+                "phase_min_suggestion_rejection_rate",
             } and not 0.0 <= value <= 1.0:
                 raise ConfigError(f"sensitivity.{name} must lie in [0, 1]")
         unknown_families = sorted(
@@ -722,11 +733,12 @@ class LLMSection:
             )
         if (
             result.mode == "openai"
-            and result.api_key_env == "OPENROUTER_API_KEY"
+            and result.api_key_env in NON_OPENAI_API_KEY_ENVS
         ):
             raise ConfigError(
-                "OpenAI mode requires a dedicated credential variable; "
-                "OPENROUTER_API_KEY must never be sent to OpenAI"
+                "OpenAI mode requires an OpenAI or dedicated credential "
+                f"variable; {result.api_key_env} is reserved for a different "
+                "provider and must never be sent to OpenAI"
             )
         parsed_base_url = urlsplit(result.base_url)
         if (
@@ -920,6 +932,16 @@ class AppConfig:
             raise ConfigError(
                 "LLM replay updaters require llm.responses_file"
             )
+        if (
+            uses_llm
+            and result.llm.mode in {"openai", "openrouter"}
+            and result.run.deterministic
+        ):
+            raise ConfigError(
+                "live-provider LLM runs require run.deterministic = false; "
+                "semantic-key simulation is reproducible, but external model "
+                "generation is not declared deterministic"
+            )
         result.validate_experiment_contract()
         return result
 
@@ -992,13 +1014,25 @@ class AppConfig:
             return
 
         if experiment.kind == "sensitivity":
-            if any(
+            uses_llm = any(
                 updater_id.startswith("llm_")
                 for updater_id in experiment.updaters
-            ):
+            )
+            if uses_llm and self.llm.calibration != "none":
                 raise ConfigError(
-                    "sensitivity does not support adaptive LLM execution; "
-                    "use deterministic/native updaters for the grid"
+                    "LLM sensitivity requires llm.calibration = 'none'; "
+                    "a single shared provider must evaluate grid dynamics "
+                    "without refitting a point-specific LLM calibration"
+                )
+            if uses_llm and not self.artifacts.retain_prompts:
+                raise ConfigError(
+                    "LLM sensitivity requires artifacts.retain_prompts = "
+                    "true so every content-addressed request is retained"
+                )
+            if uses_llm and not self.artifacts.retain_events:
+                raise ConfigError(
+                    "LLM sensitivity requires artifacts.retain_events = "
+                    "true so every response remains linked to its trajectory"
                 )
             if set(experiment.policies) != {
                 "balanced",

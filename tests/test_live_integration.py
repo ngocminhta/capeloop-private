@@ -44,6 +44,7 @@ from cape_loop.native import NativeMemoryState
 from cape_loop.policies import BalancedPolicy
 from cape_loop.runner import _archive_failed_live_attempt, run_experiment
 from cape_loop.runner import (
+    _live_completion_provider,
     _prepare_llm_execution,
     _prepare_study,
     _run_b,
@@ -107,10 +108,71 @@ class LiveConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(configured.llm.api_key_env, "CAPE_LOOP_PROXY_KEY")
 
+    def test_openai_section_rejects_other_provider_credentials(self) -> None:
+        for reserved_key in (
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+        ):
+            with self.subTest(reserved_key=reserved_key):
+                with self.assertRaisesRegex(
+                    ConfigError,
+                    "reserved for a different provider",
+                ):
+                    AppConfig.parse(
+                        {
+                            "schema_version": 1,
+                            "llm": {
+                                "mode": "openai",
+                                "api_key_env": reserved_key,
+                            },
+                        }
+                    )
+
+    def test_live_llm_run_cannot_claim_deterministic_generation(self) -> None:
+        with self.assertRaisesRegex(
+            ConfigError,
+            "run.deterministic = false",
+        ):
+            AppConfig(
+                experiment=ExperimentSection(
+                    updaters=("llm_full_context",),
+                ),
+                llm=LLMSection(mode="openai"),
+            ).validated()
+
+    def test_programmatic_adaptive_config_cannot_bypass_key_isolation(
+        self,
+    ) -> None:
+        config = AppConfig(
+            run=RunSection(deterministic=False),
+            experiment=ExperimentSection(
+                updaters=("llm_full_context",),
+            ),
+            llm=LLMSection(
+                mode="openai",
+                api_key_env="OPENROUTER_API_KEY",
+            ),
+        )
+        with TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(
+                ValueError,
+                "reserved for a different provider",
+            ):
+                _live_completion_provider(
+                    config,
+                    destination=Path(directory) / "adaptive-run",
+                    execute_live=True,
+                )
+
     def test_openai_mode_needs_explicit_runtime_authorization(self) -> None:
         with TemporaryDirectory() as directory:
             config = AppConfig(
-                run=RunSection(name="no-live-side-effect", output_root=directory),
+                run=RunSection(
+                    name="no-live-side-effect",
+                    output_root=directory,
+                    deterministic=False,
+                ),
                 experiment=ExperimentSection(
                     kind="provenance_audit",
                     domains=("travel",),
@@ -164,11 +226,58 @@ class LiveConfigurationTests(unittest.TestCase):
             self.assertFalse(payload["live_execution"])
             self.assertFalse(payload["credential_read"])
             self.assertTrue(payload["within_declared_budget"])
+            self.assertEqual(
+                payload["request_budget_unit"],
+                "physical_http_attempt",
+            )
+            self.assertEqual(
+                payload["theoretical_max_transport_attempts"],
+                payload["maximum_attempts_per_request"],
+            )
+
+    def test_static_plan_requires_retry_expanded_budget_capacity(self) -> None:
+        request = LLMRequest.build(
+            request_id="retry-plan-one",
+            updater_id="llm_full_context",
+            view="full_context",
+            prior={},
+            observation={"selected_option": "a"},
+            context={"options": ["a", "b"]},
+        )
+        with TemporaryDirectory() as directory:
+            request_path = Path(directory) / "requests.jsonl"
+            write_requests(request_path, (request,))
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                status = cli_main(
+                    [
+                        "llm",
+                        "plan",
+                        str(request_path),
+                        "--api-key-env",
+                        "ABSENT_CAPE_LOOP_KEY",
+                        "--max-retries",
+                        "2",
+                        "--max-requests",
+                        "2",
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(status, 1)
+            self.assertEqual(
+                payload["theoretical_max_transport_attempts"],
+                3,
+            )
+            self.assertFalse(payload["within_declared_budget"])
 
     def test_failed_live_attempt_is_preserved_before_resume(self) -> None:
         with TemporaryDirectory() as directory:
             config = AppConfig(
-                run=RunSection(name="failed-live", output_root=directory),
+                run=RunSection(
+                    name="failed-live",
+                    output_root=directory,
+                    deterministic=False,
+                ),
                 experiment=ExperimentSection(
                     kind="provenance_audit",
                     domains=("travel",),
@@ -217,7 +326,11 @@ class LiveConfigurationTests(unittest.TestCase):
                 )
 
         config = AppConfig(
-            run=RunSection(name="calibration-probe", seed=7),
+            run=RunSection(
+                name="calibration-probe",
+                seed=7,
+                deterministic=False,
+            ),
             experiment=ExperimentSection(
                 kind="provenance_audit",
                 domains=("travel",),
@@ -499,7 +612,11 @@ class ExternalDecoderAdapterTests(unittest.TestCase):
         )
         with TemporaryDirectory() as directory:
             b_config = AppConfig(
-                run=RunSection(name="cached-b", seed=19),
+                run=RunSection(
+                    name="cached-b",
+                    seed=19,
+                    deterministic=False,
+                ),
                 experiment=ExperimentSection(
                     kind="closed_loop",
                     domains=("travel",),
@@ -543,7 +660,11 @@ class ExternalDecoderAdapterTests(unittest.TestCase):
             )
 
             c_config = AppConfig(
-                run=RunSection(name="cached-c", seed=23),
+                run=RunSection(
+                    name="cached-c",
+                    seed=23,
+                    deterministic=False,
+                ),
                 experiment=ExperimentSection(
                     kind="evaluation_validity",
                     domains=("travel",),

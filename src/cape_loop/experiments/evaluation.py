@@ -970,6 +970,83 @@ def _pooled_terminal_calibration(
     )
 
 
+def mean_terminal_battery_scores(
+    scores: Sequence[TerminalBatteryScore],
+    *,
+    required_score_count: int = 2,
+) -> TerminalBatteryScore:
+    """Average an exact number of common-battery scores.
+
+    This is intentionally a score-level operation.  It does not imply that
+    the contributing decoders are statistically independent; callers must
+    validate source provenance and coverage separately.
+    """
+
+    material = tuple(scores)
+    if len(material) != required_score_count:
+        raise ValueError(
+            "terminal score mean requires exactly "
+            f"{required_score_count} scores"
+        )
+    if len({score.evaluated_item_count for score in material}) != 1:
+        raise ValueError("terminal scores use different battery cardinalities")
+    scores = material
+    profile_ece, profile_reliability, profile_prediction_count = (
+        _pooled_terminal_calibration(scores)
+    )
+    return TerminalBatteryScore(
+        profile_brier=math.fsum(score.profile_brier for score in scores)
+        / len(scores),
+        behavioral_accuracy=math.fsum(
+            score.behavioral_accuracy for score in scores
+        )
+        / len(scores),
+        tie_excluded_behavioral_accuracy=(
+            None
+            if any(
+                score.tie_excluded_behavioral_accuracy is None
+                for score in scores
+            )
+            else math.fsum(
+                float(score.tie_excluded_behavioral_accuracy)
+                for score in scores
+            )
+            / len(scores)
+        ),
+        fractional_behavioral_accuracy=math.fsum(
+            score.fractional_behavioral_accuracy for score in scores
+        )
+        / len(scores),
+        cross_context_accuracy=(
+            None
+            if any(score.cross_context_accuracy is None for score in scores)
+            else math.fsum(
+                float(score.cross_context_accuracy) for score in scores
+            )
+            / len(scores)
+        ),
+        mean_intrinsic_regret=math.fsum(
+            score.mean_intrinsic_regret for score in scores
+        )
+        / len(scores),
+        # A mean score has no single predicted action sequence. Individual
+        # sequences remain in their source-specific score rows.
+        predicted_option_ids=(),
+        predicted_utility_tie_count=math.fsum(
+            score.predicted_utility_tie_count for score in scores
+        )
+        / len(scores),
+        intrinsic_utility_tie_count=math.fsum(
+            score.intrinsic_utility_tie_count for score in scores
+        )
+        / len(scores),
+        evaluated_item_count=scores[0].evaluated_item_count,
+        profile_ece=profile_ece,
+        profile_reliability_bins=profile_reliability,
+        profile_calibration_prediction_count=profile_prediction_count,
+    )
+
+
 def _ranking_score(
     system_projection: TerminalBatteryScore,
     decoder_evaluations: tuple[NativeDecoderEvaluation, ...],
@@ -982,67 +1059,9 @@ def _ranking_score(
         raise ValueError(
             "native ranking requires exactly two blinded decoder evaluations"
         )
-    scores = tuple(item.score for item in decoder_evaluations)
-    profile_ece, profile_reliability, profile_prediction_count = (
-        _pooled_terminal_calibration(scores)
-    )
     return (
-        TerminalBatteryScore(
-            profile_brier=math.fsum(
-                score.profile_brier for score in scores
-            )
-            / len(scores),
-            behavioral_accuracy=math.fsum(
-                score.behavioral_accuracy for score in scores
-            )
-            / len(scores),
-            tie_excluded_behavioral_accuracy=(
-                None
-                if any(
-                    score.tie_excluded_behavioral_accuracy is None
-                    for score in scores
-                )
-                else math.fsum(
-                    float(score.tie_excluded_behavioral_accuracy)
-                    for score in scores
-                )
-                / len(scores)
-            ),
-            fractional_behavioral_accuracy=math.fsum(
-                score.fractional_behavioral_accuracy for score in scores
-            )
-            / len(scores),
-            cross_context_accuracy=(
-                None
-                if any(
-                    score.cross_context_accuracy is None
-                    for score in scores
-                )
-                else math.fsum(
-                    float(score.cross_context_accuracy)
-                    for score in scores
-                )
-                / len(scores)
-            ),
-            mean_intrinsic_regret=math.fsum(
-                score.mean_intrinsic_regret for score in scores
-            )
-            / len(scores),
-            # A mean score has no single predicted action sequence. Individual
-            # sequences remain in native_decoder_evaluations.
-            predicted_option_ids=(),
-            predicted_utility_tie_count=math.fsum(
-                score.predicted_utility_tie_count for score in scores
-            )
-            / len(scores),
-            intrinsic_utility_tie_count=math.fsum(
-                score.intrinsic_utility_tie_count for score in scores
-            )
-            / len(scores),
-            evaluated_item_count=scores[0].evaluated_item_count,
-            profile_ece=profile_ece,
-            profile_reliability_bins=profile_reliability,
-            profile_calibration_prediction_count=profile_prediction_count,
+        mean_terminal_battery_scores(
+            tuple(item.score for item in decoder_evaluations)
         ),
         "mean_of_two_blinded_native_decoders",
     )

@@ -1,4 +1,4 @@
-name: Offline CI
+name: Repository CI
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: offline-ci-${{ github.workflow }}-${{ github.ref }}
+  group: repository-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -49,3 +49,62 @@ jobs:
         env:
           PYTHONHASHSEED: "0"
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py' -v
+
+  confirmatory-r-runtime:
+    name: R 4.6.1 confirmatory contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up locked R runtime
+        uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          r-version: "4.6.1"
+          use-public-rspm: false
+
+      - name: Restore locked R dependencies
+        uses: r-lib/actions/setup-renv@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          working-directory: analysis/confirmatory-mixed-effects
+          cache-version: "1"
+
+      - name: Validate the frozen analysis contract
+        run: python analysis/confirmatory-mixed-effects/validate_contract.py
+
+      - name: Generate a synthetic verified Experiment A run
+        env:
+          PYTHONHASHSEED: "0"
+          CAPE_R_CI_RUN_ROOT: ${{ runner.temp }}/cape-r-ci-runs
+        run: >-
+          PYTHONPATH=src python -m cape_loop run
+          configs/confirmatory_ci.toml
+          --output-root "$CAPE_R_CI_RUN_ROOT"
+
+      - name: Execute the mixed-effects harness
+        env:
+          CAPE_R_CI_RUN_ROOT: ${{ runner.temp }}/cape-r-ci-runs
+          CAPE_R_CI_ANALYSIS: ${{ runner.temp }}/cape-r-ci-analysis
+        run: |
+          run_path="$(find "$CAPE_R_CI_RUN_ROOT" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$run_path"
+          Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
+            --experiment A \
+            --run "$run_path" \
+            --output "$CAPE_R_CI_ANALYSIS" \
+            --target-updater full_context_blind
+
+      - name: Verify the generated analysis artifact
+        env:
+          CAPE_R_CI_ANALYSIS: ${{ runner.temp }}/cape-r-ci-analysis
+        run: |
+          cd "$CAPE_R_CI_ANALYSIS"
+          sha256sum --check SHA256SUMS
+          python -c 'import json, pathlib; row=json.loads(pathlib.Path("analysis-result.json").read_text()); assert row["claim_status"] == "not_claimed"; assert row["status"] in {"complete", "not_confirmatory", "not_estimable"}'

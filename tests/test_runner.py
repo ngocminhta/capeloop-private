@@ -56,6 +56,77 @@ class EndToEndRunnerTests(unittest.TestCase):
             )
             self.assertEqual(summary["scientific_claim_status"], "not_claimed")
             self.assertGreater(summary["row_count"], 0)
+            self.assertEqual(
+                summary["control_battery_status"],
+                "executable_separate_control_study",
+            )
+            self.assertEqual(
+                summary["control_reference_criterion_pass_count"],
+                6,
+            )
+            self.assertEqual(
+                summary["control_baseline_criterion_pass_count"],
+                3,
+            )
+            self.assertEqual(summary["control_live_evidence_count"], 0)
+            self.assertEqual(summary["control_provider_request_count"], 6)
+            control_plan = json.loads(
+                (
+                    run_dir
+                    / "models"
+                    / "experiment-a-control-plan.json"
+                ).read_text()
+            )
+            control_reference = json.loads(
+                (
+                    run_dir
+                    / "metrics"
+                    / "experiment-a-control-reference.json"
+                ).read_text()
+            )
+            control_baseline = json.loads(
+                (
+                    run_dir
+                    / "metrics"
+                    / "experiment-a-control-baseline.json"
+                ).read_text()
+            )
+            control_exchange = json.loads(
+                (
+                    run_dir
+                    / "llm"
+                    / "experiment-a-control-exchange.json"
+                ).read_text()
+            )
+            self.assertEqual(
+                control_plan["plan_sha256"],
+                summary["control_plan_sha256"],
+            )
+            self.assertTrue(control_reference["coverage"]["complete"])
+            self.assertTrue(control_baseline["coverage"]["complete"])
+            self.assertEqual(
+                control_reference["evidence_class"],
+                "diagnostic_reference",
+            )
+            self.assertEqual(
+                control_baseline["evidence_class"],
+                "diagnostic_baseline",
+            )
+            self.assertTrue(
+                control_exchange["coverage"]["complete_for_all_six_controls"]
+            )
+            self.assertEqual(
+                len(
+                    (
+                        run_dir
+                        / "llm"
+                        / "experiment-a-control-requests.jsonl"
+                    )
+                    .read_text()
+                    .splitlines()
+                ),
+                6,
+            )
             gate_report = json.loads(
                 (run_dir / "metrics" / "gate-report.json").read_text()
             )
@@ -224,6 +295,18 @@ class EndToEndRunnerTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual(inference["analysis_status"], "not_computed")
+            power = json.loads(
+                (
+                    run_dir / "metrics" / "experiment-b-power.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(power["status"], "not_estimable")
+            self.assertEqual(power["artifact_role"], "pilot_design_evidence")
+            power_summary = (
+                run_dir / "tables" / "experiment-b-power.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Scientific claim status: `not_claimed`", power_summary)
+            self.assertIn("not empirical evidence", power_summary)
 
     def test_small_experiment_c_writes_paired_and_calibration_artifacts(
         self,

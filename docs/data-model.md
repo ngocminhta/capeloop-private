@@ -482,13 +482,16 @@ experiment-specific rows:
 | `metrics/experiment-b-native-decoders.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, decoder and pseudonymous-state IDs, profile Brier, projected-choice/tie scores, regret, and predicted IDs; it does not repeat trajectory-level decomposition fields |
 | `metrics/experiment-b-decomposition.jsonl` | `schema_version: 1` | paired trajectory IDs and evidence-selection, profile-attribution, balanced-attribution, and interaction costs |
 | `metrics/experiment-b-self-confirmation.jsonl` | `schema_version: 1` | trajectory/attribute/direction, initial/system-terminal/shadow-terminal wrong mass, system and shadow gain, `false_stable`, cumulative LCG, clause booleans, `reportable` |
+| `metrics/experiment-b-power.json` | `schema_version: 1` | frozen factor contrast/formula, complete-user pilot interactions and exclusions, pilot-input SHA-256, bounded simulation/Monte Carlo settings, 16/32/64/128 power points, Wilson uncertainty, advisory threshold decision, and `not_claimed` boundary |
 | `metrics/experiment-c.jsonl` | `schema_version: 1` | split/regime/replicate/user/domain/updater, ranking scores, `score_basis`, `system_projection_score`, history/event/battery digests, predictions, nested native decoder evaluations |
 | `metrics/experiment-{b,c}-llm-raw-calibrated-terminal.jsonl` | `schema_version: 1` | experiment/pairing/split/regime/user/domain/updater, raw-or-calibrated variant, request/prompt/model IDs, battery scores, active-history scope, zero added provider calls, and explicit full-counterfactual-rerun flag |
-| `metrics/sensitivity.jsonl` | `schema_version: 1` | four grid coordinates, domain/policy/updater stratum, trajectory count, mean terminal/shadow error, cumulative and per-turn information gain/regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, and attribution cost |
+| `metrics/sensitivity.jsonl` | `schema_version: 1` | grid coordinates, domain/policy/updater stratum, trajectory count, mean terminal/shadow error, cumulative and per-turn information gain/regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, attribution cost, and profile-consistent suggestion opportunity/rejection counts and rate |
 
 Sensitivity also writes `sensitivity-decomposition.jsonl` with paired
 domain/updater selection, attribution, and interaction means, plus
-`sensitivity-grand.jsonl` with one descriptive row per grid point.
+`sensitivity-grand.jsonl` with one descriptive row per grid point and
+`sensitivity-phase-domains.jsonl` with separately classified domain-point
+rows.
 
 In Experiment C, the top-level `profile_error`, `behavioral_accuracy`,
 `cross_context_accuracy`, and `intrinsic_regret` are the scores used for
@@ -507,6 +510,10 @@ structured-projection score and prediction sequence for audit.
 `schema_version`. CSV tables are projections of these rows and do not replace
 the JSON/JSONL evidence.
 
+`tables/experiment-b-power.md` is a human-readable rendering of the power JSON,
+not a second source of numerical truth. Both are covered by the completed run's
+`SHA256SUMS`.
+
 `metrics/gate-report.json` has:
 
 ```text
@@ -521,6 +528,93 @@ Each nested `GateReport` also has `schema_version: 1`, `gate_id`, `title`,
 `evidence_scope`, `computed_status`, `claim_status`, and an array of criteria.
 Every criterion contains `criterion_id`, `description`, nullable `passed`,
 `observed`, and `requirement`.
+
+### Experiment C external-decoder rescore
+
+Completed Experiment C runs retain a blinded request, researcher-only truth
+labels, and an `experiment-c-decoder-codebook` row for every native fixed or
+endogenous terminal state. A codebook row binds:
+
+```text
+request_id / request_sha256 / pseudonymous_state_id
+evaluation_split / regime / user_id / domain_id / replicate / updater_id
+source_metric_row_sha256 / stable_row_key_sha256
+source_state_file / source_state_record_id / source_state_record_sha256
+terminal_state_id / terminal_state_sha256
+battery_id / battery_digest
+```
+
+The external rescore admits exactly two complete family/instance/source
+descriptors. Each `experiment-c-external-score` row binds one calibrated family
+judgment to the exact request, source metric row, native state, common terminal
+battery, and full terminal score. The derived
+`metrics/experiment-c-rescored.jsonl` preserves every non-native source row
+byte-for-byte at the parsed-object boundary and changes only the declared
+native score fields. `review.json`, `manifest.json`, and `SHA256SUMS` bind the
+source run, canonical retained judgments, calibration, rankings, ESR, and Gate
+5. See [Experiment C external decoder rescore](experiment-c-external-decoder.md).
+
+`review.json` distinguishes provenance from source-design metadata. With a
+complete selected Anthropic/Gemini collection,
+`validation.source_design.provenance_mode` is
+`selected_live_provider_collection` and
+`validation.source_design.provider_provenance_validated` is true; the review
+retains the validated collection inputs and summary. In the explicit generic
+mode, `validation.source_design.provenance_mode` is
+`reviewed_generic_judgments`,
+`validation.source_design.provider_provenance_validated` is false, and decoder
+origin/family/source fields remain caller-declared. Neither mode claims
+statistically independent errors.
+
+### Experiment C multi-seed review
+
+`experiment-c-robustness review` writes a separate three-file derived artifact,
+never a child of a source run:
+
+```text
+review.json
+manifest.json
+SHA256SUMS
+```
+
+`review.json` is a schema-versioned object with
+`artifact_kind = "experiment-c-multiseed-robustness-review"` and
+`claim_status = "not_claimed"`. It binds 2–32 source run IDs, seeds, executable
+source digests, normalized scientific-config digests, source checksum-manifest
+digests, and the exact config/ranking/gate/summary artifact digests. Each source
+entry embeds its retained clustered-bootstrap method/count/cluster metadata and
+the point-ranking, inferential-order, Gate 5, and ESR-selection observations
+used by the aggregate.
+
+The `comparisons` object has nine fixed dimension IDs. Each value contains
+content-addressed patterns, source IDs/seeds, exact rational modal and pairwise
+agreement proportions, and explicit pairwise disagreements. `overall` reports
+the exact unanimous-dimension fraction and always carries
+`scientific_claim_inferred: false`. The content-derived `artifact_id` binds the
+whole review excluding that field itself.
+
+The review manifest binds the review digest, artifact ID, normalized config
+digest, source count, and a run-ID-to-source-`SHA256SUMS` digest map. Its own
+`SHA256SUMS` permits only `review.json` and `manifest.json`; extra files,
+directories, symlinks, duplicate/unsafe paths, and non-finite JSON are invalid.
+See [Experiment C multi-seed robustness](experiment-c-robustness.md).
+
+### Gate 6 cross-run review
+
+The Gate 6 declaration contains explicit researcher-controlled pair, family,
+provider-source, requested-model, returned-model, and optional OpenRouter
+upstream identities. Each source reference binds a run ID and the digest of its
+`SHA256SUMS`. The importer does not infer family identity or statistical
+independence from those strings.
+
+`evidence/pairs.jsonl` retains one recomputed evidence object for every declared
+sensitivity-to-Experiment-A pair. It binds both verified run inventories,
+provider request/response/audit/transport evidence, normalized sensitivity
+configuration, four within-run robustness results, and the held-out
+paraphrase-transfer result traced to exact `llm_full_context` responses.
+`metrics/gate-6.json` is the ordinary six-criterion `GateReport`; review and
+manifest objects bind its digest and keep `claim_status = "not_claimed"`. See
+[Gate 6 cross-run review](gate6-cross-run-review.md).
 
 ## Manifests and integrity records
 
@@ -712,17 +806,30 @@ additive `routing_metadata` object, `provider_response_id`,
 the conservative token reservation, request/prompt/body/raw-response hashes, a
 redacted `raw_response`, and the provider-neutral `replay_response`.
 `acceptance_status` is either `accepted` or
-`rejected_openrouter_identity`.
+`rejected_openrouter_identity`. It also retains the configured
+`upstream_provider_constraint`, exact submitted `provider_preferences`,
+`route_constraint_evidence`, and
+`selected_upstream_identity_semantics`. The selected provider name is a router
+display identity, not an exact configured endpoint-slug attestation.
 
 The schema fixes `first_party_origin_claimed` to `false`. A valid row therefore
 records what the gateway reported; it does not authenticate the upstream as a
 direct first-party source or establish independent errors. Python validation
 adds cross-field acceptance checks that JSON Schema alone cannot express:
 requested and returned models must match, the strategy must be direct, exactly
-one endpoint must be selected, its model must match the response model,
-disabled fallback must not have occurred, cache hits are unusable, and a
-nonempty material router pipeline is rejected. Only `accepted` rows may enter
-`llm/responses.jsonl`.
+one endpoint must be selected, its model must be the canonical requested model
+or a conservative dated snapshot of that family, disabled fallback must not
+have occurred, cache hits are unusable, and a nonempty material router
+pipeline is rejected. Only `accepted` rows may enter `llm/responses.jsonl`.
+
+`llm-provider-transport-attempt.schema.json` is the shared physical-call
+journal contract. Its `started` branch binds provider, request/prompt/body
+hashes, endpoint, model, client/idempotency identity, conservative reservation,
+ordinal, and timestamp. Its `settled` branch records outcome, retry-safety
+label, HTTP/response metadata, conservative charge, and the embedded final
+OpenAI/OpenRouter audit when one exists. A start without a settlement has an
+unknown outcome; a settled request without a final embedded audit is
+non-resumable without manual review.
 
 OpenRouter may expose additional router-metadata fields over time, so
 `routing_metadata` is retained as an open object even though the enclosing
@@ -759,6 +866,32 @@ checksum-bearing packet manifest. These packet records are not covered by the
 generated human-rating schema. Packet generation is not participant
 recruitment, consent, deployment, or ethics approval.
 
+The H8 model exchange uses `human-model-evidence.schema.json`. Each versioned
+JSONL row names its fitted-aware, ordinary-LLM, or provenance-aware-LLM source;
+the independent test-user cluster and matched scenario/condition; the
+nonnegative positive-part anchor-directional log-odds update; and the exact
+source run, source record, and source-artifact SHA-256. `evaluation_split` is
+fixed to `test` and `zero_means_no_evidence` is fixed to `true`.
+
+## H7 volunteered-control records
+
+The direct-statement plan separates model-visible content from withheld
+analysis bindings. Each `h7-volunteered-request-binding` joins the provider
+request to a deterministic source-user/domain/attribute case, updater role,
+view, and content hashes. An accepted provider response becomes
+`h7-volunteered-evidence` only after its request, prompt, request body, raw
+response, embedded replay record, returned model, and provider audit all
+match. The evidence row retains the prior/posterior marginals and the exact
+target-direction log-odds update used to construct
+`VolunteeredPreferenceUpdate`.
+
+`h7-volunteered-review` is a containing artifact. It binds the verified source
+run and plan files, complete response/audit files, paired updates, source H7
+component digest, recomputation scope, and self-digest. Cross-record rules such
+as exhaustive role coverage, same provider/model within every pair, source-run
+immutability, and no imputation are enforced by Python in addition to JSON
+Schema.
+
 ## Generated schema coverage
 
 The checked-in `schemas/` directory contains:
@@ -774,10 +907,16 @@ The checked-in `schemas/` directory contains:
 | `openrouter-provider-audit.schema.json` | `OpenRouterProviderResult.to_audit_record()` |
 | `run-manifest.schema.json` | `RunArtifacts.create()` / `manifest.json` |
 | `human-rating.schema.json` | human-study rating import |
+| `human-model-evidence.schema.json` | H8 fitted-aware/LLM evidence import |
+| `h7-volunteered-request-binding.schema.json` | H7 direct-statement outer request bindings |
+| `h7-volunteered-collection-plan.schema.json` | verified-run exhaustive H7 request plan |
+| `h7-volunteered-evidence.schema.json` | accepted provider result and directional update |
+| `h7-volunteered-review.schema.json` | immutable derived Experiment A H7 review |
 
-Experiment A/B/C rows, native states, beliefs, split manifests, model records,
-and metric rows currently rely on Python validation and documented serializer
-shapes; they do not yet have standalone generated JSON Schemas.
+Most other Experiment A/B/C rows, native states, beliefs, split manifests,
+model records, and metric rows currently rely on Python validation and
+documented serializer shapes; they do not yet have standalone generated JSON
+Schemas.
 
 ## Schema evolution
 

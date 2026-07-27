@@ -1,0 +1,111 @@
+{
+  "$id": "urn:cape-loop:schema:experiment-c-decoder-codebook:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A researcher-only binding from one blinded native terminal state to an exact content-addressed Experiment C metric and state row.",
+  "properties": {
+    "battery_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "battery_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "domain_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evaluation_split": {
+      "enum": [
+        "development",
+        "test"
+      ]
+    },
+    "pseudonymous_state_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "regime": {
+      "enum": [
+        "fixed_balanced",
+        "fixed_biased",
+        "endogenous_closed_loop"
+      ]
+    },
+    "replicate": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_metric_row_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "source_state_file": {
+      "enum": [
+        "events/experiment-c-replays.jsonl",
+        "events/experiment-c-endogenous.jsonl"
+      ]
+    },
+    "source_state_record_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_state_record_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "stable_row_key_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "terminal_state_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "terminal_state_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "updater_id": {
+      "enum": [
+        "episodic_memory",
+        "semantic_memory",
+        "provenance_linked_memory"
+      ]
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "pseudonymous_state_id",
+    "evaluation_split",
+    "regime",
+    "replicate",
+    "user_id",
+    "domain_id",
+    "updater_id",
+    "stable_row_key_sha256",
+    "source_metric_row_sha256",
+    "battery_id",
+    "battery_digest",
+    "terminal_state_id",
+    "terminal_state_sha256",
+    "source_state_file",
+    "source_state_record_id",
+    "source_state_record_sha256"
+  ],
+  "title": "CAPE-Loop Experiment C external-decoder codebook row",
+  "type": "object"
+}

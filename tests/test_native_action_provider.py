@@ -220,6 +220,46 @@ class NativeActionProviderTests(unittest.TestCase):
                 moved_plan = plan_openai_native_actions(moved, config)
             self.assertEqual(plan, moved_plan)
 
+    def test_ambiguous_transport_failure_is_never_retried(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = _closed_loop_run(root)
+            request = build_native_action_requests(run_dir)[0]
+            config = OpenAIProviderConfig(
+                live_execution=True,
+                api_key_env="CAPE_LOOP_NATIVE_ACTION_TEST_KEY",
+                max_retries=9,
+                max_requests=900,
+                max_total_tokens=6_000_000,
+            )
+            calls: list[int] = []
+            provider = OpenAINativeActionProvider(
+                config,
+                transport=lambda **_: (
+                    calls.append(1)
+                    or (_ for _ in ()).throw(
+                        ConnectionError("outcome unknown")
+                    )
+                ),
+                sleep=lambda _: self.fail(
+                    "ambiguous transport outcomes must not back off and retry"
+                ),
+            )
+            reservation = provider.prepare(request).estimated_max_tokens
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_NATIVE_ACTION_TEST_KEY": "test-only"},
+                clear=True,
+            ):
+                with self.assertRaisesRegex(
+                    NativeActionManualReviewRequired,
+                    "ambiguous.*manual review",
+                ):
+                    provider.complete(request)
+            self.assertEqual(calls, [1])
+            self.assertEqual(provider.budget.request_count, 1)
+            self.assertEqual(provider.budget.total_tokens, reservation)
+
     def test_live_collection_is_audit_first_valid_and_resumable(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

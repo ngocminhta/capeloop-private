@@ -40,7 +40,7 @@ that the declared response model describes human behavior.
 
 ## What is generated
 
-A run can contain four related record families:
+A run can contain five related record families:
 
 | Record family | Unit | Main contents |
 | --- | --- | --- |
@@ -48,6 +48,7 @@ A run can contain four related record families:
 | Training/development records | Choice event | Controlled option set, presentation intervention, and sampled response |
 | Experiment records | Trial, turn, or trajectory | Profile before/after, visible context, separate policy provenance, response, shadow reference, and metrics |
 | Held-out evaluation packets | Case or terminal item | Leakage-checked paraphrases, terminal choices/probes, blinded decoder requests, and researcher-only bindings |
+| H7 direct-statement packet | Synthetic test-user/domain/attribute case | Simulated user-originated statement generated from latent direction, paired updater requests, and withheld source/hash bindings |
 
 Large generated outputs belong under the ignored `runs/` directory. The tracked
 `data/` directory contains only small project-generated manifests, fixtures, and
@@ -166,6 +167,7 @@ paper dataset and do not establish empirical results.
 The following are not included in the checked-in synthetic dataset:
 
 - OpenAI profile-writer responses;
+- OpenAI or OpenRouter responses to the H7 volunteered direct-statement packet;
 - Anthropic or Google blinded decoder judgments;
 - OpenAI native end-to-end terminal actions; and
 - human participant ratings.

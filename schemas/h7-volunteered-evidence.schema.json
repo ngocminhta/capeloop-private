@@ -1,0 +1,314 @@
+{
+  "$id": "urn:cape-loop:schema:h7-volunteered-evidence:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One accepted direct-statement provider response and its directional log-odds update.",
+  "properties": {
+    "audit_record_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "claim_status": {
+      "const": "not_claimed"
+    },
+    "directional_log_odds_update": {
+      "type": "number"
+    },
+    "domain_id": {
+      "enum": [
+        "travel",
+        "writing"
+      ]
+    },
+    "model_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "posterior_probabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "attribute_1": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_2": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_3": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "attribute_1",
+        "attribute_2",
+        "attribute_3"
+      ],
+      "type": "object"
+    },
+    "prior_probabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "attribute_1": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_2": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        },
+        "attribute_3": {
+          "additionalProperties": false,
+          "properties": {
+            "+1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "+2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-1": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "-2": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "-2",
+            "-1",
+            "+1",
+            "+2"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "attribute_1",
+        "attribute_2",
+        "attribute_3"
+      ],
+      "type": "object"
+    },
+    "prompt_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "openai",
+        "openrouter"
+      ]
+    },
+    "raw_response_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "request_body_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "target_attribute": {
+      "maximum": 2,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "target_direction": {
+      "enum": [
+        -1,
+        1
+      ]
+    },
+    "updater_id": {
+      "enum": [
+        "llm_full_context",
+        "llm_provenance_aware"
+      ]
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "user_id",
+    "domain_id",
+    "target_attribute",
+    "target_direction",
+    "updater_id",
+    "provider",
+    "model_id",
+    "request_id",
+    "prompt_sha256",
+    "request_body_sha256",
+    "raw_response_sha256",
+    "audit_record_sha256",
+    "prior_probabilities",
+    "posterior_probabilities",
+    "directional_log_odds_update",
+    "claim_status"
+  ],
+  "title": "CAPE-Loop H7 provider-bound volunteered evidence",
+  "type": "object"
+}

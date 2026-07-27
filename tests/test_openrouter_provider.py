@@ -32,6 +32,9 @@ from cape_loop.openrouter_provider import (
     prepare_openrouter_request,
     urllib_transport,
 )
+from cape_loop.provider_attempts import (
+    ProviderAttemptManualReviewRequired,
+)
 
 
 MODEL = "google/gemini-3.6-flash"
@@ -277,6 +280,8 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
         self.assertEqual(first.client_request_id, second.client_request_id)
         self.assertEqual(first.body["model"], MODEL)
         self.assertFalse(first.body["stream"])
+        self.assertEqual(first.body["max_tokens"], config.max_output_tokens)
+        self.assertNotIn("max_completion_tokens", first.body)
         self.assertNotIn("models", first.body)
         self.assertEqual(
             first.body["provider"],
@@ -339,6 +344,67 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
 
 
 class OpenRouterTransportAndParsingTests(unittest.TestCase):
+    def test_request_constrained_route_accepts_display_identity_snapshot(
+        self,
+    ) -> None:
+        provider = OpenRouterChatProvider(
+            live_config(upstream_provider="google-vertex/global"),
+            transport=lambda **_: HTTPResult(
+                200,
+                {"X-OpenRouter-Cache-Status": "MISS"},
+                response_body(
+                    upstream_provider="Google",
+                    upstream_model=MODEL + "-20260721",
+                ),
+            ),
+        )
+        with patch.dict(
+            "os.environ",
+            {TEST_KEY_ENV: "test"},
+            clear=True,
+        ):
+            result = provider.complete(build_request())
+        self.assertEqual(result.model_returned, MODEL)
+        self.assertEqual(result.upstream_provider, "Google")
+        self.assertEqual(result.upstream_model, MODEL + "-20260721")
+        audit = result.to_audit_record()
+        self.assertEqual(
+            audit["upstream_provider_constraint"],
+            "google-vertex/global",
+        )
+        self.assertEqual(
+            audit["provider_preferences"],
+            provider.config.provider_preferences(),
+        )
+        self.assertEqual(
+            audit["route_constraint_evidence"],
+            "request_body_provider_only_and_order",
+        )
+        self.assertIn(
+            "not_exact_route_slug_attestation",
+            audit["selected_upstream_identity_semantics"],
+        )
+        tampered = dict(audit)
+        tampered["route_constraint_evidence"] = "response_exact_slug"
+        with self.assertRaisesRegex(
+            ValueError,
+            "configured acceptance policy",
+        ):
+            provider.validate_resumed_audit(
+                tampered,
+                request=build_request(),
+                prepared=provider.prepare(build_request()),
+            )
+        manifest = provider.manifest_fields()
+        self.assertEqual(
+            manifest["route_constraint_evidence"],
+            "request_body_provider_only_and_order",
+        )
+        self.assertIn(
+            "not_exact_route_slug_attestation",
+            manifest["selected_upstream_identity_semantics"],
+        )
+
     def test_valid_response_records_gateway_and_upstream_provenance(self) -> None:
         seen: list[dict[str, Any]] = []
 
@@ -393,6 +459,14 @@ class OpenRouterTransportAndParsingTests(unittest.TestCase):
         self.assertEqual(audit["gateway"], "openrouter")
         self.assertFalse(audit["first_party_origin_claimed"])
         self.assertEqual(audit["upstream_provider"], UPSTREAM_NAME)
+        self.assertEqual(
+            audit["upstream_provider_constraint"],
+            UPSTREAM_SLUG,
+        )
+        self.assertEqual(
+            audit["provider_preferences"],
+            provider.config.provider_preferences(),
+        )
         self.assertNotIn(secret, json.dumps(audit))
 
     def test_secret_is_redacted_from_success_and_http_error(self) -> None:
@@ -579,10 +653,13 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
                 {"X-OpenRouter-Cache-Status": "MISS"},
                 "returned model differs",
             ),
-            "upstream": (
-                response_body(upstream_provider="Google Vertex"),
+            "upstream-family": (
+                response_body(
+                    upstream_provider="Google",
+                    upstream_model="google/gemini-3.5-flash",
+                ),
                 {"X-OpenRouter-Cache-Status": "MISS"},
-                "configured route",
+                "outside requested family",
             ),
         }
         request = build_request()
@@ -634,6 +711,14 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
                 adaptive_audit = root / "adaptive-audit.jsonl"
                 adaptive_audit.write_bytes(
                     (root / "audit.jsonl").read_bytes()
+                )
+                adaptive_attempts = (
+                    root / "adaptive-audit-transport-attempts.jsonl"
+                )
+                adaptive_attempts.write_bytes(
+                    (
+                        root / "audit-transport-attempts.jsonl"
+                    ).read_bytes()
                 )
                 with self.assertRaisesRegex(
                     ValueError,
@@ -709,6 +794,9 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
             random_value=lambda: 0.5,
             epoch_time=lambda: 1_700_000_000.0,
         )
+        reservation = provider.prepare(
+            build_request()
+        ).estimated_max_tokens
         with patch.dict(
             "os.environ",
             {TEST_KEY_ENV: "test"},
@@ -719,7 +807,49 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
         self.assertEqual(sleeps, [3.0, 2.0])
         self.assertEqual(len(set(seen_bodies)), 1)
         self.assertEqual(provider.budget.request_count, 3)
-        self.assertEqual(provider.budget.total_tokens, 75)
+        self.assertEqual(
+            provider.budget.total_tokens,
+            (2 * reservation) + 75,
+        )
+
+        retry_calls: list[int] = []
+        retry_capped = OpenRouterChatProvider(
+            live_config(
+                max_retries=100,
+                max_requests=2,
+                initial_backoff_seconds=0,
+                max_backoff_seconds=0,
+                jitter_fraction=0,
+            ),
+            transport=lambda **_: (
+                retry_calls.append(1)
+                or HTTPResult(
+                    503,
+                    {},
+                    b'{"error":{"message":"retry"}}',
+                )
+            ),
+            sleep=lambda _: None,
+        )
+        retry_reservation = retry_capped.prepare(
+            build_request()
+        ).estimated_max_tokens
+        with patch.dict(
+            "os.environ",
+            {TEST_KEY_ENV: "test"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                OpenRouterBudgetExceeded,
+                "max_requests",
+            ):
+                retry_capped.complete(build_request())
+        self.assertEqual(retry_calls, [1, 1])
+        self.assertEqual(retry_capped.budget.request_count, 2)
+        self.assertEqual(
+            retry_capped.budget.total_tokens,
+            2 * retry_reservation,
+        )
 
         calls: list[int] = []
         capped = OpenRouterChatProvider(
@@ -780,6 +910,9 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
             transport=transport,
             sleep=sleeps.append,
         )
+        reservation = provider.prepare(
+            build_request()
+        ).estimated_max_tokens
         with patch.dict(
             "os.environ",
             {TEST_KEY_ENV: "sk-or-do-not-reflect"},
@@ -793,11 +926,78 @@ class OpenRouterRejectionAndBudgetTests(unittest.TestCase):
         self.assertEqual(calls, [1])
         self.assertEqual(sleeps, [])
         self.assertEqual(provider.budget.request_count, 1)
-        self.assertEqual(provider.budget.total_tokens, 0)
+        self.assertEqual(provider.budget.total_tokens, reservation)
         self.assertNotIn("sk-or-do-not-reflect", str(caught.exception))
 
 
 class OpenRouterResumeTests(unittest.TestCase):
+    def test_ambiguous_attempt_is_durable_and_blocks_restart(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            responses_path = root / "responses.jsonl"
+            audit_path = root / "audit.jsonl"
+            attempts_path = root / "attempts.jsonl"
+            calls: list[int] = []
+
+            def ambiguous(**_: Any) -> HTTPResult:
+                calls.append(1)
+                raise TimeoutError("outcome unknown")
+
+            with patch.dict(
+                "os.environ",
+                {TEST_KEY_ENV: "test"},
+                clear=True,
+            ):
+                with self.assertRaisesRegex(
+                    OpenRouterProviderError,
+                    "ambiguous",
+                ):
+                    execute_openrouter_requests(
+                        OpenRouterChatProvider(
+                            live_config(max_retries=4),
+                            transport=ambiguous,
+                        ),
+                        (request,),
+                        responses_path=responses_path,
+                        audit_path=audit_path,
+                        attempts_path=attempts_path,
+                    )
+            events = [
+                json.loads(line)
+                for line in attempts_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            self.assertEqual(
+                [event["event"] for event in events],
+                ["started", "settled"],
+            )
+            self.assertEqual(events[1]["outcome"], "transport_error")
+            self.assertFalse(events[1]["automatic_retry_safe"])
+            self.assertEqual(
+                events[1]["charged_tokens"],
+                events[0]["estimated_max_tokens"],
+            )
+
+            with self.assertRaisesRegex(
+                ProviderAttemptManualReviewRequired,
+                "without a final embedded",
+            ):
+                execute_openrouter_requests(
+                    OpenRouterChatProvider(
+                        live_config(),
+                        transport=ambiguous,
+                    ),
+                    (request,),
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                    attempts_path=attempts_path,
+                )
+            self.assertEqual(calls, [1])
+
     def test_static_executor_resumes_without_repeating_accepted_calls(
         self,
     ) -> None:
@@ -958,6 +1158,18 @@ class OpenRouterResumeTests(unittest.TestCase):
             self.assertEqual(no_calls, [])
             manifest = resumed.to_manifest()
             self.assertEqual(manifest["provider"], "openrouter")
+            self.assertEqual(manifest["transport_attempt_count"], 1)
+            self.assertEqual(
+                manifest["request_budget_unit"],
+                "physical_http_attempt",
+            )
+            self.assertEqual(
+                [
+                    event["event"]
+                    for event in resumed.used_attempt_records
+                ],
+                ["started", "settled"],
+            )
             self.assertEqual(
                 manifest["upstream_providers_returned"],
                 [UPSTREAM_NAME],
@@ -983,19 +1195,18 @@ class OpenRouterResumeTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            tampered = ResumableOpenRouterCompletionProvider(
-                OpenRouterChatProvider(
-                    live_config(live_execution=False),
-                    transport=lambda **_: no_calls.append(1),  # type: ignore[arg-type]
-                ),
-                responses_path=responses_path,
-                audit_path=audit_path,
-            )
             with self.assertRaisesRegex(
                 ValueError,
-                "routing audit",
+                "attempt/final audit mismatch",
             ):
-                tampered.complete(request)
+                ResumableOpenRouterCompletionProvider(
+                    OpenRouterChatProvider(
+                        live_config(live_execution=False),
+                        transport=lambda **_: no_calls.append(1),  # type: ignore[arg-type]
+                    ),
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                )
             self.assertEqual(no_calls, [])
 
 

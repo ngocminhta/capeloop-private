@@ -3,8 +3,8 @@
 The Experiment B runner deliberately finalizes a run before external decoder
 judgments or recorded native-system actions exist.  This module preserves that
 boundary: it verifies the completed run, validates separately supplied
-evidence, and writes a new checksum-bound review directory.  It never writes
-inside the source run.
+evidence, and atomically publishes a new checksum-bound review directory from
+a durable same-parent stage.  It never writes inside the source run.
 
 The import is an admission and computation check only.  A successful review
 therefore retains ``claim_status = "not_claimed"``.
@@ -22,6 +22,8 @@ from typing import Any, Iterable, Mapping, Sequence
 import json
 import math
 import os
+import shutil
+import tempfile
 
 from .artifacts import canonical_json, verify_run
 from .decoder_study import (
@@ -152,6 +154,32 @@ def _snapshot_file(path: Path, *, name: str) -> _FileSnapshot:
         raise ValueError(f"{name} must be a safe regular file")
     resolved = unresolved.resolve()
     return _FileSnapshot(resolved, resolved.read_bytes())
+
+
+def _assert_snapshot_unchanged(
+    supplied_path: Path,
+    snapshot: _FileSnapshot,
+    *,
+    name: str,
+) -> None:
+    """Rebind a supplied path to the exact bytes admitted earlier."""
+
+    try:
+        if (
+            supplied_path.is_symlink()
+            or not supplied_path.is_file()
+            or supplied_path.resolve() != snapshot.path
+            or snapshot.path.is_symlink()
+            or not snapshot.path.is_file()
+            or snapshot.path.read_bytes() != snapshot.material
+        ):
+            raise ValueError(
+                f"{name} changed while the Gate 4 import was running"
+            )
+    except OSError as exc:
+        raise ValueError(
+            f"{name} changed while the Gate 4 import was running"
+        ) from exc
 
 
 def _json_object_from_snapshot(
@@ -1503,6 +1531,207 @@ def _input_manifest_entry(
     return result
 
 
+def _write_text_durable(path: Path, value: str) -> None:
+    """Create one staged text file and make its contents durable."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8", newline="\n") as handle:
+        handle.write(value)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _write_json_durable(path: Path, value: Any) -> None:
+    _write_text_durable(path, canonical_json(value) + "\n")
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _gate_review_lock_path(output: Path) -> Path:
+    return output.parent / f".{output.name}.gate4-review.lock"
+
+
+@contextmanager
+def _hold_exclusive_gate_review_lock(output: Path) -> Iterable[None]:
+    """Serialize publication attempts for one destination."""
+
+    lock_path = _gate_review_lock_path(output)
+    try:
+        descriptor = os.open(
+            lock_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"gate-review output is locked: {output}"
+        ) from exc
+    os.close(descriptor)
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _source_run_binding(run_path: Path) -> dict[str, Any]:
+    """Return the exact immutable source identity retained by a review."""
+
+    manifest_path = run_path / "manifest.json"
+    checksum_path = run_path / "SHA256SUMS"
+    manifest_snapshot = _snapshot_file(
+        manifest_path,
+        name="source run manifest",
+    )
+    checksum_snapshot = _snapshot_file(
+        checksum_path,
+        name="source run checksum manifest",
+    )
+    manifest = _json_object_from_snapshot(manifest_snapshot)
+    return {
+        "run_id": manifest["run_id"],
+        "run_manifest_sha256": manifest_snapshot.sha256,
+        "run_checksum_manifest_sha256": checksum_snapshot.sha256,
+        "config_sha256": manifest["config_sha256"],
+        "source_sha256": manifest["source_sha256"],
+        "verified_complete": True,
+    }
+
+
+def _assert_source_run_unchanged(
+    supplied_path: Path,
+    run_path: Path,
+    source_run: Mapping[str, Any],
+) -> None:
+    try:
+        same_path = (
+            not supplied_path.is_symlink()
+            and supplied_path.is_dir()
+            and supplied_path.resolve() == run_path
+        )
+    except OSError:
+        same_path = False
+    if not same_path:
+        raise ValueError(
+            "source run path changed while the Gate 4 import was running"
+        )
+    valid, errors = verify_run(run_path)
+    if not valid:
+        raise ValueError(
+            "source run changed while the Gate 4 import was running: "
+            + "; ".join(errors)
+        )
+    if _source_run_binding(run_path) != dict(source_run):
+        raise ValueError(
+            "source run binding changed while the Gate 4 import was running"
+        )
+
+
+def _snapshot_collection_files(
+    collection: Path,
+    *,
+    file_names: Mapping[str, str],
+    lock_names: Sequence[str],
+    label: str,
+) -> dict[str, _FileSnapshot]:
+    """Snapshot an exact, flat collector output while its locks are held."""
+
+    required_names = set(file_names.values()) | set(lock_names)
+    if collection.is_symlink() or not collection.is_dir():
+        raise ValueError(f"{label} must remain a safe collection directory")
+    actual_names = {item.name for item in collection.iterdir()}
+    if actual_names != required_names:
+        raise ValueError(
+            f"{label} has missing or unexpected entries: "
+            + canonical_json(
+                {
+                    "missing": sorted(required_names - actual_names),
+                    "unexpected": sorted(actual_names - required_names),
+                }
+            )
+        )
+    snapshots = {
+        key: _snapshot_file(
+            collection / filename,
+            name=f"{label} file {filename}",
+        )
+        for key, filename in file_names.items()
+    }
+    for filename in lock_names:
+        lock_path = collection / filename
+        if (
+            lock_path.is_symlink()
+            or not lock_path.is_file()
+            or lock_path.resolve().parent != collection
+        ):
+            raise ValueError(f"{label} lacks its safe collection lock")
+    return snapshots
+
+
+def _assert_collection_unchanged(
+    supplied_path: Path,
+    collection: Path,
+    snapshots: Mapping[str, _FileSnapshot],
+    *,
+    file_names: Mapping[str, str],
+    lock_names: Sequence[str],
+    label: str,
+) -> None:
+    try:
+        same_path = (
+            not supplied_path.is_symlink()
+            and supplied_path.is_dir()
+            and supplied_path.resolve() == collection
+        )
+    except OSError:
+        same_path = False
+    if not same_path:
+        raise ValueError(
+            f"{label} changed while the Gate 4 import was running"
+        )
+    current = _snapshot_collection_files(
+        collection,
+        file_names=file_names,
+        lock_names=lock_names,
+        label=label,
+    )
+    if set(current) != set(snapshots) or any(
+        current[key].path != snapshots[key].path
+        or current[key].material != snapshots[key].material
+        for key in snapshots
+    ):
+        raise ValueError(
+            f"{label} changed while the Gate 4 import was running"
+        )
+
+
+def _assert_collection_manifest_bindings(
+    inputs: Mapping[str, Mapping[str, Any]],
+    snapshots: Mapping[str, _FileSnapshot],
+    *,
+    label: str,
+) -> None:
+    for key, snapshot in snapshots.items():
+        entry = inputs.get(key)
+        if (
+            not isinstance(entry, Mapping)
+            or entry.get("filename") != snapshot.path.name
+            or entry.get("sha256") != snapshot.sha256
+            or entry.get("bytes") != len(snapshot.material)
+        ):
+            raise ValueError(
+                f"{label} digest binding changed during validation"
+            )
+
+
 @contextmanager
 def _hold_shared_collection_locks(
     locks: Sequence[tuple[str, Path]],
@@ -2608,6 +2837,102 @@ def _validate_external_decoder_collection(
     return judgments, inputs, summary
 
 
+def validate_official_external_decoder_collection(
+    collection_dir: str | Path,
+    *,
+    run_dir: str | Path,
+    requests: Sequence[ExternalDecoderRequest],
+    judgments_path: str | Path,
+) -> tuple[
+    tuple[ExternalDecoderJudgment, ...],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
+    """Read-only validation of one complete first-party decoder collection."""
+
+    supplied_run = Path(run_dir).absolute()
+    supplied_collection = Path(collection_dir).absolute()
+    supplied_judgments = Path(judgments_path).absolute()
+    if supplied_run.is_symlink() or not supplied_run.is_dir():
+        raise ValueError("source run must be a safe directory")
+    if (
+        supplied_collection.is_symlink()
+        or not supplied_collection.is_dir()
+    ):
+        raise ValueError(
+            "official external decoder evidence requires a complete "
+            "distinct-decoder collection directory"
+        )
+    run_path = supplied_run.resolve()
+    collection = supplied_collection.resolve()
+    valid, errors = verify_run(run_path)
+    if not valid:
+        raise ValueError(
+            "source run verification failed: " + "; ".join(errors)
+        )
+    source_run = _source_run_binding(run_path)
+    judgment_snapshot = _snapshot_file(
+        supplied_judgments,
+        name="decoder judgments",
+    )
+    request_tuple = tuple(requests)
+    locks = tuple(
+        (
+            label,
+            collection / filename,
+        )
+        for label, filename in (
+            (
+                "external decoder command collection",
+                _EXTERNAL_COLLECTION_LOCKS[0],
+            ),
+            (
+                "external decoder journal collection",
+                _EXTERNAL_COLLECTION_LOCKS[1],
+            ),
+        )
+    )
+    with _hold_shared_collection_locks(locks):
+        snapshots = _snapshot_collection_files(
+            collection,
+            file_names=_EXTERNAL_COLLECTION_FILES,
+            lock_names=_EXTERNAL_COLLECTION_LOCKS,
+            label="external decoder collection",
+        )
+        judgments, inputs, summary = (
+            _validate_external_decoder_collection(
+                collection,
+                run_path=run_path,
+                requests=request_tuple,
+                supplied_judgments=judgment_snapshot,
+            )
+        )
+        _assert_snapshot_unchanged(
+            supplied_judgments,
+            judgment_snapshot,
+            name="decoder judgments",
+        )
+        _assert_collection_unchanged(
+            supplied_collection,
+            collection,
+            snapshots,
+            file_names=_EXTERNAL_COLLECTION_FILES,
+            lock_names=_EXTERNAL_COLLECTION_LOCKS,
+            label="external decoder collection",
+        )
+        _assert_collection_manifest_bindings(
+            inputs,
+            snapshots,
+            label="external decoder collection",
+        )
+        _assert_source_run_unchanged(
+            supplied_run,
+            run_path,
+            source_run,
+        )
+        return judgments, inputs, summary
+
+
 def import_native_gate_review(
     *,
     run_dir: str | Path,
@@ -2620,10 +2945,32 @@ def import_native_gate_review(
     external_collection_dir: str | Path | None = None,
     allow_reviewed_generic_decoders: bool = False,
 ) -> dict[str, Any]:
-    """Validate external evidence under stable collection locks."""
+    """Validate evidence and atomically publish an immutable review."""
 
-    run_path = Path(run_dir).resolve()
-    output = Path(output_dir).resolve()
+    supplied_run = Path(run_dir).absolute()
+    supplied_requests = Path(requests_path).absolute()
+    supplied_judgments = Path(judgments_path).absolute()
+    supplied_truth = Path(truth_labels_path).absolute()
+    supplied_native = Path(native_collection_dir).absolute()
+    supplied_review = Path(source_review_path).absolute()
+    supplied_output = Path(output_dir).absolute()
+    if supplied_run.is_symlink() or not supplied_run.is_dir():
+        raise ValueError("source run must be a safe directory")
+    if supplied_output.is_symlink() or supplied_output.exists():
+        raise FileExistsError(
+            f"gate-review output already exists: {supplied_output}"
+        )
+    if supplied_output.parent.is_symlink():
+        raise ValueError("gate-review output parent cannot be a symlink")
+
+    run_path = supplied_run.resolve()
+    output = supplied_output.resolve()
+    if output == Path(output.anchor):
+        raise ValueError("gate-review output cannot be a filesystem root")
+    if output == run_path or run_path in output.parents:
+        raise ValueError(
+            "gate-review output cannot be inside the completed source run"
+        )
     if (
         external_collection_dir is not None
     ) == allow_reviewed_generic_decoders:
@@ -2632,7 +2979,7 @@ def import_native_gate_review(
             "external_collection_dir or set "
             "allow_reviewed_generic_decoders=True"
         )
-    unresolved_native = Path(native_collection_dir)
+    unresolved_native = supplied_native
     if unresolved_native.is_symlink() or not unresolved_native.is_dir():
         raise ValueError(
             "Gate 4 requires a complete native action collection directory; "
@@ -2645,9 +2992,10 @@ def import_native_gate_review(
             "collection"
         )
     external_collection: Path | None = None
+    supplied_external: Path | None = None
     locks: list[tuple[str, Path]] = []
     if external_collection_dir is not None:
-        unresolved_external = Path(external_collection_dir)
+        unresolved_external = Path(external_collection_dir).absolute()
         if (
             unresolved_external.is_symlink()
             or not unresolved_external.is_dir()
@@ -2669,6 +3017,7 @@ def import_native_gate_review(
             raise ValueError(
                 "external decoder and native action collections must differ"
             )
+        supplied_external = unresolved_external
         # Match the collector's outer-to-inner nesting order.
         locks.extend(
             (
@@ -2688,37 +3037,49 @@ def import_native_gate_review(
             native_collection / ".collection.lock",
         )
     )
-    with _hold_shared_collection_locks(locks):
-        return _import_native_gate_review_locked(
-            run_path=run_path,
-            requests_path=requests_path,
-            judgments_path=judgments_path,
-            truth_labels_path=truth_labels_path,
-            native_collection_dir=native_collection,
-            source_review_path=source_review_path,
-            output=output,
-            external_collection_dir=external_collection,
-            allow_reviewed_generic_decoders=(
-                allow_reviewed_generic_decoders
-            ),
-        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with _hold_exclusive_gate_review_lock(output):
+        if output.is_symlink() or output.exists():
+            raise FileExistsError(
+                f"gate-review output already exists: {output}"
+            )
+        with _hold_shared_collection_locks(locks):
+            return _import_native_gate_review_locked(
+                run_path=run_path,
+                run_input=supplied_run,
+                requests_path=supplied_requests,
+                judgments_path=supplied_judgments,
+                truth_labels_path=supplied_truth,
+                native_collection_dir=native_collection,
+                native_collection_input=supplied_native,
+                source_review_path=supplied_review,
+                output=output,
+                external_collection_dir=external_collection,
+                external_collection_input=supplied_external,
+                allow_reviewed_generic_decoders=(
+                    allow_reviewed_generic_decoders
+                ),
+            )
 
 
 def _import_native_gate_review_locked(
     *,
     run_path: Path,
-    requests_path: str | Path,
-    judgments_path: str | Path,
-    truth_labels_path: str | Path,
-    native_collection_dir: str | Path,
-    source_review_path: str | Path,
+    run_input: Path,
+    requests_path: Path,
+    judgments_path: Path,
+    truth_labels_path: Path,
+    native_collection_dir: Path,
+    native_collection_input: Path,
+    source_review_path: Path,
     output: Path,
     external_collection_dir: Path | None,
+    external_collection_input: Path | None,
     allow_reviewed_generic_decoders: bool,
 ) -> dict[str, Any]:
-    """Validate a locked collection and write a new immutable review."""
+    """Validate locked collections and stage one immutable review."""
 
-    if output.exists():
+    if output.is_symlink() or output.exists():
         raise FileExistsError(f"gate-review output already exists: {output}")
     if output == run_path or run_path in output.parents:
         raise ValueError(
@@ -2729,8 +3090,7 @@ def _import_native_gate_review_locked(
         raise ValueError(
             "source run verification failed: " + "; ".join(errors)
         )
-    manifest_path = run_path / "manifest.json"
-    manifest = _read_json_object(manifest_path)
+    source_run = _source_run_binding(run_path)
     config = _read_json_object(run_path / "config.resolved.json")
     experiment = config.get("experiment")
     artifacts = config.get("artifacts")
@@ -2771,7 +3131,16 @@ def _import_native_gate_review_locked(
     )
     external_collection_inputs: dict[str, dict[str, Any]]
     external_collection_summary: dict[str, Any]
+    external_collection_snapshots: dict[str, _FileSnapshot] = {}
     if external_collection_dir is not None:
+        if external_collection_input is None:
+            raise ValueError("external decoder collection path is missing")
+        external_collection_snapshots = _snapshot_collection_files(
+            external_collection_dir,
+            file_names=_EXTERNAL_COLLECTION_FILES,
+            lock_names=_EXTERNAL_COLLECTION_LOCKS,
+            label="external decoder collection",
+        )
         (
             judgments,
             external_collection_inputs,
@@ -2781,6 +3150,19 @@ def _import_native_gate_review_locked(
             run_path=run_path,
             requests=requests,
             supplied_judgments=judgment_snapshot,
+        )
+        _assert_collection_unchanged(
+            external_collection_input,
+            external_collection_dir,
+            external_collection_snapshots,
+            file_names=_EXTERNAL_COLLECTION_FILES,
+            lock_names=_EXTERNAL_COLLECTION_LOCKS,
+            label="external decoder collection",
+        )
+        _assert_collection_manifest_bindings(
+            external_collection_inputs,
+            external_collection_snapshots,
+            label="external decoder collection",
         )
     else:
         if not allow_reviewed_generic_decoders:
@@ -2796,11 +3178,30 @@ def _import_native_gate_review_locked(
             "responsible_researcher_review_required": True,
             "standalone_automated_provider_provenance_claimed": False,
         }
+    native_collection_snapshots = _snapshot_collection_files(
+        native_collection_dir,
+        file_names=_NATIVE_COLLECTION_FILES,
+        lock_names=(".collection.lock",),
+        label="native action collection",
+    )
     actions, native_collection_inputs, native_collection_summary = (
         _validate_native_action_collection(
             native_collection_dir,
             run_path,
         )
+    )
+    _assert_collection_unchanged(
+        native_collection_input,
+        native_collection_dir,
+        native_collection_snapshots,
+        file_names=_NATIVE_COLLECTION_FILES,
+        lock_names=(".collection.lock",),
+        label="native action collection",
+    )
+    _assert_collection_manifest_bindings(
+        native_collection_inputs,
+        native_collection_snapshots,
+        label="native action collection",
     )
 
     retained_request_path = (
@@ -2999,16 +3400,6 @@ def _import_native_gate_review_locked(
         **native_collection_inputs,
         "decoder_source_review": review_snapshot.manifest_entry(),
     }
-    source_run = {
-        "run_id": manifest["run_id"],
-        "run_manifest_sha256": _file_digest(manifest_path),
-        "run_checksum_manifest_sha256": _file_digest(
-            run_path / "SHA256SUMS"
-        ),
-        "config_sha256": manifest["config_sha256"],
-        "source_sha256": manifest["source_sha256"],
-        "verified_complete": True,
-    }
     validation_summary = {
         "status": "import_validated",
         "source_run_verified": True,
@@ -3071,34 +3462,98 @@ def _import_native_gate_review_locked(
         "artifact_id": artifact_id,
     }
 
-    output.mkdir(parents=True, exist_ok=False)
-    review_output = output / "gate-review.json"
-    review_output.write_text(
-        canonical_json(review_payload) + "\n",
-        encoding="utf-8",
+    stage = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.",
+            suffix=".staging",
+            dir=output.parent,
+        )
     )
-    artifact_manifest = {
-        "schema_version": 1,
-        "artifact_kind": "gate4-native-evidence-review",
-        "artifact_id": artifact_id,
-        "status": "complete",
-        "claim_status": "not_claimed",
-        "gate_review_sha256": _file_digest(review_output),
-        "source_run": source_run,
-    }
-    manifest_output = output / "manifest.json"
-    manifest_output.write_text(
-        canonical_json(artifact_manifest) + "\n",
-        encoding="utf-8",
-    )
-    checksum_lines = [
-        f"{_file_digest(review_output)}  gate-review.json",
-        f"{_file_digest(manifest_output)}  manifest.json",
-    ]
-    (output / "SHA256SUMS").write_text(
-        "\n".join(checksum_lines) + "\n",
-        encoding="utf-8",
-    )
+    published = False
+    try:
+        review_output = stage / "gate-review.json"
+        _write_json_durable(review_output, review_payload)
+        artifact_manifest = {
+            "schema_version": 1,
+            "artifact_kind": "gate4-native-evidence-review",
+            "artifact_id": artifact_id,
+            "status": "complete",
+            "claim_status": "not_claimed",
+            "gate_review_sha256": _file_digest(review_output),
+            "source_run": source_run,
+        }
+        manifest_output = stage / "manifest.json"
+        _write_json_durable(manifest_output, artifact_manifest)
+        checksum_lines = [
+            f"{_file_digest(review_output)}  gate-review.json",
+            f"{_file_digest(manifest_output)}  manifest.json",
+        ]
+        _write_text_durable(
+            stage / "SHA256SUMS",
+            "\n".join(checksum_lines) + "\n",
+        )
+        _fsync_directory(stage)
+
+        _assert_source_run_unchanged(run_input, run_path, source_run)
+        for supplied, snapshot, name in (
+            (requests_path, request_snapshot, "decoder requests"),
+            (judgments_path, judgment_snapshot, "decoder judgments"),
+            (truth_labels_path, truth_snapshot, "decoder truth labels"),
+            (
+                source_review_path,
+                review_snapshot,
+                "decoder source review",
+            ),
+        ):
+            _assert_snapshot_unchanged(
+                supplied,
+                snapshot,
+                name=name,
+            )
+        _assert_collection_unchanged(
+            native_collection_input,
+            native_collection_dir,
+            native_collection_snapshots,
+            file_names=_NATIVE_COLLECTION_FILES,
+            lock_names=(".collection.lock",),
+            label="native action collection",
+        )
+        if external_collection_dir is not None:
+            if external_collection_input is None:
+                raise ValueError(
+                    "external decoder collection path is missing"
+                )
+            _assert_collection_unchanged(
+                external_collection_input,
+                external_collection_dir,
+                external_collection_snapshots,
+                file_names=_EXTERNAL_COLLECTION_FILES,
+                lock_names=_EXTERNAL_COLLECTION_LOCKS,
+                label="external decoder collection",
+            )
+
+        staged_valid, staged_errors = verify_gate_review(
+            stage,
+            source_run_dir=run_path,
+        )
+        if not staged_valid:
+            raise ValueError(
+                "staged Gate 4 review failed verification: "
+                + "; ".join(staged_errors)
+            )
+        if output.is_symlink() or output.exists():
+            raise FileExistsError(
+                f"gate-review output already exists: {output}"
+            )
+        os.rename(stage, output)
+        published = True
+        _fsync_directory(output.parent)
+    finally:
+        if not published:
+            if stage.is_symlink():
+                stage.unlink()
+            elif stage.exists():
+                shutil.rmtree(stage)
     return {
         "artifact_id": artifact_id,
         "output_dir": str(output),
@@ -3112,40 +3567,66 @@ def _import_native_gate_review_locked(
 
 def verify_gate_review(
     path: str | Path,
+    *,
+    source_run_dir: str | Path | None = None,
 ) -> tuple[bool, tuple[str, ...]]:
-    """Verify an immutable Gate 4 review directory and its content bindings."""
+    """Verify review checksums, semantics, and optionally its source run."""
 
-    root = Path(path).resolve()
+    supplied = Path(path)
+    if supplied.is_symlink():
+        return False, ("review directory cannot be a symlink",)
+    root = supplied.resolve()
+    if not root.is_dir():
+        return False, ("review directory is missing",)
     errors: list[str] = []
     checksum_path = root / "SHA256SUMS"
-    if not checksum_path.is_file():
-        return False, ("missing SHA256SUMS",)
+    if checksum_path.is_symlink() or not checksum_path.is_file():
+        return False, ("missing regular SHA256SUMS",)
+    expected_files = {
+        "SHA256SUMS",
+        "gate-review.json",
+        "manifest.json",
+    }
+    try:
+        actual_entries = {item.name for item in root.iterdir()}
+    except OSError as exc:
+        return False, (f"cannot inspect review directory: {exc}",)
+    if actual_entries != expected_files:
+        errors.append("review directory has an unexpected file set")
     retained: set[str] = set()
-    for line_number, line in enumerate(
-        checksum_path.read_text(encoding="utf-8").splitlines(),
-        start=1,
-    ):
+    try:
+        checksum_lines = checksum_path.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        return False, (f"invalid SHA256SUMS: {exc}",)
+    for line_number, line in enumerate(checksum_lines, start=1):
         if not line.strip():
             continue
         try:
             expected, relative = line.split("  ", 1)
-        except ValueError:
-            errors.append(f"malformed checksum line {line_number}")
-            continue
-        try:
             _validate_digest(expected, "checksum")
         except ValueError as exc:
-            errors.append(f"line {line_number}: {exc}")
+            errors.append(
+                f"malformed checksum line {line_number}: {exc}"
+            )
             continue
         relative_path = PurePosixPath(relative)
         if (
-            relative_path.is_absolute()
+            not relative
+            or relative_path.is_absolute()
             or relative_path.as_posix() != relative
+            or "\\" in relative
+            or "\x00" in relative
             or any(part in {"", ".", ".."} for part in relative_path.parts)
         ):
             errors.append(f"unsafe checksum path on line {line_number}")
             continue
-        candidate = root.joinpath(*relative_path.parts).resolve()
+        unresolved = root.joinpath(*relative_path.parts)
+        if unresolved.is_symlink():
+            errors.append(f"symlinked review artifact: {relative}")
+            continue
+        candidate = unresolved.resolve()
         if candidate == root or root not in candidate.parents:
             errors.append(f"checksum path escapes review: {relative}")
             continue
@@ -3166,20 +3647,37 @@ def verify_gate_review(
         errors.append(f"unlisted artifact: {unexpected}")
     if retained != {"gate-review.json", "manifest.json"}:
         errors.append("review checksum manifest has unexpected file set")
+    for item in root.rglob("*"):
+        if item.is_symlink():
+            errors.append(
+                "unexpected review symlink: "
+                + item.relative_to(root).as_posix()
+            )
 
     manifest: Mapping[str, Any] | None = None
     review: Mapping[str, Any] | None = None
     try:
-        manifest = _read_json_object(root / "manifest.json")
+        manifest = _json_object_from_snapshot(
+            _snapshot_file(
+                root / "manifest.json",
+                name="gate-review manifest",
+            )
+        )
     except (OSError, ValueError) as exc:
         errors.append(f"invalid manifest.json: {exc}")
     try:
-        review = _read_json_object(root / "gate-review.json")
+        review = _json_object_from_snapshot(
+            _snapshot_file(
+                root / "gate-review.json",
+                name="gate-review payload",
+            )
+        )
     except (OSError, ValueError) as exc:
         errors.append(f"invalid gate-review.json: {exc}")
     if manifest is not None:
         if (
-            manifest.get("artifact_kind")
+            manifest.get("schema_version") != 1
+            or manifest.get("artifact_kind")
             != "gate4-native-evidence-review"
             or manifest.get("status") != "complete"
             or manifest.get("claim_status") != "not_claimed"
@@ -3199,19 +3697,57 @@ def verify_gate_review(
         if artifact_id != _digest_value(core):
             errors.append("gate-review artifact_id mismatch")
         if (
-            review.get("artifact_kind")
+            review.get("schema_version") != 1
+            or review.get("artifact_kind")
             != "gate4-native-evidence-review"
             or review.get("claim_status") != "not_claimed"
         ):
             errors.append("invalid gate-review claim semantics")
         gate = review.get("gate_4")
-        if not isinstance(gate, Mapping) or gate.get(
-            "claim_status"
-        ) != "not_claimed":
+        if (
+            not isinstance(gate, Mapping)
+            or gate.get("gate_id") != "gate-4"
+            or gate.get("claim_status") != "not_claimed"
+        ):
             errors.append("Gate 4 claim_status must be not_claimed")
         if (
             manifest is not None
             and manifest.get("artifact_id") != artifact_id
         ):
             errors.append("manifest/review artifact_id mismatch")
+        if not isinstance(review.get("source_run"), Mapping):
+            errors.append("gate-review source binding is missing")
+        if not isinstance(review.get("inputs"), Mapping):
+            errors.append("gate-review input bindings are missing")
+    if (
+        manifest is not None
+        and review is not None
+        and manifest.get("source_run") != review.get("source_run")
+    ):
+        errors.append("manifest/review source binding mismatch")
+
+    if source_run_dir is not None:
+        supplied_source = Path(source_run_dir)
+        if supplied_source.is_symlink() or not supplied_source.is_dir():
+            errors.append("source run must be a safe directory")
+        else:
+            source = supplied_source.resolve()
+            valid, source_errors = verify_run(source)
+            if not valid:
+                errors.append(
+                    "source run verification failed: "
+                    + "; ".join(source_errors)
+                )
+            else:
+                try:
+                    expected_source = _source_run_binding(source)
+                    if (
+                        review is None
+                        or review.get("source_run") != expected_source
+                    ):
+                        errors.append(
+                            "gate-review/source run binding mismatch"
+                        )
+                except (KeyError, OSError, ValueError) as exc:
+                    errors.append(f"invalid source run binding: {exc}")
     return not errors, tuple(errors)

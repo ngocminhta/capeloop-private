@@ -145,9 +145,16 @@ events/experiment-a-exact-references.jsonl # conditional
 events/experiment-a-exclusions.jsonl       # conditional
 events/experiment-a-held-out-paraphrases.jsonl # conditional
 models/experiment-a-control-battery.json
+models/experiment-a-control-plan.json
 models/held-out-paraphrase-suite.json
+llm/experiment-a-control-exchange.json
+llm/experiment-a-control-request-bindings.jsonl
+llm/experiment-a-control-requests.jsonl
 metrics/experiment-a.jsonl
 metrics/experiment-a-confirmatory.json
+metrics/experiment-a-control-reference.json
+metrics/experiment-a-control-baseline.json
+metrics/experiment-a-hypothesis-estimands.json
 metrics/experiment-a-oracle-slopes.jsonl
 metrics/experiment-a-evidence-strength.json
 metrics/experiment-a-raw-calibrated-scores.jsonl
@@ -175,9 +182,19 @@ matched mechanism while context and sampled response remain paired across
 strata. `experiment-a-control-battery.json` content-binds the three positive
 controls (volunteered preference, repeated balanced cross-context choices, and
 direct correction) and three negative controls (indifference, random choice,
-and target-nondistinguishing response). It is a fixed execution protocol, not
-a result file: the one-step anchor runner does not fabricate outcomes for
+and target-nondistinguishing response). The battery itself remains a protocol,
+not a result file: the one-step anchor runner does not fabricate outcomes for
 signals its choice schema cannot faithfully encode.
+
+`experiment-a-control-plan.json` separately materializes those signals as six
+typed, content-addressed stimuli. The reference and baseline files are
+complete deterministic diagnostics and explicitly are not external evidence.
+The exchange manifest and two JSONL files contain a six-case
+provenance-aware provider packet: the generic requests are consumable by the
+existing OpenAI/OpenRouter commands, while the outer bindings retain plan,
+battery, and stimulus hashes. Imported responses are scored outside the
+immutable run with `cape-loop control-study analyze`; see
+[Experiment A control execution](experiment-a-controls.md).
 
 `experiment-a-confirmatory.json` groups the oracle slopes, fitted
 evidence-strength ordering, clustered mechanism contrasts,
@@ -185,6 +202,32 @@ updater×mechanism interactions, raw/calibrated comparison, and optional
 marginal regression. The regression artifact identifies itself as marginal OLS
 with user-clustered CR1 covariance. It must not be reported as the proposal's
 user-random-slope/scenario-random-intercept generalized mixed-effects model.
+
+`experiment-a-hypothesis-estimands.json` separately freezes H1's
+mechanism-wise directional and update-strength contrasts, H2's
+aware-versus-unaware update-vector proximity criterion, and H7's update-error
+superiority plus balanced/volunteered valid-learning noninferiority. Missing
+LLM rows or volunteered direct-statement outcomes remain `null`, never imputed.
+See [H1, H2, and H7 estimands](hypothesis-estimands.md).
+
+Volunteered evidence is deliberately produced outside the immutable run.
+`control-study h7-plan` writes:
+
+```text
+h7-volunteered-plan.json
+h7-volunteered-request-bindings.jsonl
+h7-volunteered-requests.jsonl
+```
+
+After complete provider collection, `control-study h7-review` writes one
+`h7_volunteered_control_review` JSON artifact. It binds the verified source
+run, all three plan files, response and accepted provider-audit files, every
+derived `VolunteeredPreferenceUpdate`, and each provider-bound posterior. It
+recomputes only volunteered valid learning and the overall Experiment A H7
+status while retaining the source ACUE-superiority and balanced components by
+hash. `control-study h7-verify` reconstructs the artifact from all inputs. The
+review is not placed under the source run and always remains `not_claimed`.
+See [H7 volunteered-preference controls](h7-volunteered-controls.md).
 
 The raw/calibrated score and reliability files retain case-bound forecast
 scores and one-vs-rest marginal-class reliability bins. Multiplicity uses Holm
@@ -208,11 +251,14 @@ metrics/experiment-b-native-decoders.jsonl
 metrics/experiment-b-held-out-actions.jsonl
 metrics/experiment-b-terminal-calibration.json
 metrics/experiment-b-decomposition.jsonl
+metrics/experiment-b-h7-mitigation.json
 metrics/experiment-b-self-confirmation.jsonl
 metrics/experiment-b-inference.json
+metrics/experiment-b-power.json
 metrics/experiment-b-llm-raw-calibrated-terminal.jsonl
 metrics/experiment-b-llm-raw-calibrated-terminal-manifest.json
 tables/experiment-b-decomposition.csv
+tables/experiment-b-power.md
 tables/experiment-b-llm-raw-calibrated-terminal.csv
 decoder/external-requests.jsonl
 decoder/truth-labels.researcher-only.jsonl
@@ -255,6 +301,24 @@ adequacy decision, bootstrap count, and explicit `not_computed` status when
 bootstrapping is disabled. The artifact states that this dependency-free
 analysis is not a mixed-effects model or GLMM.
 
+`experiment-b-h7-mitigation.json` compares matched ordinary full-context and
+provenance-aware trajectories under soft profile conditioning with incorrect
+initial profiles. It reports reductions in same-history attribution error and
+the five-clause self-confirming-profile rate. It is only H7's closed-loop
+component; the Experiment A mitigation and valid-learning criteria remain
+separately required.
+
+`experiment-b-power.json` is the checksum-retained, machine-readable
+pilot-design calculation for the frozen full-context-versus-fitted-aware ×
+soft-versus-balanced × incorrect-versus-correct terminal-error contrast. It
+includes the exact formula and factor IDs, a digest of every contributing
+trajectory/error input, complete-user inclusion and exclusion records, the
+bounded simulation settings and assumptions, the 16/32/64/128 curve, Monte
+Carlo standard errors and Wilson intervals, and the conservative 0.80
+threshold decision. `experiment-b-power.md` renders the same information for a
+human reviewer. Both files say `scientific_claim_status = "not_claimed"` and
+prohibit an automatic sample-size commitment.
+
 When LLM temperature calibration is active, the raw/calibrated terminal table
 scores both cached probability vectors for the identical final request and
 common terminal battery. It makes zero additional provider calls and preserves
@@ -278,6 +342,10 @@ events/experiment-c-fixed-histories.jsonl  # conditional
 events/experiment-c-replays.jsonl          # conditional
 events/experiment-c-endogenous.jsonl       # conditional
 events/terminal-batteries.jsonl             # unconditional
+decoder/experiment-c-external-requests.jsonl
+decoder/experiment-c-truth-labels.researcher-only.jsonl
+decoder/experiment-c-researcher-codebook.jsonl
+decoder/experiment-c-external-design-manifest.json
 metrics/experiment-c.jsonl
 metrics/experiment-c-terminal-calibration.json
 metrics/experiment-c-rankings.json
@@ -336,6 +404,39 @@ new recursive run with complete response coverage for the alternate prompts;
 the cached table is therefore never substituted into
 `experiment-c-rankings.json` or Gate 5.
 
+Native C rows also produce a blinded external-decoder packet. A later
+`experiment-c-decoder import` writes a separate checksum-bound review and
+reruns rankings, ESR, and Gate 5 without modifying this source run. The exact
+packet, review contents, calibration boundary, and verification commands are
+documented in
+[Experiment C external-decoder rescore](experiment-c-external-decoder.md).
+The CLI requires either `--external-collection-dir DIR`, which validates and
+binds the complete selected first-party collection, or
+`--allow-reviewed-generic-decoders`, which explicitly records that all
+origin/family/source metadata are caller-declared and makes no provider-
+provenance assertion.
+Publication uses an exclusive sibling lock and a durable same-parent stage;
+the source and judgment inputs plus the staged review are reverified before one
+atomic rename exposes the final directory.
+
+Two or more independently seeded completed Experiment C runs can be supplied
+to `experiment-c-robustness review`. The command verifies each source and
+writes a separate atomic directory containing only:
+
+```text
+review.json
+manifest.json
+SHA256SUMS
+```
+
+The review binds every source checksum/config/ranking/gate/summary digest and
+retains its positive clustered-bootstrap count and seed. It compares the three
+point rankings, open/closed inferential top tiers and partial orders, Gate 5
+decision/status, and ESR selection sets using exact rational agreement
+fractions plus explicit disagreements. It never rewrites a source or infers a
+scientific claim. See
+[Experiment C multi-seed robustness](experiment-c-robustness.md).
+
 ### Sensitivity
 
 ```text
@@ -344,6 +445,7 @@ metrics/sensitivity.jsonl
 metrics/sensitivity-decomposition.jsonl
 metrics/sensitivity-grand.jsonl
 metrics/sensitivity-phase-points.jsonl
+metrics/sensitivity-phase-domains.jsonl
 metrics/sensitivity-phase-boundaries.jsonl
 metrics/sensitivity-phase-specification.json
 tables/sensitivity.csv
@@ -360,11 +462,19 @@ Primary rows are updater×policy×domain strata; decomposition rows retain paire
 selection/attribution contrasts; grand rows are descriptive summaries.
 
 Phase-point rows retain every declared criterion as true, false, or incomplete.
+Grand and domain-phase rows retain profile-consistent suggestion opportunities,
+rejections, and rejection rates. The frozen meaningful-region criterion uses
+that rate and remains incomplete when there are no eligible suggestions.
 Boundary rows are adjacent observed grid intervals where a criterion changes,
 not interpolated thresholds. The specification retains the criterion
-definitions, boundary axes, and requirement that confirmatory phase evidence
-use a live LLM target. The event file contains evaluator-only truth in retained
-trajectories.
+definitions and boundary axes. Replay, direct OpenAI, and OpenRouter are valid
+external-LLM evidence modes when their complete exchange evidence is retained.
+The event file contains evaluator-only truth in retained trajectories.
+
+LLM sensitivity also writes
+`llm/sensitivity-request-preflight.json`, `llm/requests.jsonl`, and
+`llm/responses.jsonl`. Live modes additionally write
+`llm/provider-audit.jsonl` and `llm/transport-attempts.jsonl`.
 
 “Conditional” above means controlled by `[artifacts].retain_events`.
 
@@ -414,6 +524,33 @@ contract documented by the analysis schema and uses `complete`,
 `not_confirmatory`, or `not_estimable` independently of its fixed
 `claim_status = not_claimed`. No fitted model is checked in. See
 [Confirmatory mixed-effects analysis](mixed-effects-analysis.md).
+
+### Gate 6 cross-run review
+
+`gate6-review build` writes a separate atomic artifact outside every paired
+source run:
+
+```text
+declaration.json
+evidence/pairs.jsonl
+metrics/gate-6.json
+review.json
+manifest.json
+SHA256SUMS
+```
+
+The declaration binds at least two sensitivity-to-Experiment-A pairs by run ID
+and checksum-manifest digest and records explicit researcher-controlled
+family/source identities. Pair rows retain exact provider/requested/returned
+model evidence, recomputed sensitivity clauses, and recomputed held-out
+paraphrase transfer. `metrics/gate-6.json` contains exactly six tri-state
+criteria and always retains `claim_status = "not_claimed"`.
+
+Portable verification checks the retained artifact; `--reverify-sources`
+additionally reopens every declared run and reproduces the pair evidence.
+Publication uses a sibling exclusive lock, same-parent staging, source
+reverification, and an atomic rename. See
+[Gate 6 cross-run review](gate6-cross-run-review.md).
 
 ### Decoder, Gate 4, human, and correction-debt outputs
 
@@ -480,6 +617,13 @@ trajectory action scores, and recomputed Gate 4 criteria. Use
 `gate-review verify REVIEW_DIR` to check the file and content bindings.
 `claim_status` is always `not_claimed`.
 
+The output is published under an exclusive sibling lock from a durable
+same-parent stage. Before the atomic rename, import re-verifies the source run,
+direct input snapshots, complete locked collection inventories and bytes, and
+the staged artifact. A failed write, changed input, failed self-check, or raced
+destination leaves no partial review directory; verification rejects
+symlinked, missing, or unexpected entries.
+
 The directory deliberately does not duplicate its evidence inputs. Retain the
 request, truth-label, and source-review files plus the five decoder and six
 native collection evidence files so all recorded digests can be checked and
@@ -496,6 +640,14 @@ manifest, response schema, packet hash manifest, and an ethics warning.
 `human-study analyze` can write condition summaries, the observed ordering,
 paired participant-bootstrap contrasts, and import/exclusion counts. These
 outputs do not contain or imply an ethics determination.
+
+`human-study evidence-from-experiment-a` atomically writes strict
+`human-model-evidence` JSONL outside the verified source run. Rows are bound to
+the source metric digest and contain no synthesized volunteered condition.
+`human-study compare` atomically writes one H8 JSON object containing input
+digests, eligibility audit, source/mechanism contrasts, pair-complete cluster
+counts, bootstrap bounds, explicit incomplete/null states, and
+`claim_status = "not_claimed"`.
 
 `correction-debt run OUTPUT.json --stage-gate-authorized` writes one standalone
 protocol object with the protocol digest, adapter ID, every paired arm and
@@ -520,6 +672,7 @@ llm/development-requests.jsonl            # temperature + retain_prompts
 metrics/llm-development-calibration.jsonl # temperature mode
 llm/test-raw-responses.jsonl              # temperature mode
 llm/provider-audit.jsonl    # live mode only
+llm/transport-attempts.jsonl # live mode only
 llm/provider-manifest.json  # live mode only
 ```
 
@@ -542,11 +695,28 @@ LLM updater view, and its transformation is locked before test execution.
 `test_labels_used = false`. With `llm.calibration = "none"`, the calibration
 artifact explicitly records the ablation and raw/active providers coincide.
 
-Live mode additionally retains per-attempt provider audit records and a
-credential-free provider manifest. External
-recovery journals live outside the run directory so a failed adaptive call
-sequence can resume without rebilling already bound responses; their filesystem
-paths are stripped from the completed run manifest.
+Live mode additionally retains final provider audits, every used physical
+transport-attempt event, and a credential-free provider manifest. The manifest
+records `provider_audit_sha256`, `transport_attempts_sha256`, their portable
+paths, event/attempt counts, physical-request accounting, and no credentials.
+External recovery journals live outside the run directory so a failed adaptive
+call sequence can resume without rebilling already bound responses; their
+filesystem paths are stripped from the completed run manifest.
+
+The external adaptive journal is
+`.llm-journals/<run-id>[/openrouter]/<role>/transport-attempts.jsonl`.
+Static `llm execute-*` commands derive a sibling name from the requested audit
+path, such as `provider-audit-transport-attempts.jsonl`, and report it as
+`attempts_path`. A `started` event is fsynced before each HTTP dispatch and a
+`settled` event afterward. Final settlements embed their accepted/rejected
+audit, allowing audit/replay repair without a second call. Unresolved starts or
+settled nonfinal sequences require manual billing review before retry.
+
+Both provider budgets count physical HTTP attempts. Failed, invalid, HTTP, and
+ambiguous attempts charge the full conservative reservation; valid final
+responses charge reported usage within that reservation. Keyless plans judge
+`within_declared_budget` against the all-retries maximum rather than only the
+first attempt per logical request.
 
 An accepted audit records a returned model equal to the configured model or its
 dated snapshot. A completed response with a missing/different model label is

@@ -65,6 +65,9 @@
         "null"
       ]
     },
+    "provider_preferences": {
+      "type": "object"
+    },
     "provider_response_id": {
       "minLength": 1,
       "type": "string"
@@ -237,6 +240,12 @@
       "minLength": 1,
       "type": "string"
     },
+    "route_constraint_evidence": {
+      "enum": [
+        "request_body_provider_only_and_order",
+        "request_body_provider_preferences_without_exact_route_constraint"
+      ]
+    },
     "routing_attempt": {
       "minimum": 1,
       "type": "integer"
@@ -250,6 +259,9 @@
     },
     "schema_version": {
       "const": 1
+    },
+    "selected_upstream_identity_semantics": {
+      "const": "router_display_identity_not_exact_route_slug_attestation"
     },
     "started_at": {
       "format": "date-time",
@@ -266,6 +278,12 @@
     "upstream_provider": {
       "minLength": 1,
       "type": "string"
+    },
+    "upstream_provider_constraint": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "usage": {
       "type": "object"
@@ -297,6 +315,10 @@
     "generation_id",
     "cache_status",
     "estimated_max_tokens",
+    "upstream_provider_constraint",
+    "provider_preferences",
+    "route_constraint_evidence",
+    "selected_upstream_identity_semantics",
     "raw_response_sha256",
     "raw_response",
     "replay_response",

@@ -14,8 +14,9 @@ Replay remains the portable scientific record. Live execution is an opt-in data
 collection mechanism around it: successful provider outputs are converted to
 the same strict `LLMResponse` objects and can subsequently be replayed offline.
 
-No live provider execution was performed to create the checked-in repository.
-There are no checked-in API credentials or live-model results.
+There are no checked-in API credentials or live-model results. Any
+development-time transport smoke is outside the study corpus and cannot satisfy
+a scientific gate.
 
 ## Declared model suite
 
@@ -148,6 +149,36 @@ corpus and rejects an over-budget design before its first network call. On a
 resume, journaled usage is restored and each remaining request is checked
 against the remaining ledger.
 
+Direct OpenAI and OpenRouter execution also writes one fsynced physical-attempt
+journal. Static commands derive its name from the audit path—for example,
+`openai-provider-audit-transport-attempts.jsonl` beside
+`openai-provider-audit.jsonl`. Adaptive run journals use
+`.llm-journals/<run-id>[/openrouter]/<role>/transport-attempts.jsonl`. Every
+HTTP dispatch has a `started` record flushed before transport and a `settled`
+record flushed afterward. A final settlement embeds the complete
+accepted/rejected provider audit, so a crash before the ordinary audit/replay
+append is repaired without another paid call.
+
+Static corpus execution holds an exclusive nonblocking sibling lock from
+reconciliation through the final append. A concurrent local invocation fails
+before credential access or HTTP dispatch; the opaque lock file is coordination
+state, not a result artifact.
+
+`max_requests` counts physical HTTP attempts, not logical prompts. Failed,
+invalid, HTTP-error, and ambiguous transport attempts consume one request and
+the full conservative token reservation; a valid final response uses reported
+usage when it fits the reservation. Plans expand both ceilings by
+`max_retries + 1` and set `within_declared_budget` only when the all-retries
+worst case fits. A physical ceiling may therefore stop a retry chain before
+its configured retry count.
+
+An unresolved durable `started` record has an unknown billing outcome. A prior
+invocation that settled without a final embedded audit is also not
+automatically resent. Both states stop resume for manual billing review.
+Within one uninterrupted OpenAI invocation, retryable failures reuse the same
+idempotency and client-request identities. OpenRouter never automatically
+retries an ambiguous transport outcome.
+
 The same provider flags are accepted by `llm plan` and `llm execute-openai`:
 
 ```text
@@ -181,7 +212,7 @@ model = one exact canonical author/model slug
 stream = false
 response_format.type = "json_schema"
 response_format.json_schema.strict = true
-max_completion_tokens = configured output ceiling
+max_tokens = configured output ceiling
 provider = explicit routing/privacy preferences
 X-OpenRouter-Metadata: enabled
 X-OpenRouter-Cache: false
@@ -206,7 +237,7 @@ Plan a static corpus without reading `OPENROUTER_API_KEY`:
 PYTHONPATH=src python -m cape_loop llm plan-openrouter \
   requests.jsonl \
   --model google/gemini-3.6-flash \
-  --upstream-provider google-ai-studio \
+  --upstream-provider google-vertex/global \
   --max-requests 500 \
   --max-total-tokens 2050000
 ```
@@ -232,7 +263,7 @@ export OPENROUTER_API_KEY='...'
 PYTHONPATH=src python -m cape_loop llm execute-openrouter \
   requests.jsonl responses.jsonl openrouter-provider-audit.jsonl \
   --model google/gemini-3.6-flash \
-  --upstream-provider google-ai-studio \
+  --upstream-provider google-vertex/global \
   --max-requests 500 \
   --max-total-tokens 2050000 \
   --execute-live
@@ -251,7 +282,7 @@ An accepted response must:
 3. include opted-in `openrouter_metadata`;
 4. report the requested model and `strategy = "direct"`;
 5. mark exactly one upstream endpoint selected, with its model equal to the
-   top-level returned model;
+   canonical model or a dated provider snapshot of it;
 6. use routing attempt one when fallbacks are disabled;
 7. not be an OpenRouter response-cache hit; and
 8. have no nonempty router pipeline that materially transformed the request or
@@ -266,6 +297,17 @@ A completely parsed but unacceptable response is charged and retained as
 audits are written before replay responses, and resume revalidates the retained
 raw response, route metadata, model identity, cache status, and transformation
 policy before reuse.
+
+When a provider endpoint is pinned, the exact slug is enforced in the request
+through both `provider.only` and `provider.order`, with fallbacks disabled.
+OpenRouter response metadata reports a display provider name and may report a
+dated provider model snapshot; it does not echo the exact endpoint slug. The
+audit therefore records request-body route-constraint evidence separately from
+the selected display identity and does not claim exact-slug response
+attestation. Each audit row retains `upstream_provider_constraint`, the exact
+`provider_preferences`, `route_constraint_evidence`, and
+`selected_upstream_identity_semantics`, so the boundary remains explicit even
+without an adaptive provider manifest.
 
 The audit schema separates gateway from upstream identity:
 
@@ -340,9 +382,13 @@ PYTHONPATH=src python -m cape_loop decoder-study execute-openrouter \
 ```
 
 The output has one `journals/<model-digest>/` directory per model,
-`judgments.jsonl`, and `execution-manifest.json`. Different model labels or
-reported upstream routes behind the same OpenRouter gateway do not prove
-independent errors. The manifest consequently fixes
+`judgments.jsonl`, and `execution-manifest.json`. Each source in the keyless
+plan exposes the stable live `decoder_instance_id` plus every provider request
+ID, canonical body SHA-256, and conservative request-token bound. Plan and
+execution construct those requests from the same model-derived identity, so
+the planned body hashes and aggregate ceiling exactly cover the live request
+instances. Different model labels or reported upstream routes behind the same
+OpenRouter gateway do not prove independent errors. The manifest consequently fixes
 `first_party_origin_claimed = false`, `strict_gate4_eligible = false`, and
 `statistical_independence_claimed = false`. These sources may enter the
 explicit reviewed-generic decoder branch, but cannot replace strict Gate 4's
@@ -567,6 +613,15 @@ whole-corpus budget check and rejects an over-budget design before the first
 network call. A resumed corpus restores journaled usage and applies the
 remaining hard ledger during execution.
 
+`decoder-study execute-openai` and `decoder-study execute-openrouter` share one
+nonblocking sibling lock at
+`OUTPUT_DIR/.generic-decoder-command.lock`. The lock covers request loading,
+journal reconciliation, every potential paid dispatch, and both final output
+writes. Consequently, two generic collectors—even across the two
+providers—cannot execute against one output concurrently; the loser fails
+before credential access or HTTP. The persistent opaque file is only local
+coordination state and is not provider evidence.
+
 Different model IDs can satisfy a mechanical source-diversity audit, but two
 OpenAI variants share provider infrastructure and may share training lineage,
 failure modes, and institutional incentives. They do **not** prove independent
@@ -695,8 +750,14 @@ record count, reported model labels, and calibration declaration.
 `--allow-existing` requires the current corpus manifest to equal the retained
 one.
 
-LLM updaters remain forbidden in `kind = "sensitivity"` runs because each grid
-point changes adaptive dynamics and can change later prompts.
+LLM updaters are executable in `kind = "sensitivity"` runs under a stricter
+contract: `llm.calibration = "none"`, full prompt retention, and event
+retention. One shared replay or resumable live provider serves every grid
+point. Content-addressed IDs reuse identical prompts and separate
+grid-dependent adaptive prompts. Before OpenAI or OpenRouter execution, the
+runner multiplies the exact logical grid-call bound by `max_retries + 1`; a
+bound above `max_requests` fails before credential access, network I/O, or
+run-directory creation.
 
 ## Information views
 
@@ -768,6 +829,13 @@ For an A/B/C runner with temperature calibration, the same ledger covers both
 the development probe and test/runtime requests. Size the ceiling for both;
 `calibration_users` is therefore an execution-cost parameter as well as an
 analysis choice.
+
+For LLM sensitivity, `llm/sensitivity-request-preflight.json` retains the
+point count, summed trajectory lengths, logical completion bound, retry factor,
+worst-case physical-attempt bound, and reviewed request ceiling. Completed runs
+retain every unique request and active response. Live runs also copy used
+provider audits and durable start/settle attempt records from the recovery
+journal into the checksum-bound artifact.
 
 Direct OpenAI requests use deterministic content-based idempotency/client
 request IDs, strict Structured Outputs, and `store = false`. OpenRouter

@@ -37,10 +37,11 @@ stage gate has passed. Consult
 [implementation status](docs/implementation-status.md) before interpreting an
 available component or artifact.
 
-No live provider execution was performed to create the checked-in repository,
-and no API key is included. Live-model and external-decoder results remain
-data-collection tasks, and the human study is explicitly deferred; implemented
-code paths do not make those results exist or establish a scientific claim.
+No API key or live provider response is checked in. Development-time transport
+smokes are not study data and are not retained as results. Full live-model and
+external-decoder collection remains a separate, budgeted task, and the human
+study is explicitly deferred; implemented code paths do not make those results
+exist or establish a scientific claim.
 
 The paper design is in [the proposal](docs/proposal.md). The engineering
 contract is in [the implementation plan](docs/implementation-plan.md).
@@ -59,11 +60,18 @@ contract is in [the implementation plan](docs/implementation-plan.md).
   the same records (parameter-count matched, with different outcome classes).
 - Matched anchor-option audits that hold the selected item constant while
   changing its causal provenance, with executable prior-concentration strata
-  and a content-bound positive/negative control protocol.
+  and a separate content-bound six-case positive/negative control execution
+  and provider-exchange path.
+- Exhaustive H7 volunteered direct-statement planning plus strict
+  OpenAI/OpenRouter audit binding, paired update conversion, and immutable
+  source-safe recomputation; see
+  [H7 volunteered controls](docs/h7-volunteered-controls.md).
 - Endogenous profile–policy–response loops with a same-history action-aware
   shadow posterior.
 - Fixed-history versus closed-loop evaluation using a common exogenous terminal
   diagnostic battery.
+- Immutable offline Experiment C cross-seed review with exact agreement
+  fractions, retained disagreements, and source-run checksum bindings.
 - Structured beliefs and inspectable native episodic, semantic/persona, and
   provenance-linked memory.
 - Provider-neutral JSON Lines exchange, prompt-hash-checked offline replay,
@@ -183,7 +191,10 @@ Experiments are organized around:
 - **Experiment B:** false-profile self-confirmation and the decomposition of
   evidence selection from evidential attribution;
 - **Experiment C:** fixed-history versus endogenous closed-loop system
-  evaluation;
+  evaluation, plus a separate
+  [two-family external-decoder rescore](docs/experiment-c-external-decoder.md)
+  and
+  [multi-seed robustness review](docs/experiment-c-robustness.md);
 - **Experiment D support:** human pragmatic evidence-strength study materials.
 
 Correction-debt, held-out paraphrase-transfer, and broader alternative-model
@@ -248,8 +259,26 @@ PYTHONPATH=src python -m cape_loop gate-review import-native \
   --external-collection-dir artifacts/gate4-decoder-collection
 PYTHONPATH=src python -m cape_loop gate-review verify \
   artifacts/GATE4-REVIEW
+PYTHONPATH=src python -m cape_loop experiment-c-decoder import \
+  runs/EXPERIMENT-C \
+  artifacts/experiment-c-decoder-collection/judgments.jsonl \
+  artifacts/EXPERIMENT-C-RESCORE \
+  --external-collection-dir artifacts/experiment-c-decoder-collection
+PYTHONPATH=src python -m cape_loop experiment-c-decoder verify \
+  artifacts/EXPERIMENT-C-RESCORE --source-run runs/EXPERIMENT-C
+PYTHONPATH=src python -m cape_loop experiment-c-robustness review \
+  artifacts/experiment-c-multiseed runs/C-SEED-1 runs/C-SEED-2
+PYTHONPATH=src python -m cape_loop experiment-c-robustness verify \
+  artifacts/experiment-c-multiseed
+PYTHONPATH=src python -m cape_loop gate6-review build \
+  gate6-declaration.json artifacts/GATE6-REVIEW
+PYTHONPATH=src python -m cape_loop gate6-review verify \
+  artifacts/GATE6-REVIEW --reverify-sources
 PYTHONPATH=src python -m cape_loop llm validate responses.jsonl
 ```
+
+The Gate 6 declaration and evidence rules are documented in
+[`docs/gate6-cross-run-review.md`](docs/gate6-cross-run-review.md).
 
 The checked-in roles are GPT-5.6 Sol at medium reasoning for the primary writer,
 GPT-5.6 Terra at medium reasoning for a GPT-5.6 model-variant/tier replication,
@@ -264,14 +293,22 @@ is present and a dedicated key environment variable other than
 `OPENAI_API_KEY` is selected; enabling it sends that credential to the reviewed
 endpoint. Every live path requires `--execute-live`, enforces the declared
 request and conservative token ceilings, and uses audit-first JSONL journals to
-resume completed requests without rebilling them.
+resume completed requests without rebilling them. Request ceilings count
+physical HTTP attempts, and keyless plans require the retry-expanded worst case
+to fit. Each call is surrounded by an fsynced transport-attempt journal; an
+unknown/unresolved or settled-nonfinal prior outcome stops automatic resume for
+manual billing review, while a final embedded audit repairs an interrupted
+public audit/replay append without another call.
+Static corpus execution also holds a nonblocking sibling file lock across
+reconciliation and every append, so a concurrent local invocation fails before
+credential access or duplicate dispatch.
 
 OpenRouter is configured as a gateway, not as an OpenAI-compatible custom URL.
 Set `OPENROUTER_API_KEY` in the invoking shell and pass one
 `--model author/model` to switch the routed model. In
 [`configs/openrouter_gemini.toml`](configs/openrouter_gemini.toml), change the
-`model` line; if the replacement is not served by the pinned Google AI Studio
-route, also change or clear `openrouter_upstream_provider`. Aliases, route
+`model` line; if the replacement is not served by the pinned Google Vertex
+global route, also change or clear `openrouter_upstream_provider`. Aliases, route
 variants, `openrouter/auto`, and `-latest` labels are rejected for reproducible
 evaluation. The adapter sends strict JSON Schema, disables gateway response
 caching, requests router metadata, retains the selected upstream provider and
@@ -282,6 +319,13 @@ Anthropic, Google, or OpenAI route, that shared-gateway record is not a direct
 first-party record, does not establish independent errors, and cannot satisfy
 strict Gate 4. See [LLM exchange](docs/llm-exchange.md) for the exact audit and
 routing contract.
+
+Completed live runs copy the used provider evidence into
+`llm/provider-audit.jsonl` and `llm/transport-attempts.jsonl`; both digests and
+portable paths are retained in `llm/provider-manifest.json`. OpenRouter audits
+separately retain the submitted provider constraint/preferences and the router
+display identity, and explicitly do not treat that display label as exact
+endpoint-slug attestation.
 
 The checked-in primary and replication configurations are two-user pilot
 designs, not paper power settings or completed runs. Both compare all three LLM

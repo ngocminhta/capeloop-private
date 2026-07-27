@@ -282,23 +282,39 @@ def write_requests(path: str | Path, requests: Iterable[LLMRequest]) -> int:
     return count
 
 
-def read_responses(path: str | Path) -> tuple[LLMResponse, ...]:
-    source = Path(path)
+def read_responses(
+    path: str | Path | bytes,
+) -> tuple[LLMResponse, ...]:
+    """Read response JSONL from a path or one immutable byte snapshot."""
+
+    if isinstance(path, bytes):
+        source_label = "<response-bytes>"
+        try:
+            lines = path.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{source_label}: input must be valid UTF-8"
+            ) from exc
+    else:
+        source = Path(path)
+        source_label = str(source)
+        lines = source.read_text(encoding="utf-8").splitlines()
     responses: list[LLMResponse] = []
     seen: set[str] = set()
-    with source.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                parsed = json.loads(line)
-                response = LLMResponse.parse(parsed)
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                raise ValueError(f"{source}:{line_number}: {exc}") from exc
-            if response.request_id in seen:
-                raise ValueError(f"duplicate request_id: {response.request_id}")
-            seen.add(response.request_id)
-            responses.append(response)
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+            response = LLMResponse.parse(parsed)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{source_label}:{line_number}: {exc}"
+            ) from exc
+        if response.request_id in seen:
+            raise ValueError(f"duplicate request_id: {response.request_id}")
+        seen.add(response.request_id)
+        responses.append(response)
     return tuple(responses)
 
 

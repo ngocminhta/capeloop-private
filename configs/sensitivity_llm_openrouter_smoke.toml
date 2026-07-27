@@ -1,0 +1,93 @@
+schema_version = 1
+
+[run]
+name = "sensitivity-llm-openrouter-smoke"
+seed = 1729
+output_root = "runs"
+deterministic = false
+
+[experiment]
+kind = "sensitivity"
+domains = ["travel", "writing"]
+mechanisms = ["ranking", "default", "suggestion"]
+response_modes = ["naturally_sampled"]
+prior_strengths = [0.0]
+policies = ["balanced", "soft_profile_conditioned"]
+updaters = [
+  "fitted_action_aware",
+  "fitted_action_unaware",
+  "llm_full_context",
+]
+users = 1
+trajectories_per_cell = 1
+turns = 1
+bootstrap_replicates = 0
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 128
+fit_steps = 100
+learning_rate = 0.03
+l2 = 0.001
+calibration = "none"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[sensitivity]
+decision_noise_values = [1.0]
+presentation_multipliers = [1.0]
+rank_multipliers = [1.0]
+default_multipliers = [1.0]
+suggestion_multipliers = [1.0]
+profile_strength_values = [0.80]
+prior_uncertainty_values = [0.0]
+trajectory_lengths = [3]
+response_model_families = ["random_utility"]
+rule_noise_values = [0.15]
+phase_min_selection_cost = 0.0
+phase_max_aware_ece = 0.10
+phase_min_attribution_cost = 0.0
+phase_min_self_confirming_rate = 0.0
+phase_min_suggestion_rejection_rate = 0.20
+
+[llm]
+mode = "openrouter"
+calibration = "none"
+model_role = "primary"
+model = "google/gemini-3.6-flash"
+reasoning_effort = "minimal"
+api_key_env = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api"
+allow_custom_base_url = false
+timeout_seconds = 180.0
+max_retries = 2
+max_output_tokens = 1024
+# 12 logical updates × (2 retries + the initial attempt).
+max_requests = 36
+max_total_tokens = 250000
+openrouter_upstream_provider = "google-vertex/global"
+openrouter_allow_fallbacks = false
+openrouter_require_parameters = true
+openrouter_data_collection = "deny"
+openrouter_zdr = false
+openrouter_http_referer = ""
+openrouter_app_title = "CAPE-Loop"
+
+[artifacts]
+retain_events = true
+retain_prompts = true
+checksum_manifest = true

@@ -47,14 +47,15 @@ The checked-in provider declarations are:
 
 These files are configuration/provenance metadata, not live-result datasets.
 The Gate 4 declaration explicitly does not claim statistical independence and
-requires a responsible-researcher source review. No live provider execution was
-performed to create the checked-in repository.
+requires a responsible-researcher source review. Development-time transport
+smokes are not retained here as evidence.
 
 Credentials must remain environment-only. [`.env.example`](../.env.example)
-contains empty `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`
-placeholders; never commit a populated `.env`, Authorization header, or API
-key. Live commands retain redacted provider audit metadata and reusable
-beliefs, judgments, or actions—not the credential.
+contains empty `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+`ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` placeholders; never commit a
+populated `.env`, Authorization header, or API key. Live commands retain
+redacted provider audit metadata and reusable beliefs, judgments, or
+actions—not the credential.
 
 Each executor permits only its first-party official origin by default:
 `https://api.openai.com`, `https://api.anthropic.com`, or

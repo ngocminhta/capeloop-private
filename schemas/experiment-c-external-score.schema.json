@@ -1,0 +1,293 @@
+{
+  "$id": "urn:cape-loop:schema:experiment-c-external-score:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One development-calibrated external-family belief scored on the exact common terminal battery. Exactly two such rows are averaged for each eligible native Experiment C metric row.",
+  "properties": {
+    "battery_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "battery_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "blind_to_latent_truth": {
+      "const": true
+    },
+    "blind_to_system_identity": {
+      "const": true
+    },
+    "calibrated_marginals": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "+1": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "+2": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "-1": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "-2": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "-2",
+          "-1",
+          "+1",
+          "+2"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "calibration_example_count": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "calibration_fitted_split": {
+      "const": "development"
+    },
+    "calibration_temperature": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "decoder_family_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "decoder_instance_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "domain_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evaluation_split": {
+      "enum": [
+        "development",
+        "test"
+      ]
+    },
+    "judgment_origin": {
+      "const": "external_model"
+    },
+    "pseudonymous_state_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "regime": {
+      "enum": [
+        "fixed_balanced",
+        "fixed_biased",
+        "endogenous_closed_loop"
+      ]
+    },
+    "replicate": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "request_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_descriptor": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "source_metric_row_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "stable_row_key_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "terminal_score": {
+      "additionalProperties": false,
+      "properties": {
+        "behavioral_accuracy": {
+          "type": "number"
+        },
+        "cross_context_accuracy": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "evaluated_item_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "fractional_behavioral_accuracy": {
+          "type": "number"
+        },
+        "intrinsic_utility_tie_count": {
+          "type": "number"
+        },
+        "mean_intrinsic_regret": {
+          "type": "number"
+        },
+        "predicted_option_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "predicted_utility_tie_count": {
+          "type": "number"
+        },
+        "profile_brier": {
+          "type": "number"
+        },
+        "profile_calibration_interpretation": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "profile_calibration_prediction_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "profile_calibration_sample_unit": {
+          "const": "preference_attribute_forecast"
+        },
+        "profile_ece": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "profile_reliability_bins": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "bin_index": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "empirical_accuracy": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "lower": {
+                "type": "number"
+              },
+              "mean_confidence": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "prediction_count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "upper": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "bin_index",
+              "lower",
+              "upper",
+              "prediction_count",
+              "mean_confidence",
+              "empirical_accuracy"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tie_excluded_behavioral_accuracy": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "profile_brier",
+        "behavioral_accuracy",
+        "tie_excluded_behavioral_accuracy",
+        "fractional_behavioral_accuracy",
+        "cross_context_accuracy",
+        "mean_intrinsic_regret",
+        "predicted_option_ids",
+        "predicted_utility_tie_count",
+        "intrinsic_utility_tie_count",
+        "evaluated_item_count",
+        "profile_ece",
+        "profile_calibration_sample_unit",
+        "profile_calibration_prediction_count",
+        "profile_reliability_bins",
+        "profile_calibration_interpretation"
+      ],
+      "type": "object"
+    },
+    "updater_id": {
+      "enum": [
+        "episodic_memory",
+        "semantic_memory",
+        "provenance_linked_memory"
+      ]
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_metric_row_sha256",
+    "stable_row_key_sha256",
+    "request_id",
+    "request_sha256",
+    "pseudonymous_state_id",
+    "evaluation_split",
+    "regime",
+    "replicate",
+    "user_id",
+    "domain_id",
+    "updater_id",
+    "battery_id",
+    "battery_digest",
+    "decoder_instance_id",
+    "decoder_family_id",
+    "source_descriptor",
+    "judgment_origin",
+    "blind_to_system_identity",
+    "blind_to_latent_truth",
+    "calibration_fitted_split",
+    "calibration_temperature",
+    "calibration_example_count",
+    "calibrated_marginals",
+    "terminal_score"
+  ],
+  "title": "CAPE-Loop calibrated Experiment C external decoder score",
+  "type": "object"
+}

@@ -27,9 +27,15 @@ The shortest path through the documentation is:
 | [Data splits](data-splits.md) | How are train, development, and test surfaces made disjoint and audited? |
 | [Configuration](configuration.md) | How is a run declared in TOML? |
 | [LLM exchange](llm-exchange.md) | How are external model requests represented and supplied response corpora replayed? |
+| [Experiment A controls](experiment-a-controls.md) | How are the six positive/negative controls executed, exchanged, and evidence-labeled? |
+| [H7 volunteered controls](h7-volunteered-controls.md) | How are direct statements collected with OpenAI/OpenRouter, bound to provider audits, converted to paired updates, and reviewed without mutating a run? |
+| [Experiment C external decoder rescore](experiment-c-external-decoder.md) | How are two blinded decoder families calibrated and used to rerun native rankings, ESR, and Gate 5 without mutating the source run? |
+| [Experiment C multi-seed robustness](experiment-c-robustness.md) | How are verified clustered-bootstrap rankings compared across compatible random seeds? |
+| [Gate 6 cross-run review](gate6-cross-run-review.md) | How are matched live-LLM sensitivity/Experiment A pairs combined without inferring family identity or making a claim? |
 | [Native memory](native-memory.md) | How are non-probabilistic memory systems evaluated? |
 | [Gate 4 live collection](gate4-live-collection.md) | How are distinct-family decoder judgments and real native terminal actions collected safely? |
 | [Mixed-effects analysis](mixed-effects-analysis.md) | How are the proposal's confirmatory models fit and audited in R? |
+| [H1, H2, and H7 estimands](hypothesis-estimands.md) | Which directional, proximity, mitigation, and valid-learning criteria are frozen? |
 | [Outputs](outputs.md) | Which files does a run produce? |
 | [Extending](extending.md) | How do I add a domain, policy, updater, or metric? |
 | [Ethics and limitations](ethics-and-limitations.md) | What should not be inferred or released? |

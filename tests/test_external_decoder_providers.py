@@ -28,6 +28,7 @@ from cape_loop.external_decoder_providers import (
     ExternalDecoderIdentityMismatch,
     ExternalDecoderProvider,
     ExternalDecoderProviderConfig,
+    ExternalDecoderProviderError,
     ExternalDecoderResponseError,
     HTTPResult,
     LiveExternalDecoderExecutionRequired,
@@ -527,6 +528,43 @@ class ExternalDecoderTransportTests(unittest.TestCase):
                 failed.complete(decoder_request())
         self.assertNotIn(secret, str(raised.exception))
         self.assertEqual(failed.budget.request_count, 1)
+
+    def test_ambiguous_transport_failure_is_never_retried(self) -> None:
+        calls: list[int] = []
+        provider = ExternalDecoderProvider(
+            ExternalDecoderProviderConfig(
+                provider="google_gemini",
+                live_execution=True,
+                api_key_env="CAPE_LOOP_TEST_GEMINI_KEY",
+                max_retries=9,
+                initial_backoff_seconds=0,
+                max_backoff_seconds=0,
+                max_total_tokens=100_000,
+            ),
+            transport=lambda **_: (
+                calls.append(1)
+                or (_ for _ in ()).throw(TimeoutError("outcome unknown"))
+            ),
+            sleep=lambda _: self.fail(
+                "ambiguous transport outcomes must not back off and retry"
+            ),
+        )
+        reservation = provider.prepare(
+            decoder_request()
+        ).estimated_max_tokens
+        with patch.dict(
+            "os.environ",
+            {"CAPE_LOOP_TEST_GEMINI_KEY": "google-test-secret"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                ExternalDecoderProviderError,
+                "ambiguous.*manual review",
+            ):
+                provider.complete(decoder_request())
+        self.assertEqual(calls, [1])
+        self.assertEqual(provider.budget.request_count, 1)
+        self.assertEqual(provider.budget.total_tokens, reservation)
 
     def test_oversized_response_is_charged_without_body_reflection(self) -> None:
         secret = "oversized-provider-secret"

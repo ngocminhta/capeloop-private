@@ -1,0 +1,391 @@
+{
+  "$id": "urn:cape-loop:schema:h7-volunteered-collection-plan:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The complete content-addressed direct-statement corpus derived from one verified Experiment A run.",
+  "properties": {
+    "artifact_kind": {
+      "const": "h7_volunteered_collection_plan"
+    },
+    "case_count": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "cases": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "case_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "domain_id": {
+            "enum": [
+              "travel",
+              "writing"
+            ]
+          },
+          "prior_probabilities": {
+            "additionalProperties": false,
+            "properties": {
+              "attribute_1": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_2": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              },
+              "attribute_3": {
+                "additionalProperties": false,
+                "properties": {
+                  "+1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "+2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-1": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "-2": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "-2",
+                  "-1",
+                  "+1",
+                  "+2"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "attribute_1",
+              "attribute_2",
+              "attribute_3"
+            ],
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "source_user_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "surface_statement": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "target_attribute": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "target_direction": {
+            "enum": [
+              -1,
+              1
+            ]
+          },
+          "user_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "case_id",
+          "user_id",
+          "domain_id",
+          "target_attribute",
+          "target_direction",
+          "surface_statement",
+          "source_user_sha256",
+          "prior_probabilities",
+          "case_sha256"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "claim_status": {
+      "const": "not_claimed"
+    },
+    "independent_user_count": {
+      "minimum": 2,
+      "type": "integer"
+    },
+    "interpretation": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "plan_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "plan_version": {
+      "const": "h7-volunteered-control-plan-v1"
+    },
+    "request_bindings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "case_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "case_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "llm_request": {
+            "additionalProperties": false,
+            "properties": {
+              "payload": {
+                "type": "object"
+              },
+              "prompt_sha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "request_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema_version": {
+                "const": 1
+              },
+              "system_instruction": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "updater_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "view": {
+                "enum": [
+                  "response_only",
+                  "full_context",
+                  "provenance_aware"
+                ]
+              }
+            },
+            "required": [
+              "schema_version",
+              "request_id",
+              "updater_id",
+              "view",
+              "system_instruction",
+              "payload",
+              "prompt_sha256"
+            ],
+            "type": "object"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "updater_id": {
+            "enum": [
+              "llm_full_context",
+              "llm_provenance_aware"
+            ]
+          },
+          "user_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "view": {
+            "enum": [
+              "full_context",
+              "provenance_aware"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "case_id",
+          "case_sha256",
+          "user_id",
+          "updater_id",
+          "view",
+          "llm_request",
+          "binding_sha256"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "request_count": {
+      "minimum": 2,
+      "type": "integer"
+    },
+    "roles": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "updater_id": {
+            "enum": [
+              "llm_full_context",
+              "llm_provenance_aware"
+            ]
+          },
+          "view": {
+            "enum": [
+              "full_context",
+              "provenance_aware"
+            ]
+          }
+        },
+        "required": [
+          "updater_id",
+          "view"
+        ],
+        "type": "object"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_run": {
+      "additionalProperties": false,
+      "properties": {
+        "checksums_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "config_file_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "experiment_a_metrics_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "hypothesis_estimands_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "population_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "manifest_sha256",
+        "config_file_sha256",
+        "checksums_sha256",
+        "population_sha256",
+        "experiment_a_metrics_sha256",
+        "hypothesis_estimands_sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "plan_version",
+    "source_run",
+    "roles",
+    "cases",
+    "request_bindings",
+    "case_count",
+    "request_count",
+    "independent_user_count",
+    "plan_sha256",
+    "claim_status",
+    "interpretation"
+  ],
+  "title": "CAPE-Loop H7 volunteered collection plan",
+  "type": "object"
+}

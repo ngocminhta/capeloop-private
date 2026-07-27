@@ -126,6 +126,14 @@ The oracle-update slope regression is:
 Mechanism-specific residuals and uncertainty matter alongside whether
 \(\beta\) is near one.
 
+ACUE, direction accuracy, magnitude, and the oracle slope are general-purpose
+diagnostics. The paper hypotheses use additional frozen contrasts: H1 compares
+anchor-directional log-odds and its absolute strength with fitted-aware
+updates; H2 compares update-vector distance to fitted-aware and fitted-unaware
+references; H7 combines mitigation superiority with positive-control
+noninferiority. Their formulas and decision rules are in
+[H1, H2, and H7 estimands](hypothesis-estimands.md).
+
 ### Evidence-strength ordering
 
 Within matched sets, rank update strength across volunteered preference,
@@ -437,6 +445,24 @@ annotator and scenario level. Comparisons with updater magnitude use the same
 matched items.
 
 Human ratings are pragmatic judgments, not latent-truth labels.
+
+H8 operationalizes cross-scale provenance sensitivity as
+
+\[
+D=(E_{\text{balanced}}-E_{\text{policy}})/E_{\text{balanced}},
+\qquad
+\Delta_{H8}=D_{\text{human}}-D_{\text{model}}.
+\]
+
+Human ratings are shifted from 1–7 to a zero-at-no-support scale before this
+ratio; model rows must use the nonnegative positive part of the
+anchor-directional log-odds update and attest that zero means no update toward
+the claim. Balanced-zero pairs are undefined and excluded rather than
+regularized. Matched scenarios are averaged within participant or held-out
+test-user cluster, clusters receive equal weight, and the two independent
+samples are bootstrapped separately. The primary ordinary-LLM criterion is
+evaluable only with at least eight pair-complete clusters in both samples for
+all three policy mechanisms and one independently complete fitted-aware source.
 
 ## Statistical unit and uncertainty
 

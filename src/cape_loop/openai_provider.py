@@ -41,9 +41,24 @@ from .llm_exchange import (
     LLMResponse,
     read_responses,
 )
+from .provider_attempts import (
+    DurableProviderAttemptLedger,
+    ExclusiveProviderExecutionLock,
+    ProviderAttemptManualReviewRequired,
+    append_jsonl as append_provider_jsonl,
+    default_attempt_path,
+    repair_trailing_jsonl as repair_attempt_journal,
+)
 
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_NON_OPENAI_API_KEY_ENVS = frozenset(
+    {
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+    }
+)
 _TRANSIENT_STATUSES = frozenset({408, 409, 429})
 _RESPONSE_SCHEMA_NAME = "cape_loop_preference_beliefs"
 _REASONING_EFFORTS = frozenset(
@@ -248,6 +263,12 @@ class OpenAIProviderConfig:
             )
         if not _ENVIRONMENT_NAME.fullmatch(self.api_key_env):
             raise ValueError("api_key_env must be a valid environment-variable name")
+        if self.api_key_env in _NON_OPENAI_API_KEY_ENVS:
+            raise ValueError(
+                "OpenAI requires an OpenAI or dedicated credential variable; "
+                f"{self.api_key_env} is reserved for a different provider and "
+                "must never be sent to OpenAI"
+            )
         parsed = urlsplit(self.base_url)
         if (
             parsed.scheme != "https"
@@ -973,7 +994,12 @@ class OpenAIResponsesProvider:
             "reasoning_effort": self.config.reasoning_effort,
         }
 
-    def complete(self, request: LLMRequest) -> OpenAIProviderResult:
+    def complete(
+        self,
+        request: LLMRequest,
+        *,
+        attempt_ledger: DurableProviderAttemptLedger | None = None,
+    ) -> OpenAIProviderResult:
         """Execute one explicitly authorized, hash-bound live completion."""
 
         if not self.config.live_execution:
@@ -982,29 +1008,91 @@ class OpenAIResponsesProvider:
                 "only after reviewing the request and budgets"
             )
         prepared = self.prepare(request)
-        self.budget.reserve(prepared.estimated_max_tokens)
-        key = os.environ.get(self.config.api_key_env)
-        if not isinstance(key, str) or not key.strip():
-            self.budget.rollback()
-            raise MissingAPIKey(
-                f"missing API key in environment variable "
-                f"{self.config.api_key_env}"
-            )
-        key = key.strip()
-        if "\r" in key or "\n" in key:
-            self.budget.rollback()
-            raise MissingAPIKey(
-                f"{self.config.api_key_env} contains an invalid newline"
-            )
-        headers = dict(prepared.headers)
-        headers["Authorization"] = "Bearer " + key
+        key: str | None = None
+        headers: dict[str, str] | None = None
         started_epoch = self._epoch_time()
         started_at = _utc_timestamp(started_epoch)
         last_result: HTTPResult | None = None
 
         try:
             for attempt in range(1, self.config.max_retries + 2):
+                self.budget.reserve(prepared.estimated_max_tokens)
+                if key is None:
+                    loaded = os.environ.get(self.config.api_key_env)
+                    if not isinstance(loaded, str) or not loaded.strip():
+                        self.budget.rollback()
+                        raise MissingAPIKey(
+                            "missing API key in environment variable "
+                            f"{self.config.api_key_env}"
+                        )
+                    loaded = loaded.strip()
+                    if "\r" in loaded or "\n" in loaded:
+                        self.budget.rollback()
+                        raise MissingAPIKey(
+                            f"{self.config.api_key_env} contains an invalid "
+                            "newline"
+                        )
+                    key = loaded
+                    headers = dict(prepared.headers)
+                    headers["Authorization"] = "Bearer " + key
+                attempt_started_at = _utc_timestamp(self._epoch_time())
                 try:
+                    attempt_id = (
+                        attempt_ledger.start(
+                            request,
+                            prepared,
+                            started_at=attempt_started_at,
+                        )
+                        if attempt_ledger is not None
+                        else None
+                    )
+                except Exception:
+                    self.budget.rollback()
+                    raise
+
+                def settle(
+                    *,
+                    outcome: str,
+                    automatic_retry_safe: bool = False,
+                    http_status: int | None = None,
+                    server_request_id: str | None = None,
+                    response_body_sha256: str | None = None,
+                    response_record: Mapping[str, Any] | None = None,
+                    charged_tokens: int | None = None,
+                    provider_audit: Mapping[str, Any] | None = None,
+                ) -> None:
+                    charged = (
+                        prepared.estimated_max_tokens
+                        if charged_tokens is None
+                        else charged_tokens
+                    )
+                    if charged > prepared.estimated_max_tokens:
+                        raise ProviderResponseError(
+                            "provider token usage exceeds the conservative "
+                            "reservation; manual review is required"
+                        )
+                    if attempt_ledger is not None:
+                        if attempt_id is None:
+                            raise RuntimeError(
+                                "provider attempt journal identity is missing"
+                            )
+                        attempt_ledger.settle(
+                            attempt_id,
+                            settled_at=_utc_timestamp(self._epoch_time()),
+                            outcome=outcome,
+                            automatic_retry_safe=automatic_retry_safe,
+                            http_status=http_status,
+                            charged_tokens=charged,
+                            server_request_id=server_request_id,
+                            response_body_sha256=response_body_sha256,
+                            response_record=response_record,
+                            provider_audit=provider_audit,
+                        )
+                    self.budget.commit(charged)
+
+                try:
+                    if headers is None or key is None:
+                        raise RuntimeError("live credential was not initialized")
                     result = self._transport(
                         url=prepared.endpoint,
                         body=prepared.body_bytes,
@@ -1012,9 +1100,19 @@ class OpenAIResponsesProvider:
                         timeout=self.config.timeout_seconds,
                     )
                 except HTTPResponseBodyTooLarge as exc:
-                    self.budget.commit(None)
+                    settle(
+                        outcome="invalid_response",
+                        http_status=exc.status,
+                    )
                     raise ProviderResponseError(str(exc)) from exc
                 except (TimeoutError, ConnectionError, OSError) as exc:
+                    settle(
+                        outcome="transport_error",
+                        automatic_retry_safe=True,
+                        response_record={
+                            "error_type": type(exc).__name__,
+                        },
+                    )
                     if attempt > self.config.max_retries:
                         raise OpenAIProviderError(
                             "OpenAI transport failed after "
@@ -1026,27 +1124,96 @@ class OpenAIResponsesProvider:
                     continue
 
                 last_result = result
+                lowered = _lower_headers(result.headers)
+                server_request_id = (
+                    lowered.get("x-request-id", "").replace(
+                        key,
+                        "[redacted]",
+                    )
+                    or None
+                )
+                response_digest = sha256(result.body).hexdigest()
                 if 200 <= result.status <= 299:
                     completed_at = _utc_timestamp(self._epoch_time())
-                    parsed = _parse_provider_result(
-                        request=request,
-                        prepared=prepared,
-                        config=self.config,
-                        http_result=result,
-                        attempts=attempt,
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        secret=key,
-                    )
-                    self.budget.commit(_usage_total_tokens(parsed.usage))
-                    if not returned_model_is_consistent(
+                    safe_response: Mapping[str, Any] | None = None
+                    try:
+                        try:
+                            decoded = json.loads(result.body.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            decoded = None
+                        if isinstance(decoded, Mapping):
+                            candidate = _redact_provider_value(decoded, key)
+                            if isinstance(candidate, Mapping):
+                                safe_response = dict(candidate)
+                        parsed = _parse_provider_result(
+                            request=request,
+                            prepared=prepared,
+                            config=self.config,
+                            http_result=result,
+                            attempts=attempt,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            secret=key,
+                        )
+                    except Exception:
+                        settle(
+                            outcome="invalid_response",
+                            http_status=result.status,
+                            server_request_id=server_request_id,
+                            response_body_sha256=response_digest,
+                            response_record=(
+                                safe_response
+                                if safe_response is not None
+                                else {
+                                    "body_excerpt": " ".join(
+                                        result.body.decode(
+                                            "utf-8",
+                                            errors="replace",
+                                        )
+                                        .replace(key, "[redacted]")
+                                        .split()
+                                    )[:500]
+                                }
+                            ),
+                        )
+                        raise
+                    mismatch = not returned_model_is_consistent(
                         parsed.model_requested,
                         parsed.model_returned,
-                    ):
+                    )
+                    audit = parsed.to_audit_record(
+                        acceptance_status=(
+                            "rejected_model_mismatch"
+                            if mismatch
+                            else "accepted"
+                        )
+                    )
+                    settle(
+                        outcome=(
+                            "rejected_provider_result"
+                            if mismatch
+                            else "success"
+                        ),
+                        http_status=result.status,
+                        server_request_id=server_request_id,
+                        response_body_sha256=response_digest,
+                        response_record=dict(parsed.raw_response),
+                        charged_tokens=_usage_total_tokens(parsed.usage),
+                        provider_audit=audit,
+                    )
+                    if mismatch:
                         raise ProviderModelMismatch(parsed)
                     return parsed
 
-                lowered = _lower_headers(result.headers)
+                safe_message = _safe_api_error(result.body, secret=key)
+                settle(
+                    outcome="http_error",
+                    automatic_retry_safe=_is_transient_status(result.status),
+                    http_status=result.status,
+                    server_request_id=server_request_id,
+                    response_body_sha256=response_digest,
+                    response_record={"error": safe_message},
+                )
                 if _is_transient_status(result.status) and (
                     attempt <= self.config.max_retries
                 ):
@@ -1059,15 +1226,9 @@ class OpenAIResponsesProvider:
                     continue
                 raise ProviderHTTPError(
                     status=result.status,
-                    message=_safe_api_error(result.body, secret=key),
+                    message=safe_message,
                     client_request_id=prepared.client_request_id,
-                    server_request_id=(
-                        lowered.get("x-request-id", "").replace(
-                            key,
-                            "[redacted]",
-                        )
-                        or None
-                    ),
+                    server_request_id=server_request_id,
                 )
         except Exception:
             self.budget.rollback()
@@ -1149,75 +1310,54 @@ def parse_llm_request(raw: Mapping[str, Any]) -> LLMRequest:
     )
 
 
-def read_requests(path: str | Path) -> tuple[LLMRequest, ...]:
-    """Read a strict request JSONL corpus and reject duplicate IDs."""
+def read_requests(
+    path: str | Path | bytes,
+) -> tuple[LLMRequest, ...]:
+    """Read strict request JSONL from a path or immutable byte snapshot."""
 
-    source = Path(path)
+    if isinstance(path, bytes):
+        source_label = "<request-bytes>"
+        try:
+            lines = path.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{source_label}: input must be valid UTF-8"
+            ) from exc
+    else:
+        source = Path(path)
+        source_label = str(source)
+        lines = source.read_text(encoding="utf-8").splitlines()
     requests: list[LLMRequest] = []
     seen: set[str] = set()
-    with source.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                raw = json.loads(line)
-                if not isinstance(raw, Mapping):
-                    raise ValueError("request line must be a JSON object")
-                request = parse_llm_request(raw)
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                raise ValueError(f"{source}:{line_number}: {exc}") from exc
-            if request.request_id in seen:
-                raise ValueError(f"duplicate request_id: {request.request_id}")
-            seen.add(request.request_id)
-            requests.append(request)
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+            if not isinstance(raw, Mapping):
+                raise ValueError("request line must be a JSON object")
+            request = parse_llm_request(raw)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{source_label}:{line_number}: {exc}"
+            ) from exc
+        if request.request_id in seen:
+            raise ValueError(f"duplicate request_id: {request.request_id}")
+        seen.add(request.request_id)
+        requests.append(request)
     return tuple(requests)
 
 
 def _append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
     """Append one canonical line with O_APPEND, flush, and fsync durability."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    line = (_canonical(record) + "\n").encode("utf-8")
-    descriptor = os.open(
-        path,
-        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-        0o600,
-    )
-    try:
-        offset = 0
-        while offset < len(line):
-            offset += os.write(descriptor, line[offset:])
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    append_provider_jsonl(path, record)
 
 
 def _repair_trailing_jsonl(path: Path) -> bool:
     """Repair only a crash-truncated final line; never hides a middle error."""
 
-    if not path.exists():
-        return False
-    material = path.read_bytes()
-    if not material or material.endswith(b"\n"):
-        return False
-    last_newline = material.rfind(b"\n")
-    tail_start = last_newline + 1
-    tail = material[tail_start:]
-    try:
-        json.loads(tail.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        with path.open("r+b") as handle:
-            handle.truncate(tail_start)
-            handle.flush()
-            os.fsync(handle.fileno())
-    else:
-        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND)
-        try:
-            os.write(descriptor, b"\n")
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    return True
+    return repair_attempt_journal(path)
 
 
 def _read_audit_records(
@@ -1272,6 +1412,77 @@ def _read_audit_records(
                 )
             records[replay.request_id] = dict(raw)
     return records
+
+
+def _read_raw_provider_audits(
+    path: Path,
+    *,
+    provider_name: str,
+) -> dict[str, Mapping[str, Any]]:
+    """Read just enough audit structure to reconcile attempt settlements."""
+
+    if not path.exists():
+        return {}
+    records: dict[str, Mapping[str, Any]] = {}
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{line_number}: {exc}") from exc
+            if (
+                not isinstance(raw, Mapping)
+                or raw.get("schema_version") != 1
+                or raw.get("provider") != provider_name
+            ):
+                raise ValueError(
+                    f"{path}:{line_number}: unsupported provider audit record"
+                )
+            request_id = raw.get("request_id")
+            if not isinstance(request_id, str) or not request_id:
+                raise ValueError(
+                    f"{path}:{line_number}: provider audit lacks request_id"
+                )
+            if request_id in records:
+                raise ValueError(
+                    f"duplicate audit request_id: {request_id}"
+                )
+            records[request_id] = dict(raw)
+    return records
+
+
+def _reconcile_attempt_audits(
+    ledger: DurableProviderAttemptLedger,
+    audit_path: Path,
+    *,
+    provider_name: str,
+) -> None:
+    """Repair a crash between final settlement and public audit append."""
+
+    public = _read_raw_provider_audits(
+        audit_path,
+        provider_name=provider_name,
+    )
+    embedded = ledger.embedded_final_audits()
+    for request_id, audit in embedded.items():
+        retained = public.get(request_id)
+        if retained is None:
+            _append_jsonl(audit_path, audit)
+            public[request_id] = audit
+        elif dict(retained) != audit:
+            raise ValueError(
+                "provider transport-attempt/final audit mismatch for "
+                f"{request_id}"
+            )
+    missing_attempts = sorted(set(public) - set(embedded))
+    if missing_attempts:
+        raise ProviderAttemptManualReviewRequired(
+            "provider audits lack durable physical-attempt evidence; manual "
+            "review is required before resume: "
+            + ", ".join(missing_attempts)
+        )
 
 
 def _validate_resumed_audit(
@@ -1332,6 +1543,8 @@ class ExecutionSummary:
     total_tokens: int
     responses_path: str
     audit_path: str
+    attempts_path: str
+    transport_attempt_count: int
     repaired_trailing_files: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
@@ -1343,6 +1556,9 @@ class ExecutionSummary:
             "total_tokens": self.total_tokens,
             "responses_path": self.responses_path,
             "audit_path": self.audit_path,
+            "attempts_path": self.attempts_path,
+            "transport_attempt_count": self.transport_attempt_count,
+            "request_budget_unit": "physical_http_attempt",
             "repaired_trailing_files": list(
                 self.repaired_trailing_files
             ),
@@ -1355,6 +1571,31 @@ def execute_requests(
     *,
     responses_path: str | Path,
     audit_path: str | Path,
+    attempts_path: str | Path | None = None,
+) -> ExecutionSummary:
+    """Execute/resume a static corpus as one exclusive journal transaction."""
+
+    audit_file = Path(audit_path)
+    lock_file = audit_file.with_name(
+        f".{audit_file.name}.provider-execution.lock"
+    )
+    with ExclusiveProviderExecutionLock(lock_file):
+        return _execute_requests_locked(
+            provider,
+            requests,
+            responses_path=responses_path,
+            audit_path=audit_path,
+            attempts_path=attempts_path,
+        )
+
+
+def _execute_requests_locked(
+    provider: Any,
+    requests: Iterable[LLMRequest],
+    *,
+    responses_path: str | Path,
+    audit_path: str | Path,
+    attempts_path: str | Path | None = None,
 ) -> ExecutionSummary:
     """Execute or resume requests into replay JSONL and a provider audit JSONL.
 
@@ -1369,20 +1610,48 @@ def execute_requests(
         raise ValueError("requests contain duplicate request IDs")
     response_file = Path(responses_path)
     audit_file = Path(audit_path)
-    if response_file.resolve() == audit_file.resolve():
-        raise ValueError("responses_path and audit_path must differ")
+    attempt_file = (
+        Path(attempts_path)
+        if attempts_path is not None
+        else default_attempt_path(audit_file)
+    )
+    resolved_paths = {
+        response_file.resolve(),
+        audit_file.resolve(),
+        attempt_file.resolve(),
+    }
+    if len(resolved_paths) != 3:
+        raise ValueError(
+            "responses_path, audit_path, and attempts_path must differ"
+        )
 
     repaired = tuple(
         str(path)
-        for path in (audit_file, response_file)
-        if _repair_trailing_jsonl(path)
+        for path, repair in (
+            (attempt_file, repair_attempt_journal),
+            (audit_file, _repair_trailing_jsonl),
+            (response_file, _repair_trailing_jsonl),
+        )
+        if repair(path)
+    )
+    provider_name = getattr(provider, "provider_name", "openai")
+    attempt_ledger = DurableProviderAttemptLedger(
+        attempt_file,
+        provider_name=provider_name,
+        model_requested=provider.config.model,
+    )
+    attempt_ledger.validate_requests(request_by_id, provider)
+    attempt_ledger.assert_safe_to_resume()
+    _reconcile_attempt_audits(
+        attempt_ledger,
+        audit_file,
+        provider_name=provider_name,
     )
     existing_responses = (
         {response.request_id: response for response in read_responses(response_file)}
         if response_file.exists()
         else {}
     )
-    provider_name = getattr(provider, "provider_name", "openai")
     audit_records = _read_audit_records(
         audit_file,
         provider_name=provider_name,
@@ -1421,19 +1690,7 @@ def execute_requests(
                 f"audit/replay response mismatch for {request_id}"
             )
 
-    restored_tokens = 0
-    for request_id in existing_responses:
-        audit = audit_records.get(request_id)
-        usage = audit.get("usage") if isinstance(audit, Mapping) else None
-        tokens = _usage_total_tokens(usage) if isinstance(usage, Mapping) else None
-        if tokens is None:
-            tokens = provider.prepare(request_by_id[request_id]).estimated_max_tokens
-        restored_tokens += tokens
-    restored_request_count = (
-        provider.restored_request_count(tuple(audit_records.values()))
-        if hasattr(provider, "restored_request_count")
-        else len(existing_responses)
-    )
+    restored_request_count, restored_tokens = attempt_ledger.accounting()
     provider.restore_budget(
         request_count=restored_request_count,
         total_tokens=restored_tokens,
@@ -1445,7 +1702,10 @@ def execute_requests(
         if request.request_id in existing_responses:
             continue
         try:
-            result = provider.complete(request)
+            result = provider.complete(
+                request,
+                attempt_ledger=attempt_ledger,
+            )
         except ProviderResultRejected as exc:
             _append_jsonl(
                 audit_file,
@@ -1467,6 +1727,8 @@ def execute_requests(
         total_tokens=provider.budget.total_tokens,
         responses_path=str(response_file),
         audit_path=str(audit_file),
+        attempts_path=str(attempt_file),
+        transport_attempt_count=provider.budget.request_count,
         repaired_trailing_files=repaired,
     )
 
@@ -1477,6 +1739,7 @@ def execute_jsonl(
     *,
     responses_path: str | Path,
     audit_path: str | Path,
+    attempts_path: str | Path | None = None,
 ) -> ExecutionSummary:
     """Read an exported request corpus and execute it resumably."""
 
@@ -1485,6 +1748,7 @@ def execute_jsonl(
         read_requests(requests_path),
         responses_path=responses_path,
         audit_path=audit_path,
+        attempts_path=attempts_path,
     )
 
 
@@ -1504,14 +1768,41 @@ class ResumableCompletionProvider:
         *,
         responses_path: str | Path,
         audit_path: str | Path,
+        attempts_path: str | Path | None = None,
     ) -> None:
         self.provider = provider
         self.responses_path = Path(responses_path)
         self.audit_path = Path(audit_path)
-        if self.responses_path.resolve() == self.audit_path.resolve():
-            raise ValueError("responses_path and audit_path must differ")
+        self.attempts_path = (
+            Path(attempts_path)
+            if attempts_path is not None
+            else default_attempt_path(self.audit_path)
+        )
+        if len(
+            {
+                self.responses_path.resolve(),
+                self.audit_path.resolve(),
+                self.attempts_path.resolve(),
+            }
+        ) != 3:
+            raise ValueError(
+                "responses_path, audit_path, and attempts_path must differ"
+            )
+        repair_attempt_journal(self.attempts_path)
         _repair_trailing_jsonl(self.audit_path)
         _repair_trailing_jsonl(self.responses_path)
+        provider_name = getattr(provider, "provider_name", "openai")
+        self._attempt_ledger = DurableProviderAttemptLedger(
+            self.attempts_path,
+            provider_name=provider_name,
+            model_requested=provider.config.model,
+        )
+        self._attempt_ledger.assert_safe_to_resume()
+        _reconcile_attempt_audits(
+            self._attempt_ledger,
+            self.audit_path,
+            provider_name=provider_name,
+        )
         self._responses = (
             {
                 response.request_id: response
@@ -1522,7 +1813,7 @@ class ResumableCompletionProvider:
         )
         self._audits = _read_audit_records(
             self.audit_path,
-            provider_name=getattr(provider, "provider_name", "openai"),
+            provider_name=provider_name,
         )
         unexpected_responses = sorted(set(self._responses) - set(self._audits))
         if unexpected_responses:
@@ -1540,26 +1831,8 @@ class ResumableCompletionProvider:
                 raise ValueError(
                     f"adaptive audit/replay mismatch for {request_id}"
                 )
-        restored_tokens = 0
-        for audit in self._audits.values():
-            usage = audit.get("usage")
-            tokens = (
-                _usage_total_tokens(usage)
-                if isinstance(usage, Mapping)
-                else None
-            )
-            if tokens is None:
-                estimate = audit.get("estimated_max_tokens")
-                if not _is_positive_int(estimate):
-                    raise ValueError(
-                        "adaptive audit lacks usage and token reservation"
-                    )
-                tokens = int(estimate)
-            restored_tokens += tokens
-        restored_request_count = (
-            provider.restored_request_count(tuple(self._audits.values()))
-            if hasattr(provider, "restored_request_count")
-            else len(self._responses)
+        restored_request_count, restored_tokens = (
+            self._attempt_ledger.accounting()
         )
         provider.restore_budget(
             request_count=restored_request_count,
@@ -1570,6 +1843,7 @@ class ResumableCompletionProvider:
         self.resumed_count = 0
 
     def complete(self, request: LLMRequest) -> LLMResponse:
+        self._attempt_ledger.validate_request(request, self.provider)
         retained_audit = self._audits.get(request.request_id)
         if (
             retained_audit is not None
@@ -1595,8 +1869,12 @@ class ResumableCompletionProvider:
             self._used_request_ids.append(request.request_id)
             self.resumed_count += 1
             return existing
+        self._attempt_ledger.assert_safe_to_resume()
         try:
-            result = self.provider.complete(request)
+            result = self.provider.complete(
+                request,
+                attempt_ledger=self._attempt_ledger,
+            )
         except ProviderResultRejected as exc:
             rejected_audit = exc.result.to_audit_record(
                 acceptance_status=exc.acceptance_status,
@@ -1620,6 +1898,12 @@ class ResumableCompletionProvider:
             for request_id in dict.fromkeys(self._used_request_ids)
         )
 
+    @property
+    def used_attempt_records(self) -> tuple[Mapping[str, Any], ...]:
+        return self._attempt_ledger.events_for_request_ids(
+            tuple(dict.fromkeys(self._used_request_ids))
+        )
+
     def to_manifest(self) -> dict[str, Any]:
         used = tuple(dict.fromkeys(self._used_request_ids))
         provider_fields = (
@@ -1636,8 +1920,11 @@ class ResumableCompletionProvider:
             "requests_executed": self.executed_count,
             "requests_resumed": self.resumed_count,
             "total_tokens": self.provider.budget.total_tokens,
+            "transport_attempt_count": self.provider.budget.request_count,
+            "request_budget_unit": "physical_http_attempt",
             "responses_journal": str(self.responses_path),
             "audit_journal": str(self.audit_path),
+            "attempts_journal": str(self.attempts_path),
         }
 
 

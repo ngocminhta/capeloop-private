@@ -27,7 +27,11 @@ The code's gate reports intentionally stop at computational status and retain
 | --- | --- | --- | --- |
 | Live profile-writer evaluation | Strict requests/outputs, model-role config, budgets, retries, audit journal, replay, and development-only per-updater temperature calibration | API credential, spending authorization, actual provider responses | Resolved model/version, prompt/request hashes, response IDs, reasoning parameters, usage, timestamps, raw/active responses, calibration, audit |
 | Gate 1 paraphrase transfer | Split-safe surface suite, source/case hashes, fitted-aware scoring, completeness logic | Complete `llm_full_context` responses for every required case | Suite digest, case records, paired updater scores, transfer criterion |
+| H7 volunteered valid learning | Exhaustive verified-run direct-statement plan, paired full-context/provenance-aware requests, strict OpenAI/OpenRouter audit validation, update conversion, immutable recomputation and verification | One complete accepted provider corpus for every planned test-user/domain/attribute pair and both updater arms | Source/plan/file digests, provider/model identity, request/prompt/body/raw-response hashes, paired `VolunteeredPreferenceUpdate` rows, recomputed `not_claimed` H7 review |
+| Gate 6 cross-run robustness | Strict family/source declaration, verified sensitivity-to-Experiment-A pairing, exact provider/model bindings, recomputed simulator clauses and held-out paraphrase transfer, atomic review | At least two complete live-model family pairs plus responsible-researcher family/source review and preregistration record | Declaration, exact source-run checksum bindings, per-pair evidence, six-clause report, review manifest |
 | External native decoding | Blinded requests, researcher-only truth/codebook, source audit, development calibration, test metrics | At least two genuinely distinct judgment sources per request | Request/judgment hashes, instance/family/source descriptors, calibration, raw/calibrated reliability and agreement |
+| Experiment C external reranking | Complete blinded native-state packet, exact two-family admission, explicit official-collection or reviewed-generic provenance mode, development-only calibration, native-only rescoring, reranking/ESR/Gate 5, atomic immutable review | Two complete external decoder families over the common development/test packet; a first-party provenance statement additionally requires the validated selected Anthropic/Gemini collection | Source-run and judgment digests, provenance mode and provider-validation status, retained canonical inputs, optional official-collection bindings, per-family calibrated scores, rescored metrics, rankings, Gate 5, checksum manifest |
+| Experiment C cross-seed robustness | Strict compatibility/source validation and exact agreement/disagreement review over 2–32 completed runs | Paper-scale distinct-seed Experiment C runs produced under one frozen scientific configuration | Exact source checksums, normalized scientific-config digest, bootstrap evidence, nine predeclared comparisons, review manifest |
 | Native end-to-end terminal actions | Held-out v2 action schema, exact item/content bindings, scoring, transparent reference adapters, and an origin/budget-locked resumable OpenAI collection path | Paid or replayed actions actually emitted by the declared native system; none are checked in | Native state/system version, suite digest, per-item bound actions, transport-attempt journal, live/replay mode, execution audit, score |
 | Human pragmatic ordering | Blinded packet, codebook, collection schema, eligibility checks, paired analysis | Ethics determination, approved consent, recruitment, hosting, compensation, collected de-identified ratings | Protocol versions, determination ID, packet digest, exclusions, analysis, privacy/retention statement |
 | Confirmatory mixed effects | Version-pinned R harness for both exact formulas, turn-level B reconstruction, maximal random effects, validation, contrasts, diagnostics, and result schema; clustered CR1 remains separate | Verified preregistered study runs with A prior-strength variation, executed R fit, and responsible statistical review | Canonical config/input/source digests, formula, random effects, software/version, optimizer/scaled-gradient convergence, pointwise intervals, contrasts, multiplicity family |
@@ -97,8 +101,10 @@ frozen provider/system trace.
 The [Gate 4 live-collection guide](gate4-live-collection.md) documents the
 implemented keyless planning and explicitly authorized OpenAI native-action
 collector. Its physical-attempt budgets, durable journal, output lock, and
-manual-review stops make collection resumable; they are infrastructure, not
-empirical evidence. No provider-produced native action is checked in.
+manual-review stops make collection resumable. Ambiguous timeout/connection
+outcomes are never retried automatically, including within the process that
+observed the failure. These controls are infrastructure, not empirical
+evidence. No provider-produced native action is checked in.
 
 Import both evidence classes into a new review directory; never place them
 inside the completed run:
@@ -147,6 +153,14 @@ test-split judgments cover eligible Gate 4 trajectories.
 
 The output contains `gate-review.json`, `manifest.json`, and `SHA256SUMS`.
 Import fails if the destination already exists or is inside the source run.
+One sibling exclusive lock serializes imports for that destination while the
+existing shared collection locks remain held. Files are durably written to a
+same-parent private stage; immediately before publication the importer
+re-verifies the source run, every supplied input snapshot, both exact
+collection inventories and bytes, and the staged artifact itself. It then
+renames the complete stage into place and fsyncs the parent directory.
+Failures and destination races clean the stage and do not expose a partial
+review or overwrite the raced owner.
 The recomputed Gate 4 can meet computational checks, but both the artifact and
 the gate retain `claim_status = "not_claimed"`. A metadata attestation is
 auditable evidence, not proof that a source or action was honestly produced.
@@ -156,9 +170,10 @@ evidence. A selected-provider evidence bundle must retain the request,
 truth-label, and source-review files, all five external-decoder collection
 files, and all six native-action collection files named by those digests.
 Keep truth labels researcher-only and access-controlled rather than placing
-them in decoder-visible or public material. `gate-review verify`
-verifies the review directory itself; full recomputation additionally needs
-the verified source run and those separately retained exact input bytes.
+them in decoder-visible or public material. `gate-review verify` rejects
+symlinked or unexpected review entries and verifies the review directory
+itself; full recomputation additionally needs the verified source run and
+those separately retained exact input bytes.
 
 ## Human evidence admission
 

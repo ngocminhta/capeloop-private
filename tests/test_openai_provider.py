@@ -29,10 +29,16 @@ from cape_loop.openai_provider import (
     ProviderResponseError,
     ResumableOpenAICompletionProvider,
     execute_jsonl,
+    execute_requests,
     parse_llm_request,
     prepare_openai_request,
     returned_model_is_consistent,
     urllib_transport,
+)
+from cape_loop.provider_attempts import (
+    ExclusiveProviderExecutionLock,
+    ProviderAttemptManualReviewRequired,
+    ProviderExecutionLocked,
 )
 
 
@@ -121,6 +127,19 @@ def response_body(
 
 
 class OpenAIRequestTests(unittest.TestCase):
+    def test_other_provider_credentials_are_never_accepted(self) -> None:
+        for reserved_key in (
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+        ):
+            with self.subTest(reserved_key=reserved_key):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "reserved for a different provider",
+                ):
+                    OpenAIProviderConfig(api_key_env=reserved_key)
+
     def test_custom_base_url_requires_a_separate_explicit_opt_in(self) -> None:
         with self.assertRaisesRegex(ValueError, "HTTPS"):
             OpenAIProviderConfig(
@@ -503,6 +522,9 @@ class OpenAITransportTests(unittest.TestCase):
                 ).encode(),
             ),
         )
+        reservation = provider.prepare(
+            build_request()
+        ).estimated_max_tokens
         with patch.dict(
             "os.environ",
             {"CAPE_LOOP_TEST_OPENAI_KEY": secret},
@@ -512,7 +534,8 @@ class OpenAITransportTests(unittest.TestCase):
                 provider.complete(build_request())
         self.assertNotIn(secret, str(raised.exception))
         self.assertIn("[redacted]", str(raised.exception))
-        self.assertEqual(provider.budget.request_count, 0)
+        self.assertEqual(provider.budget.request_count, 1)
+        self.assertEqual(provider.budget.total_tokens, reservation)
 
     def test_success_audit_redacts_echoed_provider_metadata(self) -> None:
         secret = "sk-success-echo-secret"
@@ -585,6 +608,427 @@ class OpenAITransportTests(unittest.TestCase):
 
 
 class OpenAIBudgetAndResumeTests(unittest.TestCase):
+    def test_static_execution_lock_prevents_concurrent_dispatch(self) -> None:
+        request = build_request("locked")
+        calls = 0
+
+        def transport(**_: object) -> HTTPResult:
+            nonlocal calls
+            calls += 1
+            return HTTPResult(200, {}, response_body())
+
+        provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                live_execution=True,
+                api_key_env="LOCK_TEST_OPENAI_KEY",
+            ),
+            transport=transport,
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            audit = root / "audit.jsonl"
+            lock = root / ".audit.jsonl.provider-execution.lock"
+            with (
+                patch.dict(
+                    "os.environ",
+                    {"LOCK_TEST_OPENAI_KEY": "secret"},
+                    clear=False,
+                ),
+                ExclusiveProviderExecutionLock(lock),
+                self.assertRaises(ProviderExecutionLocked),
+            ):
+                execute_requests(
+                    provider,
+                    (request,),
+                    responses_path=root / "responses.jsonl",
+                    audit_path=audit,
+                    attempts_path=root / "attempts.jsonl",
+                )
+        self.assertEqual(calls, 0)
+
+    def test_retry_attempts_are_durable_and_restore_physical_accounting(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            responses_path = root / "responses.jsonl"
+            audit_path = root / "audit.jsonl"
+            attempts_path = root / "attempts.jsonl"
+            outcomes = [
+                HTTPResult(
+                    503,
+                    {"X-Request-Id": "retryable"},
+                    b'{"error":{"message":"retry"}}',
+                ),
+                HTTPResult(200, {"X-Request-Id": "done"}, response_body()),
+            ]
+            provider = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                    max_retries=1,
+                    jitter_fraction=0,
+                    initial_backoff_seconds=0,
+                    max_backoff_seconds=0,
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: outcomes.pop(0),
+                sleep=lambda _: None,
+                epoch_time=lambda: 1_700_000_000.0,
+            )
+            reservation = provider.prepare(request).estimated_max_tokens
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                clear=True,
+            ):
+                summary = execute_requests(
+                    provider,
+                    (request,),
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                    attempts_path=attempts_path,
+                )
+            events = [
+                json.loads(line)
+                for line in attempts_path.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            self.assertEqual(
+                [event["event"] for event in events],
+                ["started", "settled", "started", "settled"],
+            )
+            self.assertEqual(events[1]["outcome"], "http_error")
+            self.assertTrue(events[1]["automatic_retry_safe"])
+            self.assertEqual(events[1]["charged_tokens"], reservation)
+            self.assertEqual(events[3]["outcome"], "success")
+            self.assertEqual(events[3]["charged_tokens"], 75)
+            self.assertEqual(summary.transport_attempt_count, 2)
+            self.assertEqual(summary.total_tokens, reservation + 75)
+
+            calls: list[int] = []
+            resumed_provider = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                    max_retries=1,
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+            )
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                clear=True,
+            ):
+                resumed = execute_requests(
+                    resumed_provider,
+                    (request,),
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                    attempts_path=attempts_path,
+                )
+            self.assertEqual(calls, [])
+            self.assertEqual(resumed.resumed_count, 1)
+            self.assertEqual(resumed.transport_attempt_count, 2)
+            self.assertEqual(resumed.total_tokens, reservation + 75)
+
+    def test_physical_request_budget_caps_retry_dispatches(self) -> None:
+        request = build_request()
+        calls: list[int] = []
+
+        def retryable(**_: object) -> HTTPResult:
+            calls.append(1)
+            return HTTPResult(
+                503,
+                {},
+                b'{"error":{"message":"retry"}}',
+            )
+
+        provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                live_execution=True,
+                api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                max_retries=100,
+                max_requests=2,
+                max_total_tokens=100_000,
+                initial_backoff_seconds=0,
+                max_backoff_seconds=0,
+                jitter_fraction=0,
+            ),
+            transport=retryable,
+            sleep=lambda _: None,
+        )
+        reservation = provider.prepare(request).estimated_max_tokens
+        with patch.dict(
+            "os.environ",
+            {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(BudgetExceeded, "max_requests"):
+                provider.complete(request)
+        self.assertEqual(calls, [1, 1])
+        self.assertEqual(provider.budget.request_count, 2)
+        self.assertEqual(provider.budget.total_tokens, 2 * reservation)
+
+    def test_unresolved_started_attempt_blocks_automatic_resume(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            responses_path = root / "responses.jsonl"
+            audit_path = root / "audit.jsonl"
+            attempts_path = root / "attempts.jsonl"
+            crashing = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: (_ for _ in ()).throw(
+                    SystemExit("simulated process loss during transport")
+                ),
+            )
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                clear=True,
+            ):
+                with self.assertRaises(SystemExit):
+                    execute_requests(
+                        crashing,
+                        (request,),
+                        responses_path=responses_path,
+                        audit_path=audit_path,
+                        attempts_path=attempts_path,
+                    )
+            events = attempts_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(events), 1)
+            self.assertEqual(json.loads(events[0])["event"], "started")
+
+            calls: list[int] = []
+            with self.assertRaisesRegex(
+                ProviderAttemptManualReviewRequired,
+                "billing outcome is unknown",
+            ):
+                execute_requests(
+                    OpenAIResponsesProvider(
+                        OpenAIProviderConfig(
+                            live_execution=True,
+                            api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                            max_total_tokens=100_000,
+                        ),
+                        transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+                    ),
+                    (request,),
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                    attempts_path=attempts_path,
+                )
+            self.assertEqual(calls, [])
+
+    def test_final_attempt_audit_recovers_crash_before_public_append(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            responses_path = root / "responses.jsonl"
+            audit_path = root / "audit.jsonl"
+            attempts_path = root / "attempts.jsonl"
+            provider = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: HTTPResult(200, {}, response_body()),
+            )
+            original_append = openai_provider._append_jsonl
+            interrupted = False
+
+            def interrupt_public_audit(
+                path: Path,
+                record: Mapping[str, object],
+            ) -> None:
+                nonlocal interrupted
+                if path == audit_path and not interrupted:
+                    interrupted = True
+                    raise OSError("simulated crash before public audit append")
+                original_append(path, record)
+
+            with (
+                patch.dict(
+                    "os.environ",
+                    {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                    clear=True,
+                ),
+                patch.object(
+                    openai_provider,
+                    "_append_jsonl",
+                    side_effect=interrupt_public_audit,
+                ),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated crash"):
+                    execute_requests(
+                        provider,
+                        (request,),
+                        responses_path=responses_path,
+                        audit_path=audit_path,
+                        attempts_path=attempts_path,
+                    )
+            self.assertFalse(audit_path.exists())
+            self.assertFalse(responses_path.exists())
+            self.assertEqual(
+                [
+                    json.loads(line)["event"]
+                    for line in attempts_path.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                ],
+                ["started", "settled"],
+            )
+
+            calls: list[int] = []
+            recovered = execute_requests(
+                OpenAIResponsesProvider(
+                    OpenAIProviderConfig(
+                        live_execution=False,
+                        max_total_tokens=100_000,
+                    ),
+                    transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+                ),
+                (request,),
+                responses_path=responses_path,
+                audit_path=audit_path,
+                attempts_path=attempts_path,
+            )
+            self.assertEqual(calls, [])
+            self.assertEqual(recovered.resumed_count, 1)
+            self.assertEqual(len(read_responses(responses_path)), 1)
+            self.assertTrue(audit_path.exists())
+
+    def test_settled_nonfinal_attempt_blocks_restart_without_transport(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                "responses_path": root / "responses.jsonl",
+                "audit_path": root / "audit.jsonl",
+                "attempts_path": root / "attempts.jsonl",
+            }
+            failing = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: HTTPResult(
+                    400,
+                    {},
+                    b'{"error":{"message":"invalid request"}}',
+                ),
+            )
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                clear=True,
+            ):
+                with self.assertRaises(ProviderHTTPError):
+                    execute_requests(failing, (request,), **paths)
+            calls: list[int] = []
+            with self.assertRaisesRegex(
+                ProviderAttemptManualReviewRequired,
+                "without a final embedded",
+            ):
+                execute_requests(
+                    OpenAIResponsesProvider(
+                        OpenAIProviderConfig(
+                            live_execution=True,
+                            api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                            max_total_tokens=100_000,
+                        ),
+                        transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+                    ),
+                    (request,),
+                    **paths,
+                )
+            self.assertEqual(calls, [])
+
+    def test_attempt_charge_tampering_is_rejected_before_transport(
+        self,
+    ) -> None:
+        request = build_request()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {
+                "responses_path": root / "responses.jsonl",
+                "audit_path": root / "audit.jsonl",
+                "attempts_path": root / "attempts.jsonl",
+            }
+            with patch.dict(
+                "os.environ",
+                {"CAPE_LOOP_TEST_OPENAI_KEY": "test"},
+                clear=True,
+            ):
+                execute_requests(
+                    OpenAIResponsesProvider(
+                        OpenAIProviderConfig(
+                            live_execution=True,
+                            api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
+                            max_total_tokens=100_000,
+                        ),
+                        transport=lambda **_: HTTPResult(
+                            200,
+                            {},
+                            response_body(),
+                        ),
+                    ),
+                    (request,),
+                    **paths,
+                )
+            rows = [
+                json.loads(line)
+                for line in paths["attempts_path"].read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            rows[1]["charged_tokens"] = 74
+            paths["attempts_path"].write_text(
+                "".join(
+                    json.dumps(
+                        row,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                    for row in rows
+                ),
+                encoding="utf-8",
+            )
+            calls: list[int] = []
+            with self.assertRaisesRegex(
+                ValueError,
+                "charge differs",
+            ):
+                execute_requests(
+                    OpenAIResponsesProvider(
+                        OpenAIProviderConfig(
+                            live_execution=False,
+                            max_total_tokens=100_000,
+                        ),
+                        transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+                    ),
+                    (request,),
+                    **paths,
+                )
+            self.assertEqual(calls, [])
+
     def test_static_model_mismatch_is_rejected_and_audited(self) -> None:
         request = build_request()
         with TemporaryDirectory() as directory:
@@ -921,7 +1365,7 @@ class OpenAIBudgetAndResumeTests(unittest.TestCase):
                 transport=lambda **_: second_calls.append(1),  # type: ignore[arg-type]
             )
             with self.assertRaisesRegex(
-                ValueError, "does not match the current request"
+                ValueError, "configured model|current request"
             ):
                 execute_jsonl(
                     second,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from hashlib import sha256
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 import json
 import os
 import platform
@@ -15,6 +15,12 @@ import tempfile
 from . import __version__
 from .artifacts import verify_run
 from .config import ConfigError, load_config
+from .control_study import (
+    build_control_llm_exchange,
+    build_experiment_a_control_plan,
+    execute_control_llm_exchange,
+    read_control_request_bindings,
+)
 from .correction_debt import run_correction_debt_experiment
 from .evaluation_suite import orchestrate_openai_evaluation_suite
 from .external_decoder_providers import (
@@ -46,8 +52,28 @@ from .human_study import (
     blind_and_order_items,
     build_assignment_codebook,
 )
+from .human_comparison import (
+    analyze_h8_human_model_comparison,
+    convert_experiment_a_metrics_to_model_evidence,
+    read_model_evidence_strengths,
+)
+from .h7_control_review import (
+    create_h7_volunteered_review,
+    load_verified_h7_source,
+    snapshot_h7_review_inputs,
+    verify_h7_volunteered_review,
+    write_h7_plan_directory,
+)
+from .experiment_c_review import (
+    import_experiment_c_external_rescore,
+    verify_experiment_c_external_rescore,
+)
+from .experiment_c_robustness import (
+    create_experiment_c_multiseed_review,
+    verify_experiment_c_multiseed_review,
+)
 from .gate_review import import_native_gate_review, verify_gate_review
-from .llm_exchange import read_responses
+from .llm_exchange import ReplayProvider, read_responses
 from .openai_provider import (
     DEFAULT_OPENAI_MODEL_ROLES,
     OpenAIProviderConfig,
@@ -72,12 +98,42 @@ from .native_action_provider import (
     plan_openai_native_actions,
 )
 from .release import freeze_run, verify_frozen_artifact
+from .robustness_review import (
+    build_gate6_cross_run_review,
+    verify_gate6_cross_run_review,
+)
 from .schema_export import export_schemas
 from .schema_export import SCHEMAS
 
 
 def _json(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+
+def _retry_expanded_budget(
+    *,
+    request_count: int,
+    conservative_tokens: int,
+    max_retries: int,
+    max_requests: int,
+    max_total_tokens: int,
+) -> dict[str, Any]:
+    """Report feasibility under the physical-attempt accounting contract."""
+
+    attempts_per_request = max_retries + 1
+    theoretical_attempts = request_count * attempts_per_request
+    theoretical_tokens = conservative_tokens * attempts_per_request
+    return {
+        "initial_transport_attempt_count": request_count,
+        "maximum_attempts_per_request": attempts_per_request,
+        "theoretical_max_transport_attempts": theoretical_attempts,
+        "theoretical_max_tokens_with_all_retries": theoretical_tokens,
+        "request_budget_unit": "physical_http_attempt",
+        "within_declared_budget": (
+            theoretical_attempts <= max_requests
+            and theoretical_tokens <= max_total_tokens
+        ),
+    }
 
 
 def _atomic_write_text(path: Path, value: str) -> None:
@@ -104,6 +160,124 @@ def _atomic_write_text(path: Path, value: str) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _fsync_directory(path: Path) -> None:
+    """Durably persist a same-directory artifact publication."""
+
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_write_new_text(path: Path, value: str) -> None:
+    """Publish one immutable text artifact without replacing an existing path."""
+
+    destination = path.absolute()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.parent.is_symlink():
+        raise ValueError("artifact output parent cannot be a symlink")
+    if destination.is_symlink() or destination.exists():
+        raise FileExistsError(f"artifact output already exists: {destination}")
+    lock = destination.parent / f".{destination.name}.publication.lock"
+    try:
+        lock_descriptor = os.open(
+            lock,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"artifact output is locked: {destination}"
+        ) from exc
+    descriptor = -1
+    temporary: Path | None = None
+    try:
+        try:
+            os.write(lock_descriptor, f"{os.getpid()}\n".encode("ascii"))
+            os.fsync(lock_descriptor)
+        finally:
+            os.close(lock_descriptor)
+        if destination.is_symlink() or destination.exists():
+            raise FileExistsError(
+                f"artifact output already exists: {destination}"
+            )
+        descriptor, name = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=destination.parent,
+        )
+        temporary = Path(name)
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+            newline="\n",
+        ) as handle:
+            descriptor = -1
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if destination.is_symlink() or destination.exists():
+            raise FileExistsError(
+                f"artifact output already exists: {destination}"
+            )
+        os.rename(temporary, destination)
+        temporary = None
+        _fsync_directory(destination.parent)
+    finally:
+        try:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+        finally:
+            try:
+                lock.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _snapshot_regular_file(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[Path, bytes]:
+    """Read one regular input exactly once and bind its resolved identity."""
+
+    supplied = path.absolute()
+    if supplied.is_symlink() or not supplied.is_file():
+        raise ValueError(f"{label} must be a regular file, not a symlink")
+    resolved = supplied.resolve()
+    material = supplied.read_bytes()
+    if (
+        supplied.is_symlink()
+        or not supplied.is_file()
+        or supplied.resolve() != resolved
+    ):
+        raise ValueError(f"{label} changed while it was being read")
+    return resolved, material
+
+
+def _verify_file_snapshot(
+    path: Path,
+    *,
+    resolved: Path,
+    material: bytes,
+    label: str,
+) -> None:
+    """Fail closed if a named input no longer denotes its parsed snapshot."""
+
+    supplied = path.absolute()
+    if (
+        supplied.is_symlink()
+        or not supplied.is_file()
+        or supplied.resolve() != resolved
+        or supplied.read_bytes() != material
+    ):
+        raise ValueError(f"{label} changed while the analysis was running")
 
 
 def _containing_run(path: Path) -> Path | None:
@@ -360,9 +534,12 @@ def _llm_plan(args: argparse.Namespace) -> int:
     conservative_tokens = sum(
         request.estimated_max_tokens for request in prepared
     )
-    within_budget = (
-        len(prepared) <= config.max_requests
-        and conservative_tokens <= config.max_total_tokens
+    retry_budget = _retry_expanded_budget(
+        request_count=len(prepared),
+        conservative_tokens=conservative_tokens,
+        max_retries=config.max_retries,
+        max_requests=config.max_requests,
+        max_total_tokens=config.max_total_tokens,
     )
     print(
         _json(
@@ -376,7 +553,7 @@ def _llm_plan(args: argparse.Namespace) -> int:
                 "conservative_max_tokens": conservative_tokens,
                 "max_requests": config.max_requests,
                 "max_total_tokens": config.max_total_tokens,
-                "within_declared_budget": within_budget,
+                **retry_budget,
                 "request_body_sha256": [
                     {
                         "request_id": request.request_id,
@@ -387,7 +564,7 @@ def _llm_plan(args: argparse.Namespace) -> int:
             }
         )
     )
-    return 0 if within_budget else 1
+    return 0 if retry_budget["within_declared_budget"] else 1
 
 
 def _llm_execute(args: argparse.Namespace) -> int:
@@ -404,10 +581,14 @@ def _llm_execute(args: argparse.Namespace) -> int:
             provider.prepare(request).estimated_max_tokens
             for request in requests
         )
-        if (
-            len(requests) > provider.config.max_requests
-            or conservative_tokens > provider.config.max_total_tokens
-        ):
+        retry_budget = _retry_expanded_budget(
+            request_count=len(requests),
+            conservative_tokens=conservative_tokens,
+            max_retries=provider.config.max_retries,
+            max_requests=provider.config.max_requests,
+            max_total_tokens=provider.config.max_total_tokens,
+        )
+        if not retry_budget["within_declared_budget"]:
             raise ValueError(
                 "fresh execution would exceed a declared hard budget; run "
                 "`cape-loop llm plan` and increase budgets deliberately"
@@ -430,9 +611,12 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
     conservative_tokens = sum(
         request.estimated_max_tokens for request in prepared
     )
-    within_budget = (
-        len(prepared) <= config.max_requests
-        and conservative_tokens <= config.max_total_tokens
+    retry_budget = _retry_expanded_budget(
+        request_count=len(prepared),
+        conservative_tokens=conservative_tokens,
+        max_retries=config.max_retries,
+        max_requests=config.max_requests,
+        max_total_tokens=config.max_total_tokens,
     )
     print(
         _json(
@@ -456,10 +640,9 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
                 "first_party_origin_claimed": False,
                 "conservative_max_tokens": conservative_tokens,
                 "max_requests": config.max_requests,
-                "request_budget_unit": "physical_http_attempt",
                 "max_retries_per_logical_request": config.max_retries,
                 "max_total_tokens": config.max_total_tokens,
-                "within_declared_budget": within_budget,
+                **retry_budget,
                 "request_body_sha256": [
                     {
                         "request_id": request.request_id,
@@ -470,7 +653,7 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
             }
         )
     )
-    return 0 if within_budget else 1
+    return 0 if retry_budget["within_declared_budget"] else 1
 
 
 def _llm_execute_openrouter(args: argparse.Namespace) -> int:
@@ -488,10 +671,14 @@ def _llm_execute_openrouter(args: argparse.Namespace) -> int:
             provider.prepare(request).estimated_max_tokens
             for request in requests
         )
-        if (
-            len(requests) > provider.config.max_requests
-            or conservative_tokens > provider.config.max_total_tokens
-        ):
+        retry_budget = _retry_expanded_budget(
+            request_count=len(requests),
+            conservative_tokens=conservative_tokens,
+            max_retries=provider.config.max_retries,
+            max_requests=provider.config.max_requests,
+            max_total_tokens=provider.config.max_total_tokens,
+        )
+        if not retry_budget["within_declared_budget"]:
             raise ValueError(
                 "fresh OpenRouter execution would exceed a declared hard "
                 "budget; run `cape-loop llm plan-openrouter` and increase "
@@ -548,14 +735,29 @@ def _decoder_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+_GENERIC_DECODER_COMMAND_LOCK_NAME = ".generic-decoder-command.lock"
+
+
 def _decoder_execute_openai(args: argparse.Namespace) -> int:
     if not args.execute_live:
         raise ValueError(
             "decoder execution requires the explicit --execute-live flag"
         )
-    requests = read_external_decoder_requests(args.requests)
     output = Path(args.output_dir)
-    output.mkdir(parents=True, exist_ok=True)
+    with _ExclusiveCollectionLock(
+        output / _GENERIC_DECODER_COMMAND_LOCK_NAME
+    ):
+        return _decoder_execute_openai_locked(args, output=output)
+
+
+def _decoder_execute_openai_locked(
+    args: argparse.Namespace,
+    *,
+    output: Path,
+) -> int:
+    """Reconcile, dispatch, and publish one OpenAI decoder transaction."""
+
+    requests = read_external_decoder_requests(args.requests)
     for role_name in args.roles:
         if not (output / "journals" / role_name).exists():
             planning_provider = OpenAIResponsesProvider(
@@ -576,11 +778,14 @@ def _decoder_execute_openai(args: argparse.Namespace) -> int:
                 planning_provider.prepare(request).estimated_max_tokens
                 for request in prepared_requests
             )
-            if (
-                len(requests) > planning_provider.config.max_requests
-                or conservative_tokens
-                > planning_provider.config.max_total_tokens
-            ):
+            retry_budget = _retry_expanded_budget(
+                request_count=len(requests),
+                conservative_tokens=conservative_tokens,
+                max_retries=planning_provider.config.max_retries,
+                max_requests=planning_provider.config.max_requests,
+                max_total_tokens=planning_provider.config.max_total_tokens,
+            )
+            if not retry_budget["within_declared_budget"]:
                 raise ValueError(
                     f"decoder role {role_name!r} would exceed its hard "
                     "budget before any request; run decoder-study plan-openai"
@@ -706,10 +911,14 @@ def _decoder_plan_openai(args: argparse.Namespace) -> int:
         conservative_tokens = sum(
             request.estimated_max_tokens for request in prepared
         )
-        within_budget = (
-            len(prepared) <= provider.config.max_requests
-            and conservative_tokens <= provider.config.max_total_tokens
+        retry_budget = _retry_expanded_budget(
+            request_count=len(prepared),
+            conservative_tokens=conservative_tokens,
+            max_retries=provider.config.max_retries,
+            max_requests=provider.config.max_requests,
+            max_total_tokens=provider.config.max_total_tokens,
         )
+        within_budget = bool(retry_budget["within_declared_budget"])
         all_within_budget = all_within_budget and within_budget
         sources.append(
             {
@@ -720,7 +929,7 @@ def _decoder_plan_openai(args: argparse.Namespace) -> int:
                 "conservative_max_tokens": conservative_tokens,
                 "max_requests": provider.config.max_requests,
                 "max_total_tokens": provider.config.max_total_tokens,
-                "within_declared_budget": within_budget,
+                **retry_budget,
             }
         )
     print(
@@ -747,6 +956,13 @@ def _openrouter_decoder_models(
     return models
 
 
+def _openrouter_decoder_identity(model: str) -> tuple[str, str]:
+    """Return the journal digest and stable live decoder instance identity."""
+
+    model_digest = sha256(model.encode("utf-8")).hexdigest()[:12]
+    return model_digest, f"openrouter-{model_digest}"
+
+
 def _openrouter_decoder_config(
     args: argparse.Namespace,
     *,
@@ -765,7 +981,7 @@ def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
     requests = read_external_decoder_requests(args.requests)
     sources = []
     all_within_budget = True
-    for index, model in enumerate(_openrouter_decoder_models(args), start=1):
+    for model in _openrouter_decoder_models(args):
         provider = OpenRouterChatProvider(
             _openrouter_decoder_config(
                 args,
@@ -773,27 +989,34 @@ def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
                 live_execution=False,
             )
         )
-        prepared = tuple(
-            provider.prepare(
-                external_decoder_llm_request(
-                    request,
-                    decoder_instance_id=f"plan-openrouter-{index}",
-                )
+        _, instance_id = _openrouter_decoder_identity(model)
+        provider_requests = tuple(
+            external_decoder_llm_request(
+                request,
+                decoder_instance_id=instance_id,
             )
             for request in requests
+        )
+        prepared = tuple(
+            provider.prepare(request) for request in provider_requests
         )
         conservative_tokens = sum(
             request.estimated_max_tokens for request in prepared
         )
-        within_budget = (
-            len(prepared) <= provider.config.max_requests
-            and conservative_tokens <= provider.config.max_total_tokens
+        retry_budget = _retry_expanded_budget(
+            request_count=len(prepared),
+            conservative_tokens=conservative_tokens,
+            max_retries=provider.config.max_retries,
+            max_requests=provider.config.max_requests,
+            max_total_tokens=provider.config.max_total_tokens,
         )
+        within_budget = bool(retry_budget["within_declared_budget"])
         all_within_budget = all_within_budget and within_budget
         sources.append(
             {
                 "gateway": "openrouter",
                 "model": model,
+                "decoder_instance_id": instance_id,
                 "reasoning_effort": (
                     provider.config.reasoning_effort or None
                 ),
@@ -806,12 +1029,26 @@ def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
                 "request_count": len(prepared),
                 "conservative_max_tokens": conservative_tokens,
                 "max_requests": provider.config.max_requests,
-                "request_budget_unit": "physical_http_attempt",
                 "max_retries_per_logical_request": (
                     provider.config.max_retries
                 ),
                 "max_total_tokens": provider.config.max_total_tokens,
-                "within_declared_budget": within_budget,
+                **retry_budget,
+                "request_body_sha256": [
+                    {
+                        "request_id": source_request.request_id,
+                        "provider_request_id": provider_request.request_id,
+                        "sha256": prepared_request.body_sha256,
+                        "estimated_max_tokens": (
+                            prepared_request.estimated_max_tokens
+                        ),
+                    }
+                    for source_request, provider_request, prepared_request in zip(
+                        requests,
+                        provider_requests,
+                        prepared,
+                    )
+                ],
             }
         )
     print(
@@ -840,9 +1077,21 @@ def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
             "OpenRouter decoder execution requires the explicit "
             "--execute-live flag"
         )
-    requests = read_external_decoder_requests(args.requests)
     output = Path(args.output_dir)
-    output.mkdir(parents=True, exist_ok=True)
+    with _ExclusiveCollectionLock(
+        output / _GENERIC_DECODER_COMMAND_LOCK_NAME
+    ):
+        return _decoder_execute_openrouter_locked(args, output=output)
+
+
+def _decoder_execute_openrouter_locked(
+    args: argparse.Namespace,
+    *,
+    output: Path,
+) -> int:
+    """Reconcile, dispatch, and publish one OpenRouter decoder transaction."""
+
+    requests = read_external_decoder_requests(args.requests)
     judgments = []
     manifests = []
     for index, model in enumerate(_openrouter_decoder_models(args), start=1):
@@ -852,42 +1101,40 @@ def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
             live_execution=True,
         )
         provider = OpenRouterChatProvider(config)
-        model_digest = sha256(model.encode("utf-8")).hexdigest()[:12]
+        model_digest, instance_id = _openrouter_decoder_identity(model)
+        provider_requests = tuple(
+            external_decoder_llm_request(
+                request,
+                decoder_instance_id=instance_id,
+            )
+            for request in requests
+        )
         journal = output / "journals" / model_digest
         if not journal.exists():
             conservative_tokens = sum(
-                provider.prepare(
-                    external_decoder_llm_request(
-                        request,
-                        decoder_instance_id=(
-                            f"plan-openrouter-{index}"
-                        ),
-                    )
-                ).estimated_max_tokens
-                for request in requests
+                provider.prepare(request).estimated_max_tokens
+                for request in provider_requests
             )
-            if (
-                len(requests) > config.max_requests
-                or conservative_tokens > config.max_total_tokens
-            ):
+            retry_budget = _retry_expanded_budget(
+                request_count=len(requests),
+                conservative_tokens=conservative_tokens,
+                max_retries=config.max_retries,
+                max_requests=config.max_requests,
+                max_total_tokens=config.max_total_tokens,
+            )
+            if not retry_budget["within_declared_budget"]:
                 raise ValueError(
                     f"OpenRouter decoder model {model!r} would exceed its "
                     "hard budget before any request; run "
                     "decoder-study plan-openrouter"
                 )
-        instance_id = f"openrouter-{model_digest}"
         adapter = ResumableOpenRouterCompletionProvider(
             provider,
             responses_path=journal / "responses.jsonl",
             audit_path=journal / "provider-audit.jsonl",
         )
-        for request in requests:
-            response = adapter.complete(
-                external_decoder_llm_request(
-                    request,
-                    decoder_instance_id=instance_id,
-                )
-            )
+        for request, provider_request in zip(requests, provider_requests):
+            response = adapter.complete(provider_request)
             judgments.append(
                 external_decoder_judgment_from_response(
                     request,
@@ -904,6 +1151,7 @@ def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
             {
                 **adapter.to_manifest(),
                 "source_index": index,
+                "decoder_instance_id": instance_id,
             }
         )
     judgment_path = output / "judgments.jsonl"
@@ -1163,8 +1411,16 @@ def _native_action_execute_openai(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_assignment_codebooks(path: Path) -> dict[str, object]:
-    decoded = json.loads(path.read_text(encoding="utf-8"))
+def _load_assignment_codebooks(path: Path | bytes) -> dict[str, object]:
+    if isinstance(path, bytes):
+        try:
+            decoded = json.loads(path)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                "human-study codebook bytes are not valid UTF-8 JSON"
+            ) from exc
+    else:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(decoded, dict):
         raise ValueError("human-study codebook must be a JSON object")
     if {
@@ -1197,6 +1453,231 @@ def _human_study_analyze(args: argparse.Namespace) -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(_json(payload) + "\n", encoding="utf-8")
     print(_json(payload))
+    return 0
+
+
+def _human_study_compare(args: argparse.Namespace) -> int:
+    snapshots = {
+        "human responses": (
+            args.responses,
+            *_snapshot_regular_file(
+                args.responses,
+                label="human responses",
+            ),
+        ),
+        "assignment codebook": (
+            args.codebook,
+            *_snapshot_regular_file(
+                args.codebook,
+                label="assignment codebook",
+            ),
+        ),
+        "model evidence": (
+            args.model_evidence,
+            *_snapshot_regular_file(
+                args.model_evidence,
+                label="model evidence",
+            ),
+        ),
+    }
+    resolved_output = args.output.resolve()
+    if any(
+        resolved_output == resolved
+        for _, resolved, _ in snapshots.values()
+    ):
+        raise ValueError("H8 output cannot overwrite an evidence input")
+    response_material = snapshots["human responses"][2]
+    codebook_material = snapshots["assignment codebook"][2]
+    evidence_material = snapshots["model evidence"][2]
+    result = analyze_h8_human_model_comparison(
+        read_human_collection(response_material),
+        read_model_evidence_strengths(evidence_material),
+        assignment_codebooks=_load_assignment_codebooks(codebook_material),
+        expected_assignment_protocol_id=args.assignment_protocol_id,
+        expected_consent_version=args.consent_version,
+        expected_blinding_version=args.blinding_version,
+        primary_llm_source_id=args.primary_llm_source_id,
+        bootstrap_replicates=args.bootstrap_replicates,
+        minimum_clusters=args.minimum_clusters,
+        seed=args.seed,
+    )
+    payload = {
+        **result.to_dict(),
+        "artifact_kind": "h8_human_model_comparison",
+        "input_artifacts": {
+            "human_responses_sha256": sha256(
+                response_material
+            ).hexdigest(),
+            "assignment_codebook_sha256": sha256(
+                codebook_material
+            ).hexdigest(),
+            "model_evidence_sha256": sha256(
+                evidence_material
+            ).hexdigest(),
+        },
+    }
+    for label, (path, resolved, material) in snapshots.items():
+        _verify_file_snapshot(
+            path,
+            resolved=resolved,
+            material=material,
+            label=label,
+        )
+    _atomic_write_new_text(args.output, _json(payload) + "\n")
+    print(
+        _json(
+            {
+                "output": str(args.output),
+                "computed_status": result.computed_status,
+                "criterion_met": result.criterion_met,
+                "claim_status": result.claim_status,
+            }
+        )
+    )
+    return 0
+
+
+def _parse_h8_sources(values: list[str]) -> dict[str, str]:
+    sources: dict[str, str] = {}
+    for value in values:
+        source_id, separator, updater_id = value.partition("=")
+        if not separator or not source_id.strip() or not updater_id.strip():
+            raise ValueError(
+                "--source must have the form SOURCE_ID=EXPERIMENT_A_UPDATER_ID"
+            )
+        if source_id in sources:
+            raise ValueError(f"duplicate H8 source ID: {source_id}")
+        sources[source_id] = updater_id
+    return sources
+
+
+def _read_jsonl_objects(
+    path: Path | bytes,
+) -> tuple[Mapping[str, Any], ...]:
+    if isinstance(path, bytes):
+        source_label = "<jsonl-bytes>"
+        try:
+            lines = path.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{source_label}: input must be valid UTF-8"
+            ) from exc
+    else:
+        source_label = str(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+    rows: list[Mapping[str, Any]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            decoded = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{source_label}:{line_number}: {exc}"
+            ) from exc
+        if not isinstance(decoded, Mapping):
+            raise ValueError(
+                f"{source_label}:{line_number}: row must be an object"
+            )
+        rows.append(decoded)
+    return tuple(rows)
+
+
+def _human_study_evidence_from_experiment_a(
+    args: argparse.Namespace,
+) -> int:
+    valid, errors = verify_run(args.run_dir)
+    if not valid:
+        raise ValueError(
+            "Experiment A source run is not verified: " + "; ".join(errors)
+    )
+    _reject_output_inside_input_run(args.run_dir, args.output)
+    source_paths = {
+        "Experiment A config": args.run_dir / "config.resolved.json",
+        "Experiment A manifest": args.run_dir / "manifest.json",
+        "Experiment A population": (
+            args.run_dir / "population" / "users.jsonl"
+        ),
+        "Experiment A metrics": (
+            args.run_dir / "metrics" / "experiment-a.jsonl"
+        ),
+    }
+    source_snapshots = {
+        label: (
+            path,
+            *_snapshot_regular_file(path, label=label),
+        )
+        for label, path in source_paths.items()
+    }
+    config_material = source_snapshots["Experiment A config"][2]
+    manifest_material = source_snapshots["Experiment A manifest"][2]
+    population_material = source_snapshots["Experiment A population"][2]
+    metric_material = source_snapshots["Experiment A metrics"][2]
+    config = json.loads(config_material)
+    if config.get("experiment", {}).get("kind") != "provenance_audit":
+        raise ValueError("H8 evidence conversion requires an Experiment A run")
+    manifest = json.loads(manifest_material)
+    source_run_id = manifest.get("run_id")
+    if not isinstance(source_run_id, str) or not source_run_id:
+        raise ValueError("Experiment A manifest has no valid run_id")
+    test_pairs: set[tuple[str, str]] = set()
+    for row in _read_jsonl_objects(population_material):
+        if row.get("split") != "test":
+            continue
+        user_id = row.get("user_id")
+        domain = row.get("domain")
+        if isinstance(user_id, str) and isinstance(domain, str):
+            test_pairs.add((user_id, domain))
+    if not test_pairs:
+        raise ValueError("Experiment A run has no retained test user/domain rows")
+    metric_digest = sha256(metric_material).hexdigest()
+    evidence = convert_experiment_a_metrics_to_model_evidence(
+        _read_jsonl_objects(metric_material),
+        source_run_id=source_run_id,
+        source_artifact_sha256=metric_digest,
+        sources=_parse_h8_sources(args.source),
+        test_user_domain_pairs=test_pairs,
+    )
+    valid, errors = verify_run(args.run_dir)
+    if not valid:
+        raise ValueError(
+            "Experiment A source run changed before H8 publication: "
+            + "; ".join(errors)
+        )
+    for label, (path, resolved, material) in source_snapshots.items():
+        _verify_file_snapshot(
+            path,
+            resolved=resolved,
+            material=material,
+            label=label,
+        )
+    _atomic_write_new_text(
+        args.output,
+        "".join(
+            json.dumps(
+                row.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            + "\n"
+            for row in evidence
+        ),
+    )
+    print(
+        _json(
+            {
+                "output": str(args.output),
+                "source_run_id": source_run_id,
+                "source_artifact_sha256": metric_digest,
+                "record_count": len(evidence),
+                "source_ids": sorted({row.source_id for row in evidence}),
+                "conditions": sorted({row.condition for row in evidence}),
+                "volunteered_rows_synthesized": 0,
+                "claim_status": "not_claimed",
+            }
+        )
+    )
     return 0
 
 
@@ -1234,6 +1715,191 @@ def _correction_debt_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _control_study_analyze(args: argparse.Namespace) -> int:
+    """Regenerate fixed bindings and atomically score imported responses."""
+
+    if args.output.exists():
+        raise FileExistsError(
+            f"control-study output already exists: {args.output}"
+        )
+    _reject_output_inside_input_run(args.bindings, args.output)
+    _reject_output_inside_input_run(args.responses, args.output)
+    binding_resolved, binding_material = _snapshot_regular_file(
+        args.bindings,
+        label="control-study bindings",
+    )
+    response_resolved, response_material = _snapshot_regular_file(
+        args.responses,
+        label="control-study responses",
+    )
+    retained_bindings = read_control_request_bindings(binding_material)
+    if not retained_bindings:
+        raise ValueError("control-study bindings cannot be empty")
+    updater_ids = {
+        binding.llm_request.updater_id
+        for binding in retained_bindings
+    }
+    views = {
+        binding.llm_request.view
+        for binding in retained_bindings
+    }
+    if len(updater_ids) != 1 or len(views) != 1:
+        raise ValueError(
+            "control-study bindings must use one updater ID and one view"
+        )
+    updater_id = next(iter(updater_ids))
+    view = next(iter(views))
+    plan = build_experiment_a_control_plan()
+    exchange = build_control_llm_exchange(
+        plan,
+        updater_id=updater_id,
+        view=view,
+    )
+    if retained_bindings != exchange.requests:
+        raise ValueError(
+            "control-study bindings do not exactly match the regenerated "
+            "fixed plan and exchange"
+        )
+    report = execute_control_llm_exchange(
+        plan,
+        exchange,
+        ReplayProvider(read_responses(response_material)),
+        execution_mode="provider_replay",
+        source_descriptor=args.source_descriptor,
+    )
+    payload = {
+        "schema_version": 1,
+        "analysis_kind": "experiment_a_control_provider_replay",
+        "plan_sha256": plan.plan_sha256,
+        "exchange_sha256": exchange.exchange_sha256,
+        "binding_file_sha256": sha256(binding_material).hexdigest(),
+        "response_file_sha256": sha256(response_material).hexdigest(),
+        "request_count": len(exchange.requests),
+        "report": report.to_dict(),
+        "claim_status": "not_claimed",
+    }
+    _verify_file_snapshot(
+        args.bindings,
+        resolved=binding_resolved,
+        material=binding_material,
+        label="control-study bindings",
+    )
+    _verify_file_snapshot(
+        args.responses,
+        resolved=response_resolved,
+        material=response_material,
+        label="control-study responses",
+    )
+    _atomic_write_new_text(args.output, _json(payload) + "\n")
+    print(
+        _json(
+            {
+                "output": str(args.output),
+                "plan_sha256": plan.plan_sha256,
+                "request_count": len(exchange.requests),
+                "criterion_pass_count": report.criterion_pass_count,
+                "claim_status": "not_claimed",
+            }
+        )
+    )
+    return 0
+
+
+def _control_study_h7_plan(args: argparse.Namespace) -> int:
+    """Materialize the immutable direct-statement request corpus."""
+
+    _reject_output_inside_input_run(args.run_dir, args.output_dir)
+    source = load_verified_h7_source(args.run_dir)
+    plan_path, bindings_path, requests_path = write_h7_plan_directory(
+        args.output_dir,
+        source.plan,
+    )
+    print(
+        _json(
+            {
+                "output_dir": str(args.output_dir),
+                "plan": str(plan_path),
+                "bindings": str(bindings_path),
+                "requests": str(requests_path),
+                "source_run_id": source.source_run["run_id"],
+                "plan_sha256": source.plan.plan_sha256,
+                "case_count": len(source.plan.cases),
+                "request_count": len(source.plan.requests),
+                "independent_user_count": len(
+                    {case.user_id for case in source.plan.cases}
+                ),
+                "claim_status": "not_claimed",
+            }
+        )
+    )
+    return 0
+
+
+def _control_study_h7_review(args: argparse.Namespace) -> int:
+    """Create a separate H7 review without mutating its source run."""
+
+    if args.output.exists():
+        raise FileExistsError(
+            f"H7 volunteered review output already exists: {args.output}"
+        )
+    for input_path in (
+        args.run_dir,
+        args.plan_dir,
+        args.responses,
+        args.provider_audit,
+    ):
+        _reject_output_inside_input_run(input_path, args.output)
+    source = load_verified_h7_source(args.run_dir)
+    input_snapshots = snapshot_h7_review_inputs(
+        args.plan_dir,
+        args.responses,
+        args.provider_audit,
+    )
+    payload = create_h7_volunteered_review(
+        source,
+        args.plan_dir,
+        args.responses,
+        args.provider_audit,
+        input_snapshots=input_snapshots,
+    )
+    source.verify_unchanged()
+    input_snapshots.verify_unchanged()
+    _atomic_write_new_text(args.output, _json(payload) + "\n")
+    recomputed = payload["recomputed_h7"]
+    assert isinstance(recomputed, Mapping)
+    print(
+        _json(
+            {
+                "output": str(args.output),
+                "source_run_id": source.source_run["run_id"],
+                "plan_sha256": source.plan.plan_sha256,
+                "review_sha256": payload["review_sha256"],
+                "volunteered_pair_count": recomputed[
+                    "volunteered_valid_learning"
+                ]["pair_count"],
+                "computed_status": recomputed["computed_status"],
+                "criterion_met": recomputed["criterion_met"],
+                "source_run_modified": False,
+                "missing_values_imputed": False,
+                "claim_status": "not_claimed",
+            }
+        )
+    )
+    return 0
+
+
+def _control_study_h7_verify(args: argparse.Namespace) -> int:
+    ok, errors = verify_h7_volunteered_review(
+        args.run_dir,
+        args.plan_dir,
+        args.responses,
+        args.provider_audit,
+        args.review,
+    )
+    print(_json({"valid": ok, "errors": list(errors)}))
+    return 0 if ok else 1
+
+
 def _artifact_freeze(args: argparse.Namespace) -> int:
     print(_json(freeze_run(args.run_dir, args.archive).to_dict()))
     return 0
@@ -1245,6 +1911,74 @@ def _artifact_verify(args: argparse.Namespace) -> int:
         _json(
             {
                 "archive": str(args.archive),
+                "valid": valid,
+                "errors": list(errors),
+            }
+        )
+    )
+    return 0 if valid else 1
+
+
+def _experiment_c_decoder_import(args: argparse.Namespace) -> int:
+    result = import_experiment_c_external_rescore(
+        run_dir=args.run_dir,
+        judgments_path=args.judgments,
+        output_dir=args.output_dir,
+        external_collection_dir=args.external_collection_dir,
+        allow_reviewed_generic_decoders=(
+            args.allow_reviewed_generic_decoders
+        ),
+    )
+    print(_json(result))
+    return 0
+
+
+def _experiment_c_decoder_verify(args: argparse.Namespace) -> int:
+    valid, errors = verify_experiment_c_external_rescore(
+        args.review_dir,
+        source_run_dir=args.source_run,
+    )
+    print(_json({"valid": valid, "errors": list(errors)}))
+    return 0 if valid else 1
+
+
+def _experiment_c_robustness_review(args: argparse.Namespace) -> int:
+    result = create_experiment_c_multiseed_review(
+        args.source_runs,
+        args.output_dir,
+    )
+    print(_json(result))
+    return 0
+
+
+def _experiment_c_robustness_verify(args: argparse.Namespace) -> int:
+    valid, errors = verify_experiment_c_multiseed_review(
+        args.review_dir,
+        source_run_dirs=args.source_runs,
+    )
+    print(_json({"valid": valid, "errors": list(errors)}))
+    return 0 if valid else 1
+
+
+def _gate6_review_build(args: argparse.Namespace) -> int:
+    result = build_gate6_cross_run_review(
+        declaration_path=args.declaration,
+        output_dir=args.output_dir,
+    )
+    print(_json(result))
+    return 0
+
+
+def _gate6_review_verify(args: argparse.Namespace) -> int:
+    valid, errors = verify_gate6_cross_run_review(
+        args.review_dir,
+        reverify_sources=args.reverify_sources,
+    )
+    print(
+        _json(
+            {
+                "review_dir": str(args.review_dir),
+                "sources_reverified": args.reverify_sources,
                 "valid": valid,
                 "errors": list(errors),
             }
@@ -1515,6 +2249,145 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_review.add_argument("review_dir", type=Path)
     verify_review.set_defaults(handler=_gate_review_verify)
+
+    gate6_review = commands.add_parser(
+        "gate6-review",
+        help=(
+            "immutable offline cross-family Gate 6 robustness review"
+        ),
+    )
+    gate6_review_commands = gate6_review.add_subparsers(
+        dest="gate6_review_command",
+        required=True,
+    )
+    build_gate6 = gate6_review_commands.add_parser(
+        "build",
+        help=(
+            "bind explicit sensitivity/Experiment A run pairs and recompute "
+            "all six Gate 6 clauses"
+        ),
+    )
+    build_gate6.add_argument("declaration", type=Path)
+    build_gate6.add_argument("output_dir", type=Path)
+    build_gate6.set_defaults(handler=_gate6_review_build)
+    verify_gate6 = gate6_review_commands.add_parser(
+        "verify",
+        help=(
+            "verify a Gate 6 review, optionally re-reading every source run"
+        ),
+    )
+    verify_gate6.add_argument("review_dir", type=Path)
+    verify_gate6.add_argument(
+        "--reverify-sources",
+        action="store_true",
+        help=(
+            "re-verify all declared source runs and compare recomputed evidence"
+        ),
+    )
+    verify_gate6.set_defaults(handler=_gate6_review_verify)
+
+    experiment_c_decoder = commands.add_parser(
+        "experiment-c-decoder",
+        help=(
+            "append-only external-decoder rescoring for a completed "
+            "Experiment C run"
+        ),
+    )
+    experiment_c_decoder_commands = experiment_c_decoder.add_subparsers(
+        dest="experiment_c_decoder_command",
+        required=True,
+    )
+    import_c_decoder = experiment_c_decoder_commands.add_parser(
+        "import",
+        help=(
+            "validate exactly two external decoder families, calibrate on "
+            "development rows only, and rerun C rankings, ESR, and Gate 5"
+        ),
+    )
+    import_c_decoder.add_argument("run_dir", type=Path)
+    import_c_decoder.add_argument("judgments", type=Path)
+    import_c_decoder.add_argument("output_dir", type=Path)
+    c_decoder_provenance = import_c_decoder.add_mutually_exclusive_group(
+        required=True,
+    )
+    c_decoder_provenance.add_argument(
+        "--external-collection-dir",
+        type=Path,
+        help=(
+            "validate the complete locked first-party Anthropic/Gemini "
+            "collection that produced JUDGMENTS"
+        ),
+    )
+    c_decoder_provenance.add_argument(
+        "--allow-reviewed-generic-decoders",
+        action="store_true",
+        help=(
+            "accept caller-declared family/source metadata without claiming "
+            "provider-validated provenance"
+        ),
+    )
+    import_c_decoder.set_defaults(handler=_experiment_c_decoder_import)
+    verify_c_decoder = experiment_c_decoder_commands.add_parser(
+        "verify",
+        help="verify an immutable Experiment C external-decoder rescore",
+    )
+    verify_c_decoder.add_argument("review_dir", type=Path)
+    verify_c_decoder.add_argument(
+        "--source-run",
+        type=Path,
+        help=(
+            "optionally re-verify the completed source run and its exact "
+            "cryptographic binding"
+        ),
+    )
+    verify_c_decoder.set_defaults(handler=_experiment_c_decoder_verify)
+
+    experiment_c_robustness = commands.add_parser(
+        "experiment-c-robustness",
+        help=(
+            "immutable offline cross-seed ranking robustness review for "
+            "completed Experiment C runs"
+        ),
+    )
+    robustness_commands = experiment_c_robustness.add_subparsers(
+        dest="experiment_c_robustness_command",
+        required=True,
+    )
+    review_robustness = robustness_commands.add_parser(
+        "review",
+        help=(
+            "compare verified distinct-seed clustered-bootstrap ranking "
+            "results without making a scientific claim"
+        ),
+    )
+    review_robustness.add_argument("output_dir", type=Path)
+    review_robustness.add_argument(
+        "source_runs",
+        type=Path,
+        nargs="+",
+        metavar="SOURCE_RUN",
+        help="two or more compatible completed evaluation_validity runs",
+    )
+    review_robustness.set_defaults(
+        handler=_experiment_c_robustness_review
+    )
+    verify_robustness = robustness_commands.add_parser(
+        "verify",
+        help="verify the review and optionally re-bind all source runs",
+    )
+    verify_robustness.add_argument("review_dir", type=Path)
+    verify_robustness.add_argument(
+        "--source-run",
+        dest="source_runs",
+        type=Path,
+        action="append",
+        help=(
+            "repeat for every source to re-verify exact source bindings"
+        ),
+    )
+    verify_robustness.set_defaults(
+        handler=_experiment_c_robustness_verify
+    )
 
     schema = commands.add_parser("schema", help="JSON Schema commands")
     schema_commands = schema.add_subparsers(dest="schema_command", required=True)
@@ -2033,6 +2906,61 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_human.add_argument("--seed", type=int, default=1729)
     analyze_human.add_argument("--output", type=Path)
     analyze_human.set_defaults(handler=_human_study_analyze)
+    compare_human = human_commands.add_parser(
+        "compare",
+        help=(
+            "atomically compare de-identified human ratings with fitted-aware "
+            "and model evidence for H8"
+        ),
+    )
+    compare_human.add_argument("responses", type=Path)
+    compare_human.add_argument("codebook", type=Path)
+    compare_human.add_argument("model_evidence", type=Path)
+    compare_human.add_argument("output", type=Path)
+    compare_human.add_argument(
+        "--primary-llm-source-id",
+        required=True,
+        help=(
+            "ordinary-LLM evidence source selected by the external "
+            "preregistration"
+        ),
+    )
+    compare_human.add_argument(
+        "--assignment-protocol-id",
+        default="cape-loop-human-assignment-v1",
+    )
+    compare_human.add_argument("--consent-version", default="consent-v1")
+    compare_human.add_argument("--blinding-version", default="blinding-v1")
+    compare_human.add_argument(
+        "--bootstrap-replicates",
+        type=int,
+        default=2000,
+    )
+    compare_human.add_argument("--minimum-clusters", type=int, default=8)
+    compare_human.add_argument("--seed", type=int, default=1729)
+    compare_human.set_defaults(handler=_human_study_compare)
+    evidence_from_a = human_commands.add_parser(
+        "evidence-from-experiment-a",
+        help=(
+            "convert verified test-only controlled-anchor Experiment A "
+            "metrics into the strict H8 evidence exchange"
+        ),
+    )
+    evidence_from_a.add_argument("run_dir", type=Path)
+    evidence_from_a.add_argument("output", type=Path)
+    evidence_from_a.add_argument(
+        "--source",
+        action="append",
+        required=True,
+        metavar="SOURCE_ID=UPDATER_ID",
+        help=(
+            "repeat for fitted_action_aware or an actual llm_* updater; "
+            "structured proxy updaters are rejected"
+        ),
+    )
+    evidence_from_a.set_defaults(
+        handler=_human_study_evidence_from_experiment_a
+    )
 
     correction = commands.add_parser(
         "correction-debt",
@@ -2053,6 +2981,64 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirm that prerequisite evidence has been reviewed",
     )
     correction_run.set_defaults(handler=_correction_debt_run)
+
+    control_study = commands.add_parser(
+        "control-study",
+        help="verify and score the separate Experiment A six-control exchange",
+    )
+    control_study_commands = control_study.add_subparsers(
+        dest="control_study_command",
+        required=True,
+    )
+    analyze_controls = control_study_commands.add_parser(
+        "analyze",
+        help=(
+            "regenerate fixed plan/bindings and atomically score response JSONL"
+        ),
+    )
+    analyze_controls.add_argument("bindings", type=Path)
+    analyze_controls.add_argument("responses", type=Path)
+    analyze_controls.add_argument("output", type=Path)
+    analyze_controls.add_argument(
+        "--source-descriptor",
+        default=(
+            "provider responses imported for checksum-bound offline "
+            "Experiment A control scoring"
+        ),
+    )
+    analyze_controls.set_defaults(handler=_control_study_analyze)
+    h7_plan = control_study_commands.add_parser(
+        "h7-plan",
+        help=(
+            "build paired direct-statement requests from a verified "
+            "Experiment A run"
+        ),
+    )
+    h7_plan.add_argument("run_dir", type=Path)
+    h7_plan.add_argument("output_dir", type=Path)
+    h7_plan.set_defaults(handler=_control_study_h7_plan)
+    h7_review = control_study_commands.add_parser(
+        "h7-review",
+        help=(
+            "bind accepted provider evidence and recompute H7 in a new artifact"
+        ),
+    )
+    h7_review.add_argument("run_dir", type=Path)
+    h7_review.add_argument("plan_dir", type=Path)
+    h7_review.add_argument("responses", type=Path)
+    h7_review.add_argument("provider_audit", type=Path)
+    h7_review.add_argument("output", type=Path)
+    h7_review.set_defaults(handler=_control_study_h7_review)
+    h7_verify = control_study_commands.add_parser(
+        "h7-verify",
+        help="recompute and verify a provider-bound H7 review",
+    )
+    h7_verify.add_argument("run_dir", type=Path)
+    h7_verify.add_argument("plan_dir", type=Path)
+    h7_verify.add_argument("responses", type=Path)
+    h7_verify.add_argument("provider_audit", type=Path)
+    h7_verify.add_argument("review", type=Path)
+    h7_verify.set_defaults(handler=_control_study_h7_verify)
     return parser
 
 

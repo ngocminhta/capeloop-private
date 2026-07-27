@@ -75,10 +75,19 @@ The lock was resolved against CRAN package versions available on 2026-07-26.
 Refreshing it is a protocol change: update the lock, rerun static validation,
 and create a new analysis ID rather than silently reusing v1.
 
-## Static validation without R
+## Continuous integration and static validation
 
-Core CI can validate the checked-in formulas, contrasts, dependency pins,
-result schema, and required source anchors without installing R:
+The repository CI has a dedicated R 4.6.1 job. It restores `renv.lock`,
+generates a checksum-verified synthetic Experiment A run from
+`configs/confirmatory_ci.toml`, executes this harness, verifies every output
+checksum, and checks that the result remains explicitly `not_claimed`. The
+synthetic fit may validly finish as `complete`, `not_confirmatory`, or
+`not_estimable`; CI tests the runtime and failure semantics, not a scientific
+finding. Every third-party GitHub Action in that workflow is pinned to an
+immutable commit SHA; updating one is a reviewed supply-chain change.
+
+When R is unavailable, the checked-in formulas, contrasts, dependency pins,
+result schema, and required source anchors can still be validated statically:
 
 ```bash
 python3 analysis/confirmatory-mixed-effects/validate_contract.py

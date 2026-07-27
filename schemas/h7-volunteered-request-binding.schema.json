@@ -1,0 +1,95 @@
+{
+  "$id": "urn:cape-loop:schema:h7-volunteered-request-binding:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A provider-neutral direct-statement request plus the withheld source-user, case, updater, and view bindings.",
+  "properties": {
+    "binding_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "case_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "case_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "llm_request": {
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "type": "object"
+        },
+        "prompt_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "system_instruction": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "updater_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "view": {
+          "enum": [
+            "response_only",
+            "full_context",
+            "provenance_aware"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "updater_id",
+        "view",
+        "system_instruction",
+        "payload",
+        "prompt_sha256"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "updater_id": {
+      "enum": [
+        "llm_full_context",
+        "llm_provenance_aware"
+      ]
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "view": {
+      "enum": [
+        "full_context",
+        "provenance_aware"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "case_sha256",
+    "user_id",
+    "updater_id",
+    "view",
+    "llm_request",
+    "binding_sha256"
+  ],
+  "title": "CAPE-Loop H7 volunteered request binding",
+  "type": "object"
+}

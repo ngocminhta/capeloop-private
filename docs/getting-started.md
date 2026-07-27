@@ -73,9 +73,24 @@ gate-review import-native RUN REQUESTS JUDGMENTS TRUTH NATIVE_COLLECTION \
   SOURCE_REVIEW OUTPUT \
   (--external-collection-dir DIR | --allow-reviewed-generic-decoders)
 gate-review verify REVIEW_DIR
+gate6-review build DECLARATION.json OUTPUT_DIR
+gate6-review verify REVIEW_DIR [--reverify-sources]
+experiment-c-decoder import RUN_DIR JUDGMENTS.jsonl OUTPUT_DIR \
+  (--external-collection-dir DIR | --allow-reviewed-generic-decoders)
+experiment-c-decoder verify REVIEW_DIR [--source-run RUN_DIR]
+experiment-c-robustness review OUTPUT_DIR SOURCE_RUN SOURCE_RUN [...]
+experiment-c-robustness verify REVIEW_DIR [--source-run SOURCE_RUN ...]
 human-study generate OUTPUT_DIR [--assignment-id ID] [--seed INTEGER]
 human-study analyze RESPONSES CODEBOOK [--output OUTPUT]
+human-study evidence-from-experiment-a RUN_DIR EVIDENCE.jsonl \
+  --source ID=UPDATER
+human-study compare RESPONSES CODEBOOK EVIDENCE OUTPUT \
+  --primary-llm-source-id ID
 correction-debt run OUTPUT --stage-gate-authorized
+control-study analyze BINDINGS RESPONSES OUTPUT [--source-descriptor TEXT]
+control-study h7-plan RUN_DIR OUTPUT_DIR
+control-study h7-review RUN_DIR PLAN_DIR RESPONSES AUDIT OUTPUT
+control-study h7-verify RUN_DIR PLAN_DIR RESPONSES AUDIT REVIEW
 ```
 
 Invoke a command as `PYTHONPATH=src python -m cape_loop ...`. Packaging also
@@ -104,9 +119,11 @@ The checked-in configurations are:
 | `configs/evaluation.toml` | Experiment C evaluation validity |
 | `configs/sensitivity.toml` | Simulator sensitivity grid |
 | `configs/sensitivity_full.toml` | Broader alternative-model robustness grid |
+| `configs/sensitivity_llm_openrouter_smoke.toml` | One-point OpenRouter LLM sensitivity transport smoke |
 | `configs/openai_primary.toml` | GPT-5.6 Sol Experiment A live pilot |
 | `configs/openai_replication.toml` | GPT-5.6 Terra matched live pilot |
 | `configs/openrouter_gemini.toml` | OpenRouter-routed Gemini Experiment A live pilot |
+| `configs/confirmatory_ci.toml` | Synthetic multi-stratum Experiment A input for the R runtime contract in CI |
 
 See [Configuration](configuration.md) before changing a value. These files
 contain reference software settings, not preregistered paper parameters.
@@ -311,8 +328,9 @@ artifact for the same configuration, moves it to
 artifact, and reuses the external provider journal. It refuses to move a
 completed or mismatched run.
 
-No live call was made to create this repository. The checked-in implementation
-and pilot configurations are execution capability, not empirical evidence.
+No live response is checked in. Any development-time transport smoke is not a
+study result; the checked-in implementation and pilot configurations establish
+execution capability, not empirical evidence.
 
 ## Plan and execute through OpenRouter
 
@@ -325,7 +343,7 @@ plan:
 PYTHONPATH=src python -m cape_loop llm plan-openrouter \
   requests.jsonl \
   --model google/gemini-3.6-flash \
-  --upstream-provider google-ai-studio \
+  --upstream-provider google-vertex/global \
   --max-requests 500 \
   --max-total-tokens 2050000
 ```
@@ -346,7 +364,7 @@ PYTHONPATH=src python -m cape_loop llm execute-openrouter \
   responses.jsonl \
   openrouter-provider-audit.jsonl \
   --model google/gemini-3.6-flash \
-  --upstream-provider google-ai-studio \
+  --upstream-provider google-vertex/global \
   --max-requests 500 \
   --max-total-tokens 2050000 \
   --execute-live
@@ -371,7 +389,20 @@ raw response, and replay-compatible beliefs. Model changes, unexpected
 fallback, cache hits, and nonempty transformation pipelines fail closed and
 never become usable replay rows. A completely parsed model/routing identity
 mismatch is retained as a rejected audit; a response missing required metadata
-can fail earlier during parsing. OpenRouter documents these fields in its
+can fail earlier during parsing. A configured endpoint slug is enforced by the
+submitted `provider.only` and `provider.order` fields with fallbacks disabled.
+Because response metadata reports a display provider name rather than the
+exact endpoint slug, that display identity is retained but is not labeled as
+exact-slug attestation. Each audit also retains the configured upstream
+constraint, exact submitted provider preferences, request-constraint evidence
+label, and display-identity interpretation boundary.
+
+The static command writes a sibling physical-attempt journal derived from the
+audit filename and reports it as `attempts_path`. A `started` row is durable
+before every HTTP dispatch; `settled` records charge failed calls
+conservatively and embed final audits. An unresolved/ambiguous or settled
+nonfinal prior invocation requires manual review instead of automatic resend.
+OpenRouter documents these fields in its
 [Chat Completions reference](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
 [provider-routing guide](https://openrouter.ai/docs/guides/routing/provider-selection),
 [router-metadata guide](https://openrouter.ai/docs/guides/features/router-metadata),
@@ -394,7 +425,7 @@ Change the model slug to switch models:
 model = "google/gemini-3.6-flash"
 ```
 
-That example pins `openrouter_upstream_provider = "google-ai-studio"`. Keep the
+That example pins `openrouter_upstream_provider = "google-vertex/global"`. Keep the
 pin when the replacement model is served by that endpoint. For a different
 model family, set the correct OpenRouter provider slug or clear the value to
 allow router selection; the accepted upstream route is retained in every
@@ -434,9 +465,13 @@ PYTHONPATH=src python -m cape_loop decoder-study execute-openrouter \
 
 Each exact model receives a separate journal under
 `OUTPUT_DIR/journals/<model-digest>/`; the output also contains
-`judgments.jsonl` and `execution-manifest.json`. All sources still share the
-OpenRouter gateway, and a reported upstream provider is not a direct
-first-party origin record. The manifest therefore fixes
+`judgments.jsonl` and `execution-manifest.json`. The keyless plan reports each
+model's stable `decoder_instance_id`, exact provider request ID, canonical
+request-body SHA-256, and per-request conservative token bound. Those values
+are generated from the same request identity used by live execution, so the
+reviewed body hashes and token ceiling bind the requests that can be sent.
+All sources still share the OpenRouter gateway, and a reported upstream
+provider is not a direct first-party origin record. The manifest therefore fixes
 `first_party_origin_claimed = false`, `strict_gate4_eligible = false`, and
 `statistical_independence_claimed = false`. Strict Gate 4 remains limited to
 the direct first-party Anthropic/Gemini decoder collection and direct OpenAI
@@ -467,6 +502,11 @@ PYTHONPATH=src python -m cape_loop decoder-study execute-openai \
 
 Fresh execution is rejected before the first network call if either role's
 corpus exceeds its own ceiling. Each role has a separate resumable journal.
+Both generic live decoder commands hold the same nonblocking
+`OUTPUT_DIR/.generic-decoder-command.lock` from journal reconciliation through
+provider dispatch and final aggregate writes. A concurrent OpenAI or OpenRouter
+invocation targeting that output fails before credential access or HTTP; the
+persistent opaque lock file is coordination state, not evidence.
 The default pair—GPT-5.6 Terra and GPT-5.6 Luna—provides two operational model
 variants, but shared provider infrastructure and possible lineage mean it does
 not prove statistically independent judgment. The execution manifest records
@@ -607,6 +647,57 @@ call a model, export requests, prove request coverage, or authenticate the
 reported model identifier. Actual replay binds each consumed response to the
 locally reconstructed request through both `request_id` and `prompt_sha256`.
 See [LLM exchange](llm-exchange.md).
+
+## Score Experiment A control responses
+
+Every Experiment A run writes a six-case provider-neutral control request file
+and its outer plan/stimulus bindings. After collecting responses with the
+existing OpenAI or OpenRouter command, analyze them outside the immutable run:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study analyze \
+  RUN/llm/experiment-a-control-request-bindings.jsonl \
+  control-responses.jsonl \
+  control-analysis.json \
+  --source-descriptor "reviewed provider collection artifact"
+```
+
+The command rebuilds the fixed plan and exchange, requires the bindings to
+match exactly, checks complete response IDs and prompt hashes, and atomically
+writes a checksum-bound report. It makes no network call and refuses to
+overwrite an existing output. See
+[Experiment A control execution](experiment-a-controls.md).
+
+## Complete H7's volunteered positive control
+
+The ordinary Experiment A run intentionally leaves volunteered direct-statement
+learning incomplete. Build the exhaustive paired request corpus outside a
+verified run:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study h7-plan \
+  RUN artifacts/h7-plan
+```
+
+Use `artifacts/h7-plan/h7-volunteered-requests.jsonl` with `llm plan` and
+`llm execute-openai`, or with `llm plan-openrouter` and
+`llm execute-openrouter`. After the provider has written both response and
+audit JSONL:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study h7-review \
+  RUN artifacts/h7-plan responses.jsonl provider-audit.jsonl h7-review.json
+
+PYTHONPATH=src python -m cape_loop control-study h7-verify \
+  RUN artifacts/h7-plan responses.jsonl provider-audit.jsonl h7-review.json
+```
+
+The review requires every test-user/domain/attribute case in both updater
+conditions, binds the returned model and raw response through an accepted
+provider audit, and writes a new `not_claimed` artifact without changing the
+source run. See
+[H7 volunteered-preference controls](h7-volunteered-controls.md) for budget,
+OpenRouter route, hashing, and interpretation details.
 
 ## Generate a human-study material packet
 

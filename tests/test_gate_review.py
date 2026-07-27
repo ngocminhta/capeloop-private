@@ -12,6 +12,7 @@ import os
 import shutil
 import unittest
 
+import cape_loop.gate_review as gate_review_module
 from cape_loop.artifacts import canonical_json, verify_run
 from cape_loop.cli import main as cli_main
 from cape_loop.config import (
@@ -38,6 +39,7 @@ from cape_loop.gate_review import (
     DecoderSourceReview,
     NativeTerminalActionRecord,
     import_native_gate_review,
+    validate_official_external_decoder_collection,
     verify_gate_review,
 )
 from cape_loop.heldout import TerminalAction
@@ -249,6 +251,20 @@ class GateReviewRecordTests(unittest.TestCase):
 
 
 class GateReviewIntegrationTests(unittest.TestCase):
+    def _assert_no_partial_output(self, output: Path) -> None:
+        self.assertFalse(output.exists())
+        self.assertFalse(output.is_symlink())
+        self.assertFalse(
+            (
+                output.parent
+                / f".{output.name}.gate4-review.lock"
+            ).exists()
+        )
+        self.assertEqual(
+            list(output.parent.glob(f".{output.name}.*.staging")),
+            [],
+        )
+
     def test_import_is_complete_checksum_bound_and_does_not_mutate_run(
         self,
     ) -> None:
@@ -340,6 +356,31 @@ class GateReviewIntegrationTests(unittest.TestCase):
             )
             judgments_path = external_collection / "judgments.jsonl"
             judgments = read_external_decoder_judgments(judgments_path)
+            (
+                wrapped_judgments,
+                wrapped_inputs,
+                wrapped_summary,
+            ) = validate_official_external_decoder_collection(
+                external_collection,
+                run_dir=run_dir,
+                requests=requests,
+                judgments_path=judgments_path,
+            )
+            self.assertEqual(wrapped_judgments, judgments)
+            self.assertEqual(
+                set(wrapped_inputs),
+                {
+                    "decoder_collection_plan",
+                    "decoder_transport_attempts",
+                    "decoder_provider_audit",
+                    "decoder_judgments",
+                    "decoder_execution_manifest",
+                },
+            )
+            self.assertEqual(
+                wrapped_summary["provenance_mode"],
+                "selected_live_provider_collection",
+            )
             source_metadata = {
                 judgment.decoder_instance_id: (
                     judgment.decoder_family_id,
@@ -423,7 +464,10 @@ class GateReviewIntegrationTests(unittest.TestCase):
                 external_collection_dir=external_collection,
             )
             self.assertEqual(result["claim_status"], "not_claimed")
-            valid_review, review_errors = verify_gate_review(output)
+            valid_review, review_errors = verify_gate_review(
+                output,
+                source_run_dir=run_dir,
+            )
             self.assertTrue(valid_review, review_errors)
             review = json.loads(
                 (output / "gate-review.json").read_text(encoding="utf-8")
@@ -1096,6 +1140,369 @@ class GateReviewIntegrationTests(unittest.TestCase):
                     unlock_file(lock_descriptor)
                 os.close(lock_descriptor)
             self.assertFalse((root / "locked-review").exists())
+
+            atomic_output = root / "atomic-visibility-review"
+            original_write_json = gate_review_module._write_json_durable
+            output_seen_during_write: list[bool] = []
+
+            def observe_staged_write(path: Path, value: object) -> None:
+                output_seen_during_write.append(atomic_output.exists())
+                original_write_json(path, value)
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=observe_staged_write,
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=atomic_output,
+                    external_collection_dir=external_collection,
+                )
+            self.assertTrue(output_seen_during_write)
+            self.assertFalse(any(output_seen_during_write))
+            self.assertTrue(atomic_output.is_dir())
+
+            failed_output = root / "injected-write-failure-review"
+            write_count = 0
+
+            def fail_staged_write(path: Path, value: object) -> None:
+                nonlocal write_count
+                original_write_json(path, value)
+                write_count += 1
+                if write_count == 2:
+                    raise OSError("injected Gate 4 staged write failure")
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=fail_staged_write,
+            ):
+                with self.assertRaisesRegex(
+                    OSError,
+                    "injected Gate 4 staged write failure",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=failed_output,
+                        external_collection_dir=external_collection,
+                    )
+            self._assert_no_partial_output(failed_output)
+
+            raced_output = root / "destination-race-review"
+            destination_created = False
+
+            def create_destination(path: Path, value: object) -> None:
+                nonlocal destination_created
+                if not destination_created:
+                    raced_output.mkdir()
+                    (raced_output / "owner-marker.txt").write_text(
+                        "unrelated owner\n",
+                        encoding="utf-8",
+                    )
+                    destination_created = True
+                original_write_json(path, value)
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=create_destination,
+            ):
+                with self.assertRaisesRegex(
+                    FileExistsError,
+                    "already exists",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=raced_output,
+                        external_collection_dir=external_collection,
+                    )
+            self.assertEqual(
+                (raced_output / "owner-marker.txt").read_text(
+                    encoding="utf-8"
+                ),
+                "unrelated owner\n",
+            )
+            self.assertFalse(
+                (
+                    raced_output.parent
+                    / f".{raced_output.name}.gate4-review.lock"
+                ).exists()
+            )
+            self.assertEqual(
+                list(
+                    raced_output.parent.glob(
+                        f".{raced_output.name}.*.staging"
+                    )
+                ),
+                [],
+            )
+
+            review_race_input = root / "source-review-race.json"
+            review_race_input.write_bytes(source_review_path.read_bytes())
+            review_race_output = root / "source-review-race-output"
+            review_input_mutated = False
+
+            def mutate_review_input(path: Path, value: object) -> None:
+                nonlocal review_input_mutated
+                if not review_input_mutated:
+                    review_race_input.write_bytes(
+                        review_race_input.read_bytes() + b"\n"
+                    )
+                    review_input_mutated = True
+                original_write_json(path, value)
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=mutate_review_input,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "decoder source review changed",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=review_race_input,
+                        output_dir=review_race_output,
+                        external_collection_dir=external_collection,
+                    )
+            self._assert_no_partial_output(review_race_output)
+
+            native_race_collection = root / "native-collection-race"
+            shutil.copytree(native_collection, native_race_collection)
+            native_race_output = root / "native-collection-race-output"
+            native_collection_mutated = False
+
+            def mutate_native_collection(path: Path, value: object) -> None:
+                nonlocal native_collection_mutated
+                if not native_collection_mutated:
+                    plan_path = (
+                        native_race_collection / "collection-plan.json"
+                    )
+                    plan_path.write_bytes(plan_path.read_bytes() + b"\n")
+                    native_collection_mutated = True
+                original_write_json(path, value)
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=mutate_native_collection,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "native action collection changed",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_race_collection,
+                        source_review_path=source_review_path,
+                        output_dir=native_race_output,
+                        external_collection_dir=external_collection,
+                    )
+            self._assert_no_partial_output(native_race_output)
+
+            copied_run_parent = root / "source-run-race-copy"
+            copied_run_parent.mkdir()
+            copied_run = copied_run_parent / run_dir.name
+            shutil.copytree(run_dir, copied_run)
+            source_race_output = root / "source-run-race-output"
+            source_run_mutated = False
+
+            def mutate_source_run(path: Path, value: object) -> None:
+                nonlocal source_run_mutated
+                if not source_run_mutated:
+                    copied_request_path = (
+                        copied_run
+                        / "decoder"
+                        / "external-requests.jsonl"
+                    )
+                    copied_request_path.write_bytes(
+                        copied_request_path.read_bytes() + b"\n"
+                    )
+                    source_run_mutated = True
+                original_write_json(path, value)
+
+            with patch.object(
+                gate_review_module,
+                "_write_json_durable",
+                side_effect=mutate_source_run,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "source run changed",
+                ):
+                    import_native_gate_review(
+                        run_dir=copied_run,
+                        requests_path=(
+                            copied_run
+                            / "decoder"
+                            / "external-requests.jsonl"
+                        ),
+                        judgments_path=judgments_path,
+                        truth_labels_path=(
+                            copied_run
+                            / "decoder"
+                            / "truth-labels.researcher-only.jsonl"
+                        ),
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=source_race_output,
+                        external_collection_dir=external_collection,
+                    )
+            self._assert_no_partial_output(source_race_output)
+
+            staged_failure_output = root / "staged-verifier-failure-review"
+            with patch.object(
+                gate_review_module,
+                "verify_gate_review",
+                return_value=(
+                    False,
+                    ("injected staged verification failure",),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "staged Gate 4 review failed verification",
+                ):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=staged_failure_output,
+                        external_collection_dir=external_collection,
+                    )
+            self._assert_no_partial_output(staged_failure_output)
+
+            output_locked = root / "output-locked-review"
+            output_lock = (
+                output_locked.parent
+                / f".{output_locked.name}.gate4-review.lock"
+            )
+            output_lock.write_text("held\n", encoding="utf-8")
+            try:
+                with self.assertRaisesRegex(FileExistsError, "is locked"):
+                    import_native_gate_review(
+                        run_dir=run_dir,
+                        requests_path=requests_path,
+                        judgments_path=judgments_path,
+                        truth_labels_path=truth_path,
+                        native_collection_dir=native_collection,
+                        source_review_path=source_review_path,
+                        output_dir=output_locked,
+                        external_collection_dir=external_collection,
+                    )
+                self.assertFalse(output_locked.exists())
+            finally:
+                output_lock.unlink()
+
+            run_link = root / "source-run-link"
+            run_link.symlink_to(run_dir, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "safe directory"):
+                import_native_gate_review(
+                    run_dir=run_link,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=root / "source-run-link-review",
+                    external_collection_dir=external_collection,
+                )
+            review_link = root / "source-review-link.json"
+            review_link.symlink_to(source_review_path)
+            with self.assertRaisesRegex(ValueError, "safe regular file"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=review_link,
+                    output_dir=root / "source-review-link-output",
+                    external_collection_dir=external_collection,
+                )
+            output_link = root / "gate-review-output-link"
+            output_link.symlink_to(
+                root / "uncreated-gate-review-target",
+                target_is_directory=True,
+            )
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=output_link,
+                    external_collection_dir=external_collection,
+                )
+            inside_run_output = run_dir / "forbidden-gate-review"
+            with self.assertRaisesRegex(
+                ValueError,
+                "inside the completed source run",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=source_review_path,
+                    output_dir=inside_run_output,
+                    external_collection_dir=external_collection,
+                )
+            self.assertFalse(inside_run_output.exists())
+            self.assertFalse(
+                (
+                    run_dir
+                    / ".forbidden-gate-review.gate4-review.lock"
+                ).exists()
+            )
+
+            symlinked_review = root / "symlinked-review-artifact"
+            shutil.copytree(atomic_output, symlinked_review)
+            outside_payload = root / "outside-gate-review.json"
+            (symlinked_review / "gate-review.json").replace(
+                outside_payload
+            )
+            (symlinked_review / "gate-review.json").symlink_to(
+                outside_payload
+            )
+            symlink_valid, symlink_errors = verify_gate_review(
+                symlinked_review
+            )
+            self.assertFalse(symlink_valid)
+            self.assertTrue(
+                any("symlink" in error for error in symlink_errors),
+                symlink_errors,
+            )
 
 
 if __name__ == "__main__":

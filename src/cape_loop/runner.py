@@ -23,6 +23,11 @@ from .calibration import (
     fit_temperature,
 )
 from .config import AppConfig
+from .control_study import (
+    build_control_llm_exchange,
+    build_experiment_a_control_plan,
+    run_diagnostic_control_executions,
+)
 from .domains import (
     DATA_SPLITS,
     DomainSpec,
@@ -32,12 +37,15 @@ from .domains import (
     option_template_id,
     scenario_family_id,
 )
+from .experiment_c_review import write_experiment_c_decoder_packet
 from .decoder_study import (
     DecoderTruthLabel,
     build_blinded_native_decoder_request,
 )
 from .experiments import (
+    analyze_experiment_a_hypotheses,
     analyze_experiment_b_inference,
+    analyze_h7_closed_loop,
     build_terminal_battery,
     evaluate_native_decoders,
     evaluate_terminal_battery,
@@ -101,6 +109,11 @@ from .population import (
     generate_users,
     susceptibility_grid,
     user_state_record,
+)
+from .power import (
+    bounded_experiment_b_simulations,
+    experiment_b_pilot_power,
+    format_experiment_b_power_summary,
 )
 from .reporting import grouped_mean, write_csv, write_line_svg
 from .response import RandomUtilityModel
@@ -594,6 +607,99 @@ def _registry(
     )
 
 
+def _sensitivity_llm_request_preflight(
+    config: AppConfig,
+) -> dict[str, Any] | None:
+    """Return an exact logical and worst-case live-attempt grid bound.
+
+    Every LLM updater is called once per turn in every declared
+    domain/user/replicate/policy cell. Live modes expand that logical count by
+    ``max_retries + 1`` because provider budgets count physical HTTP attempts.
+    Replay lookups have no transport-attempt budget.
+    """
+
+    if config.experiment.kind != "sensitivity":
+        return None
+    llm_updater_ids = tuple(
+        updater_id
+        for updater_id in config.experiment.updaters
+        if updater_id.startswith("llm_")
+    )
+    if not llm_updater_ids:
+        return None
+    points = sensitivity_grid(
+        decision_noise_values=config.sensitivity.decision_noise_values,
+        presentation_multipliers=(
+            config.sensitivity.presentation_multipliers
+        ),
+        rank_multipliers=config.sensitivity.rank_multipliers,
+        default_multipliers=config.sensitivity.default_multipliers,
+        suggestion_multipliers=(
+            config.sensitivity.suggestion_multipliers
+        ),
+        profile_strength_values=(
+            config.sensitivity.profile_strength_values
+        ),
+        prior_uncertainty_values=(
+            config.sensitivity.prior_uncertainty_values
+        ),
+        trajectory_lengths=config.sensitivity.trajectory_lengths,
+        response_model_families=(
+            config.sensitivity.response_model_families
+        ),
+        rule_noise_values=config.sensitivity.rule_noise_values,
+    )
+    cell_multiplier = (
+        len(config.experiment.domains)
+        * config.experiment.users
+        * config.experiment.trajectories_per_cell
+        * len(config.experiment.policies)
+        * len(llm_updater_ids)
+    )
+    logical_requests = cell_multiplier * sum(
+        point.trajectory_length for point in points
+    )
+    live = config.llm.mode in {"openai", "openrouter"}
+    retry_expansion_factor = config.llm.max_retries + 1 if live else None
+    physical_attempt_upper_bound = (
+        logical_requests * retry_expansion_factor
+        if retry_expansion_factor is not None
+        else None
+    )
+    return {
+        "schema_version": 1,
+        "kind": "sensitivity-llm-request-preflight",
+        "execution_mode": config.llm.mode,
+        "grid_points": len(points),
+        "llm_updater_ids": list(llm_updater_ids),
+        "domains": len(config.experiment.domains),
+        "users": config.experiment.users,
+        "trajectories_per_cell": (
+            config.experiment.trajectories_per_cell
+        ),
+        "policies": len(config.experiment.policies),
+        "sum_trajectory_lengths_over_points": sum(
+            point.trajectory_length for point in points
+        ),
+        "logical_completion_upper_bound": logical_requests,
+        "live_transport": live,
+        "retry_expansion_factor": retry_expansion_factor,
+        "physical_http_attempt_upper_bound": (
+            physical_attempt_upper_bound
+        ),
+        "configured_max_requests": (
+            config.llm.max_requests if live else None
+        ),
+        "within_request_ceiling": (
+            physical_attempt_upper_bound <= config.llm.max_requests
+            if physical_attempt_upper_bound is not None
+            else None
+        ),
+        "calibration": config.llm.calibration,
+        "calibration_request_count": 0,
+    }
+
+
 def _llm_input_manifest(config: AppConfig) -> dict[str, Any] | None:
     """Fingerprint the replay corpus or declared live model configuration."""
 
@@ -794,6 +900,7 @@ def _live_completion_provider(
         provider,
         responses_path=journal / "responses.jsonl",
         audit_path=journal / "provider-audit.jsonl",
+        attempts_path=journal / "transport-attempts.jsonl",
     )
 
 
@@ -1095,13 +1202,33 @@ def _write_llm_exchange(
             ),
         )
     if live_provider is not None:
-        run.write_jsonl(
+        provider_audit_path = run.write_jsonl(
             "llm/provider-audit.jsonl",
             live_provider.used_audit_records,
+        )
+        provider_attempts_path = run.write_jsonl(
+            "llm/transport-attempts.jsonl",
+            live_provider.used_attempt_records,
         )
         provider_manifest = live_provider.to_manifest()
         provider_manifest.pop("responses_journal", None)
         provider_manifest.pop("audit_journal", None)
+        provider_manifest.pop("attempts_journal", None)
+        provider_manifest["provider_audit_file"] = (
+            "llm/provider-audit.jsonl"
+        )
+        provider_manifest["provider_audit_sha256"] = sha256(
+            provider_audit_path.read_bytes()
+        ).hexdigest()
+        provider_manifest["transport_attempts_file"] = (
+            "llm/transport-attempts.jsonl"
+        )
+        provider_manifest["transport_attempts_sha256"] = sha256(
+            provider_attempts_path.read_bytes()
+        ).hexdigest()
+        provider_manifest["transport_attempt_event_count"] = len(
+            live_provider.used_attempt_records
+        )
         provider_manifest["external_recovery_journal_retained"] = True
         provider_manifest["credentials_retained"] = False
         run.write_json("llm/provider-manifest.json", provider_manifest)
@@ -1460,6 +1587,41 @@ def _run_a(
         "models/experiment-a-control-battery.json",
         control_battery.to_dict(),
     )
+    control_plan = build_experiment_a_control_plan(control_battery)
+    control_reference, control_baseline = (
+        run_diagnostic_control_executions(control_plan)
+    )
+    control_exchange = build_control_llm_exchange(control_plan)
+    run.write_json(
+        "models/experiment-a-control-plan.json",
+        control_plan.to_dict(),
+    )
+    run.write_json(
+        "metrics/experiment-a-control-reference.json",
+        control_reference.to_dict(),
+    )
+    run.write_json(
+        "metrics/experiment-a-control-baseline.json",
+        control_baseline.to_dict(),
+    )
+    run.write_json(
+        "llm/experiment-a-control-exchange.json",
+        control_exchange.to_dict(),
+    )
+    run.write_jsonl(
+        "llm/experiment-a-control-request-bindings.jsonl",
+        (
+            request.to_dict()
+            for request in control_exchange.requests
+        ),
+    )
+    run.write_jsonl(
+        "llm/experiment-a-control-requests.jsonl",
+        (
+            request.to_dict()
+            for request in control_exchange.llm_requests
+        ),
+    )
     mechanism_contrasts = tuple(
         contrast
         for mechanism in config.experiment.mechanisms
@@ -1515,9 +1677,10 @@ def _run_a(
             "user-random-slope/scenario-random-intercept mixed-effects model."
         ),
         (
-            "The fixed positive/negative control battery is a protocol "
-            "artifact only. Its outcomes require the declared dedicated "
-            "executors and were not invented from one-step anchor rows."
+            "The positive/negative controls use a separate executable, "
+            "content-addressed study. Its reference and no-update outcomes "
+            "are diagnostic only; they were not invented from one-step "
+            "anchor rows or presented as external evidence."
         ),
         (
             f"Bootstrap analyses used {analysis_replicates} replicates; a "
@@ -1548,6 +1711,15 @@ def _run_a(
     run.write_json(
         "metrics/experiment-a-confirmatory.json",
         confirmatory.to_dict(),
+    )
+    hypothesis_estimands = analyze_experiment_a_hypotheses(
+        result.rows,
+        replicates=analysis_replicates,
+        seed=config.run.seed,
+    )
+    run.write_json(
+        "metrics/experiment-a-hypothesis-estimands.json",
+        hypothesis_estimands.to_dict(),
     )
     run.write_jsonl(
         "metrics/experiment-a-oracle-slopes.jsonl",
@@ -1763,12 +1935,26 @@ def _run_a(
         ),
         "prior_strengths": list(config.experiment.prior_strengths),
         "control_battery_id": control_battery.battery_id,
-        "control_battery_status": (
-            "fixed_protocol_not_scored_by_one_step_choice_runner"
+        "control_battery_status": "executable_separate_control_study",
+        "control_plan_sha256": control_plan.plan_sha256,
+        "control_reference_coverage_complete": True,
+        "control_reference_criterion_pass_count": (
+            control_reference.criterion_pass_count
         ),
+        "control_baseline_criterion_pass_count": (
+            control_baseline.criterion_pass_count
+        ),
+        "control_live_evidence_count": 0,
+        "control_provider_request_count": len(control_exchange.requests),
         "raw_calibrated_forecasts": len(raw_calibrated.scores),
         "marginal_cr1_model_available": marginal_regression is not None,
         "mixed_effects_model_status": "external_confirmatory_stage_required",
+        "hypothesis_estimand_statuses": {
+            hypothesis_id: payload["computed_status"]
+            for hypothesis_id, payload in (
+                hypothesis_estimands.to_dict()["hypotheses"].items()
+            )
+        },
         "power_analysis_status": power_payload["status"],
         "held_out_paraphrase_cases": len(paraphrase_cases),
         "held_out_paraphrase_complete": paraphrase_criterion.complete,
@@ -2238,6 +2424,43 @@ def _run_b(
         result,
         bootstrap_replicates=config.experiment.bootstrap_replicates,
         seed=config.run.seed,
+    )
+    h7_closed_loop = analyze_h7_closed_loop(
+        result,
+        replicates=(
+            config.experiment.bootstrap_replicates
+            if config.experiment.bootstrap_replicates > 0
+            else 200
+        ),
+        seed=config.run.seed,
+    )
+    run.write_json(
+        "metrics/experiment-b-h7-mitigation.json",
+        h7_closed_loop.to_dict(),
+    )
+    power_target_updater = next(
+        (
+            updater_id
+            for updater_id in (
+                "llm_full_context",
+                "full_context_blind",
+            )
+            if updater_id in registry
+        ),
+        None,
+    )
+    power_payload = experiment_b_pilot_power(
+        result.trajectories,
+        target_updater_id=power_target_updater,
+        simulations=bounded_experiment_b_simulations(
+            config.experiment.bootstrap_replicates
+        ),
+        seed=config.run.seed,
+    )
+    run.write_json("metrics/experiment-b-power.json", power_payload)
+    run.write_text(
+        "tables/experiment-b-power.md",
+        format_experiment_b_power_summary(power_payload),
     )
     native_updater_ids = tuple(
         updater_id
@@ -2736,6 +2959,13 @@ def _run_b(
         "experiment_b_inference_status": (
             b_inference.to_dict()["analysis_status"]
         ),
+        "h7_mitigation_computed_status": (
+            h7_closed_loop.to_dict()["computed_status"]
+        ),
+        "experiment_b_power_status": power_payload["status"],
+        "experiment_b_power_artifact": "metrics/experiment-b-power.json",
+        "experiment_b_power_summary": "tables/experiment-b-power.md",
+        "experiment_b_power_target_updater": power_target_updater,
         "self_confirmation_assessments": len(
             result.self_confirmation_assessments
         ),
@@ -3110,6 +3340,15 @@ def _run_c(
             for battery in result.terminal_batteries
         ),
     )
+    external_decoder_design = write_experiment_c_decoder_packet(
+        run,
+        result,
+        development_users=prepared.development_users[
+            : config.experiment.users
+        ],
+        test_users=prepared.test_users,
+        events_retained=config.artifacts.retain_events,
+    )
     gate_5 = _gate_5_for_c(result)
     gate_report = _all_gates(
         incomplete_gate(1, "Learnable provenance gap", "Run Experiment A."),
@@ -3144,6 +3383,18 @@ def _run_c(
             len(row.native_decoder_evaluations)
             for row in result.rows
         ),
+        "external_decoder_design_status": (
+            external_decoder_design["status"]
+        ),
+        "external_decoder_requests": external_decoder_design[
+            "request_count"
+        ],
+        "external_decoder_development_requests": (
+            external_decoder_design["development_request_count"]
+        ),
+        "external_decoder_test_requests": external_decoder_design[
+            "test_request_count"
+        ],
         "llm_raw_calibrated_terminal_rows": len(
             cached_calibration_rows
         ),
@@ -3157,9 +3408,46 @@ def _run_c(
     }
 
 
+def _profile_consistent_suggestion_counts(
+    trajectories: Sequence[Any],
+) -> dict[str, int | float | None]:
+    """Count rejections of suggestions generated from the active profile.
+
+    ``SoftProfileConditionedPolicy`` labels the treatment in provenance and
+    places the profile-consistent option in ``suggested_option_id``. A
+    rejection is an observed selection of the still-available alternative.
+    """
+
+    opportunities = 0
+    rejections = 0
+    for trajectory in trajectories:
+        for interaction in trajectory.audit_record.interactions:
+            if (
+                interaction.provenance.profile_conditioned
+                and interaction.provenance.presentation_mechanism
+                == "suggestion"
+                and interaction.context.suggested_option_id is not None
+            ):
+                opportunities += 1
+                rejections += int(
+                    interaction.observation.selected_option_id
+                    != interaction.context.suggested_option_id
+                )
+    return {
+        "profile_consistent_suggestion_opportunities": opportunities,
+        "profile_consistent_suggestion_rejections": rejections,
+        "profile_consistent_suggestion_rejection_rate": (
+            rejections / opportunities if opportunities else None
+        ),
+    }
+
+
 def _run_sensitivity(
     config: AppConfig,
     run: RunArtifacts,
+    *,
+    completion_provider: CompletionProvider | None = None,
+    live_provider: ResumableCompletionProvider | None = None,
 ) -> dict[str, Any]:
     points = sensitivity_grid(
         decision_noise_values=config.sensitivity.decision_noise_values,
@@ -3183,7 +3471,9 @@ def _run_sensitivity(
     grand_rows = []
     decomposition_rows = []
     model_rows = []
+    phase_domain_metric_rows = []
     retained_trajectories = []
+    point_registries: list[Mapping[str, ProfileUpdater]] = []
     for point in points:
         model = response_model_at(
             point,
@@ -3200,7 +3490,12 @@ def _run_sensitivity(
             # change outcomes, but grid enumeration order cannot.
             seed_namespace=0,
         )
-        registry = _registry(config, prepared)
+        registry = _registry(
+            config,
+            prepared,
+            completion_provider=completion_provider,
+        )
+        point_registries.append(registry)
         policy_ids = tuple(
             policy_id
             for policy_id in config.experiment.policies
@@ -3252,6 +3547,8 @@ def _run_sensitivity(
                 updater_id
                 for updater_id in (
                     "llm_full_context",
+                    "llm_provenance_aware",
+                    "llm_response_only",
                     "full_context_blind",
                 )
                 if updater_id in registry
@@ -3263,6 +3560,11 @@ def _run_sensitivity(
             for trajectory in result.trajectories
             if trajectory.updater_id == phase_target_id
         }
+        phase_target_trajectories = tuple(
+            trajectory
+            for trajectory in result.trajectories
+            if trajectory.trajectory_id in phase_target_trajectory_ids
+        )
         phase_target_assessments = tuple(
             assessment
             for assessment in result.self_confirmation_assessments
@@ -3287,6 +3589,15 @@ def _run_sensitivity(
             for row in result.decompositions
             if row.updater_id == "fitted_action_aware"
         )
+        suggestion_counts = _profile_consistent_suggestion_counts(
+            result.trajectories
+        )
+        phase_suggestion_counts = {
+            f"phase_{key}": value
+            for key, value in _profile_consistent_suggestion_counts(
+                phase_target_trajectories
+            ).items()
+        }
         model_rows.append(
             {
                 "schema_version": 1,
@@ -3318,8 +3629,17 @@ def _run_sensitivity(
                 ],
                 "phase_target_updater_id": phase_target_id,
                 "phase_target_is_live_llm": (
-                    phase_target_id == "llm_full_context"
+                    phase_target_id.startswith("llm_")
+                    and config.llm.mode in {"openai", "openrouter"}
                 ),
+                "phase_target_is_llm": phase_target_id.startswith("llm_"),
+                "llm_execution_mode": (
+                    config.llm.mode
+                    if phase_target_id.startswith("llm_")
+                    else None
+                ),
+                **suggestion_counts,
+                **phase_suggestion_counts,
                 "mean_information_gain": mean_or_nan(
                     trajectory.cumulative_information_gain
                     for trajectory in result.trajectories
@@ -3356,11 +3676,7 @@ def _run_sensitivity(
                 ),
                 "phase_selection_cost": mean_or_nan(
                     row.evidence_selection_cost
-                    for row in (
-                        aware_decompositions
-                        if aware_decompositions
-                        else result.decompositions
-                    )
+                    for row in aware_decompositions
                 ),
                 "phase_attribution_cost": mean_or_nan(
                     row.profile_attribution_cost
@@ -3374,6 +3690,82 @@ def _run_sensitivity(
                 ),
             }
         )
+        for domain in prepared.domains:
+            domain_target_trajectories = tuple(
+                trajectory
+                for trajectory in phase_target_trajectories
+                if trajectory.domain_id == domain.domain_id
+            )
+            domain_target_ids = {
+                trajectory.trajectory_id
+                for trajectory in domain_target_trajectories
+            }
+            domain_target_assessments = tuple(
+                assessment
+                for assessment in phase_target_assessments
+                if assessment.trajectory_id in domain_target_ids
+            )
+            domain_eligible_ids = {
+                assessment.trajectory_id
+                for assessment in domain_target_assessments
+            }
+            domain_reportable_ids = {
+                assessment.trajectory_id
+                for assessment in domain_target_assessments
+                if assessment.reportable
+            }
+            domain_target_decompositions = tuple(
+                row
+                for row in phase_target_decompositions
+                if row.domain_id == domain.domain_id
+            )
+            domain_aware_decompositions = tuple(
+                row
+                for row in aware_decompositions
+                if row.domain_id == domain.domain_id
+            )
+            domain_suggestion_counts = {
+                f"phase_{key}": value
+                for key, value in _profile_consistent_suggestion_counts(
+                    domain_target_trajectories
+                ).items()
+            }
+            phase_domain_metric_rows.append(
+                {
+                    "schema_version": 1,
+                    **point.to_dict(),
+                    "domain_id": domain.domain_id,
+                    "phase_target_updater_id": phase_target_id,
+                    "phase_target_is_llm": (
+                        phase_target_id.startswith("llm_")
+                    ),
+                    "llm_execution_mode": (
+                        config.llm.mode
+                        if phase_target_id.startswith("llm_")
+                        else None
+                    ),
+                    "phase_selection_cost": mean_or_nan(
+                        row.evidence_selection_cost
+                        for row in domain_aware_decompositions
+                    ),
+                    "aware_option_ece": (
+                        prepared.held_out_diagnostics[
+                            "aware_option_ece"
+                        ]
+                    ),
+                    "phase_attribution_cost": mean_or_nan(
+                        row.profile_attribution_cost
+                        for row in domain_target_decompositions
+                    ),
+                    "phase_self_confirming_profile_rate": (
+                        len(domain_reportable_ids)
+                        / len(domain_eligible_ids)
+                        if domain_eligible_ids
+                        else None
+                    ),
+                    **domain_suggestion_counts,
+                }
+            )
         for domain in prepared.domains:
             for policy_id in policy_ids:
                 for updater_id in registry:
@@ -3408,6 +3800,9 @@ def _run_sensitivity(
                         for assessment in assessments
                         if assessment.false_stable
                     }
+                    group_suggestion_counts = (
+                        _profile_consistent_suggestion_counts(group)
+                    )
                     stratified_rows.append(
                         {
                             "schema_version": 1,
@@ -3416,6 +3811,7 @@ def _run_sensitivity(
                             "policy_id": policy_id,
                             "updater_id": updater_id,
                             "trajectories": len(group),
+                            **group_suggestion_counts,
                             "mean_terminal_error": mean_or_nan(
                                 trajectory.terminal_error
                                 for trajectory in group
@@ -3533,6 +3929,15 @@ def _run_sensitivity(
             "gt",
             config.sensitivity.phase_min_self_confirming_rate,
         ),
+        PhaseCriterion(
+            "profile-consistent-suggestions-often-rejected",
+            "phase_profile_consistent_suggestion_rejection_rate",
+            "ge",
+            (
+                config.sensitivity
+                .phase_min_suggestion_rejection_rate
+            ),
+        ),
     )
     phase_rows = []
     for row in grand_rows:
@@ -3556,7 +3961,21 @@ def _run_sensitivity(
                         "response_model_family",
                         "rule_noise",
                         "phase_target_updater_id",
+                        "phase_target_is_llm",
                         "phase_target_is_live_llm",
+                        "llm_execution_mode",
+                        (
+                            "phase_profile_consistent_"
+                            "suggestion_opportunities"
+                        ),
+                        (
+                            "phase_profile_consistent_"
+                            "suggestion_rejections"
+                        ),
+                        (
+                            "phase_profile_consistent_"
+                            "suggestion_rejection_rate"
+                        ),
                     )
                 },
                 "criteria": classified["criteria"],
@@ -3564,14 +3983,25 @@ def _run_sensitivity(
                 "operational_joint_region": operational,
                 "confirmatory_llm_joint_region": (
                     operational
-                    if row["phase_target_is_live_llm"]
+                    if row["phase_target_is_llm"]
                     else None
                 ),
                 "interpretation": (
                     "confirmatory_llm"
-                    if row["phase_target_is_live_llm"]
+                    if row["phase_target_is_llm"]
                     else "deterministic_profile_writer_proxy"
                 ),
+            }
+        )
+    phase_domain_rows = []
+    for row in phase_domain_metric_rows:
+        classified = classify_phase_point(row, phase_criteria)
+        phase_domain_rows.append(
+            {
+                **row,
+                "criteria": classified["criteria"],
+                "criteria_complete": classified["criteria_complete"],
+                "operational_joint_region": classified["joint_region"],
             }
         )
     boundary_axes = tuple(
@@ -3602,6 +4032,10 @@ def _run_sensitivity(
     run.write_jsonl("metrics/sensitivity-grand.jsonl", grand_rows)
     run.write_jsonl("metrics/sensitivity-phase-points.jsonl", phase_rows)
     run.write_jsonl(
+        "metrics/sensitivity-phase-domains.jsonl",
+        phase_domain_rows,
+    )
+    run.write_jsonl(
         "metrics/sensitivity-phase-boundaries.jsonl",
         phase_boundaries,
     )
@@ -3614,7 +4048,29 @@ def _run_sensitivity(
             ],
             "boundary_kind": "observed_grid_interval",
             "boundary_axes": list(boundary_axes),
-            "confirmatory_requires_live_llm_target": True,
+            "confirmatory_requires_external_llm_target": True,
+            "accepted_llm_execution_modes": [
+                "replay",
+                "openai",
+                "openrouter",
+            ],
+            "meaningful_region_requirement": {
+                "metric": (
+                    "phase_profile_consistent_suggestion_rejection_rate"
+                ),
+                "relation": "ge",
+                "threshold": (
+                    config.sensitivity
+                    .phase_min_suggestion_rejection_rate
+                ),
+                "opportunity_definition": (
+                    "profile-conditioned suggestion with the "
+                    "counter-profile option still displayed"
+                ),
+                "rejection_definition": (
+                    "selected option differs from suggested option"
+                ),
+            },
         },
     )
     run.write_jsonl(
@@ -3627,23 +4083,200 @@ def _run_sensitivity(
             "events/sensitivity-trajectories.jsonl",
             retained_trajectories,
         )
+    if point_registries:
+        _write_llm_exchange(
+            run,
+            point_registries[0],
+            additional_registries=tuple(point_registries[1:]),
+            live_provider=live_provider,
+        )
+    llm_model_ids = sorted(
+        {
+            response.model_id
+            for registry in point_registries
+            for updater in registry.values()
+            if isinstance(updater, LLMReplayUpdater)
+            for response in updater.responses
+        }
+    )
+    grid_complete = len(grand_rows) == len(points)
+    passing_phase_rows = tuple(
+        row
+        for row in phase_rows
+        if row["operational_joint_region"] is True
+    )
+    response_families = sorted(
+        {point.response_model_family for point in points}
+    )
+    required_response_families = {
+        "random_utility",
+        "rule_based",
+    }
+    passing_response_families = {
+        row["response_model_family"] for row in passing_phase_rows
+    }
+    breadth_axes = {
+        "decision_noise": sorted(
+            {point.decision_noise for point in points}
+        ),
+        "rank_multiplier": sorted(
+            {point.rank_multiplier for point in points}
+        ),
+        "default_multiplier": sorted(
+            {point.default_multiplier for point in points}
+        ),
+        "suggestion_multiplier": sorted(
+            {point.suggestion_multiplier for point in points}
+        ),
+        "profile_strength": sorted(
+            {point.profile_strength for point in points}
+        ),
+        "prior_uncertainty": sorted(
+            {point.prior_uncertainty for point in points}
+        ),
+        "trajectory_length": sorted(
+            {point.trajectory_length for point in points}
+        ),
+    }
+    breadth_survival = {
+        axis: {
+            str(level): any(
+                row[axis] == level for row in passing_phase_rows
+            )
+            for level in levels
+        }
+        for axis, levels in breadth_axes.items()
+    }
+    broad_parameters_passed = (
+        grid_complete
+        and all(len(levels) >= 2 for levels in breadth_axes.values())
+        and all(
+            all(levels.values())
+            for levels in breadth_survival.values()
+        )
+    )
+    required_domains = {"travel", "writing"}
+    passing_domains = {
+        row["domain_id"]
+        for row in phase_domain_rows
+        if row["operational_joint_region"] is True
+    }
+    fitted_reference_present = all(
+        "fitted_action_aware" in registry
+        for registry in point_registries
+    )
     robustness_gate = GateReport(
         gate_id="gate-6",
         title="Robustness",
         criteria=(
             GateCriterion(
-                "grid-complete",
-                "Every declared simulator grid point completed.",
-                len(grand_rows) == len(points),
-                {"completed": len(grand_rows), "declared": len(points)},
-                "completed == declared",
+                "another-response-model",
+                "The meaningful-region effect survives another response model.",
+                (
+                    grid_complete
+                    and required_response_families
+                    <= passing_response_families
+                ),
+                {
+                    "declared_families": response_families,
+                    "passing_families": sorted(
+                        passing_response_families
+                    ),
+                    "completed_points": len(grand_rows),
+                    "declared_points": len(points),
+                },
+                (
+                    "random_utility and rule_based each have at least one "
+                    "complete meaningful-region point"
+                ),
             ),
             GateCriterion(
-                "claim-review-required",
-                "Scientific effect robustness requires a preregistered contrast.",
+                "broad-simulator-parameters",
+                "The effect survives broad declared simulator parameters.",
+                broad_parameters_passed,
+                {
+                    "declared_levels": breadth_axes,
+                    "passing_level_coverage": breadth_survival,
+                    "completed_points": len(grand_rows),
+                    "declared_points": len(points),
+                },
+                (
+                    "at least two levels on every proposal sensitivity axis "
+                    "and at least one meaningful-region point at every level"
+                ),
+            ),
+            GateCriterion(
+                "both-domains",
+                "The meaningful-region effect survives both study domains.",
+                (
+                    grid_complete
+                    and required_domains <= passing_domains
+                ),
+                {
+                    "required_domains": sorted(required_domains),
+                    "passing_domains": sorted(passing_domains),
+                    "domain_phase_rows": len(phase_domain_rows),
+                },
+                "travel and writing each have a passing domain-point row",
+            ),
+            GateCriterion(
+                "multiple-llm-families",
+                "The effect survives multiple independently sourced LLM families.",
                 None,
+                {
+                    "model_ids_in_this_run": llm_model_ids,
+                    "reason_incomplete": (
+                        "one run does not establish independent model-family "
+                        "replication across checksum-bound runs"
+                    ),
+                },
+                (
+                    "at least two independently declared LLM families in "
+                    "linked, verified sensitivity runs"
+                ),
+            ),
+            GateCriterion(
+                "natural-language-paraphrases",
+                "The effect survives held-out natural-language paraphrases.",
                 None,
-                "researcher-reviewed effect criterion",
+                {
+                    "reason_incomplete": (
+                        "the sensitivity runner does not consume a linked "
+                        "held-out paraphrase-transfer artifact"
+                    )
+                },
+                (
+                    "a verified held-out paraphrase artifact linked to the "
+                    "same frozen analysis"
+                ),
+            ),
+            GateCriterion(
+                "exact-and-fitted-action-aware-references",
+                (
+                    "The meaningful-region effect survives comparison with "
+                    "exact and fitted action-aware references."
+                ),
+                (
+                    grid_complete
+                    and fitted_reference_present
+                    and bool(passing_phase_rows)
+                ),
+                {
+                    "exact_reference": (
+                        "same-history ExactActionAwareUpdater shadow"
+                    ),
+                    "exact_reference_grid_points": len(grand_rows),
+                    "fitted_action_aware_present_at_every_point": (
+                        fitted_reference_present
+                    ),
+                    "passing_meaningful_region_points": len(
+                        passing_phase_rows
+                    ),
+                },
+                (
+                    "every point has the exact same-history shadow and fitted "
+                    "action-aware reference, with at least one passing point"
+                ),
             ),
         ),
     )
@@ -3666,8 +4299,13 @@ def _run_sensitivity(
         "stratified_rows": len(stratified_rows),
         "decomposition_rows": len(decomposition_rows),
         "phase_rows": len(phase_rows),
+        "phase_domain_rows": len(phase_domain_rows),
         "phase_boundary_rows": len(phase_boundaries),
         "retained_trajectories": len(retained_trajectories),
+        "llm_model_ids": llm_model_ids,
+        "llm_request_preflight": (
+            _sensitivity_llm_request_preflight(config)
+        ),
         "gate_6_computed_status": robustness_gate.computed_status,
     }
 
@@ -3730,6 +4368,19 @@ def run_experiment(
     """Run a validated experiment and return its completed artifact identity."""
 
     config = config.validated()
+    sensitivity_llm_preflight = _sensitivity_llm_request_preflight(config)
+    if (
+        sensitivity_llm_preflight is not None
+        and sensitivity_llm_preflight["live_transport"]
+        and not sensitivity_llm_preflight["within_request_ceiling"]
+    ):
+        raise ValueError(
+            "live LLM sensitivity can require up to "
+            f"{sensitivity_llm_preflight['physical_http_attempt_upper_bound']} "
+            "physical HTTP attempts after retry expansion, exceeding "
+            f"llm.max_requests = {config.llm.max_requests}; reduce the grid "
+            "or raise the reviewed hard ceiling"
+        )
     llm_input = _llm_input_manifest(config)
     destination = _existing_run(config, output_root=output_root)
     archived_failed_run: Path | None = None
@@ -3840,6 +4491,11 @@ def run_experiment(
     )
     if llm_input is not None:
         run.write_json("llm/input-manifest.json", llm_input)
+    if sensitivity_llm_preflight is not None:
+        run.write_json(
+            "llm/sensitivity-request-preflight.json",
+            sensitivity_llm_preflight,
+        )
     try:
         if source_material is not None:
             run.write_bytes(
@@ -3847,7 +4503,12 @@ def run_experiment(
                 source_material,
             )
         if config.experiment.kind == "sensitivity":
-            summary = _run_sensitivity(config, run)
+            summary = _run_sensitivity(
+                config,
+                run,
+                completion_provider=raw_completion_provider,
+                live_provider=live_provider,
+            )
         else:
             prepared = _prepare_study(config)
             _write_prepared(run, prepared)

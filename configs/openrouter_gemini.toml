@@ -58,7 +58,8 @@ calibration = "temperature"
 calibration_users = 1
 model_role = "primary"
 # Change this canonical author/model slug to switch models. If the replacement
-# is not served by Google AI Studio, also change or clear the route pin below.
+# is not served by the pinned Google Vertex endpoint, also change or clear the
+# route pin below.
 model = "google/gemini-3.6-flash"
 # Empty omits provider-specific reasoning controls for broad compatibility.
 reasoning_effort = ""
@@ -74,7 +75,7 @@ journal_dir = ""
 
 # Reproducible route policy. Remove the provider constraint only if you accept
 # router-selected hosting and will stratify results by retained route metadata.
-openrouter_upstream_provider = "google-ai-studio"
+openrouter_upstream_provider = "google-vertex/global"
 openrouter_allow_fallbacks = false
 openrouter_require_parameters = true
 openrouter_data_collection = "deny"

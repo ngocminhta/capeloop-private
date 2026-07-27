@@ -1247,21 +1247,33 @@ class HumanCollectionRecord:
 
 
 def read_human_collection(
-    path: str | Path,
+    path: str | Path | bytes,
 ) -> tuple[HumanCollectionRecord, ...]:
-    source = Path(path)
+    if isinstance(path, bytes):
+        source_label = "<human-collection-bytes>"
+        try:
+            lines = path.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{source_label}: input must be valid UTF-8"
+            ) from exc
+    else:
+        source = Path(path)
+        source_label = str(source)
+        lines = source.read_text(encoding="utf-8").splitlines()
     result: list[HumanCollectionRecord] = []
-    with source.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                decoded = json.loads(line)
-                if not isinstance(decoded, Mapping):
-                    raise ValueError("record must be a JSON object")
-                result.append(HumanCollectionRecord.parse(decoded))
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                raise ValueError(f"{source}:{line_number}: {exc}") from exc
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            decoded = json.loads(line)
+            if not isinstance(decoded, Mapping):
+                raise ValueError("record must be a JSON object")
+            result.append(HumanCollectionRecord.parse(decoded))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{source_label}:{line_number}: {exc}"
+            ) from exc
     return tuple(result)
 
 

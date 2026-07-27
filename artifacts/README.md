@@ -36,6 +36,13 @@ artifacts/<bundle-id>/
 An external archive may use a different physical layout, but its manifest must
 provide equivalent information.
 
+Command-generated append-only review artifacts (for example Gate 4 reviews,
+Experiment C external rescoring, and the Experiment C multi-seed diagnostic)
+use their command-specific minimal checksum-bound layouts while under active
+analysis. A paper release must place or reference that verified review from a
+curated bundle satisfying the structure above; the small review directory
+alone is not a paper bundle.
+
 The bundle README states:
 
 - purpose and status;
