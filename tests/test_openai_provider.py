@@ -608,6 +608,44 @@ class OpenAITransportTests(unittest.TestCase):
 
 
 class OpenAIBudgetAndResumeTests(unittest.TestCase):
+    def test_precreated_empty_outputs_cannot_bypass_corpus_preflight(
+        self,
+    ) -> None:
+        requests = (build_request("first"), build_request("second"))
+        calls: list[int] = []
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            responses_path = root / "responses.jsonl"
+            audit_path = root / "audit.jsonl"
+            attempts_path = root / "attempts.jsonl"
+            for path in (responses_path, audit_path, attempts_path):
+                path.write_text("", encoding="utf-8")
+            provider = OpenAIResponsesProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="ABSENT_PREFLIGHT_TEST_OPENAI_KEY",
+                    max_retries=0,
+                    max_requests=1,
+                    max_total_tokens=100_000,
+                ),
+                transport=lambda **_: calls.append(1),  # type: ignore[arg-type]
+            )
+            with self.assertRaisesRegex(
+                BudgetExceeded,
+                "remaining retry-expanded corpus",
+            ):
+                execute_requests(
+                    provider,
+                    requests,
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                    attempts_path=attempts_path,
+                )
+            self.assertEqual(calls, [])
+            self.assertEqual(responses_path.read_bytes(), b"")
+            self.assertEqual(audit_path.read_bytes(), b"")
+            self.assertEqual(attempts_path.read_bytes(), b"")
+
     def test_static_execution_lock_prevents_concurrent_dispatch(self) -> None:
         request = build_request("locked")
         calls = 0
@@ -1180,9 +1218,11 @@ class OpenAIBudgetAndResumeTests(unittest.TestCase):
         requests = (build_request("first"), build_request("second"))
         with TemporaryDirectory() as directory:
             root = Path(directory)
+            first_requests_path = root / "first-requests.jsonl"
             requests_path = root / "requests.jsonl"
             responses_path = root / "responses.jsonl"
             audit_path = root / "openai-audit.jsonl"
+            write_requests(first_requests_path, requests[:1])
             write_requests(requests_path, requests)
 
             first_calls: list[int] = []
@@ -1200,6 +1240,7 @@ class OpenAIBudgetAndResumeTests(unittest.TestCase):
                     live_execution=True,
                     api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
                     max_requests=1,
+                    max_retries=0,
                     max_total_tokens=100_000,
                 ),
                 transport=first_transport,
@@ -1209,14 +1250,14 @@ class OpenAIBudgetAndResumeTests(unittest.TestCase):
                 {"CAPE_LOOP_TEST_OPENAI_KEY": "sk-not-retained"},
                 clear=True,
             ):
-                with self.assertRaises(BudgetExceeded):
-                    execute_jsonl(
-                        first_provider,
-                        requests_path,
-                        responses_path=responses_path,
-                        audit_path=audit_path,
-                    )
+                first_summary = execute_jsonl(
+                    first_provider,
+                    first_requests_path,
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                )
             self.assertEqual(first_calls, [1])
+            self.assertEqual(first_summary.executed_count, 1)
             self.assertEqual(len(read_responses(responses_path)), 1)
 
             second_calls: list[int] = []
@@ -1234,6 +1275,7 @@ class OpenAIBudgetAndResumeTests(unittest.TestCase):
                     live_execution=True,
                     api_key_env="CAPE_LOOP_TEST_OPENAI_KEY",
                     max_requests=2,
+                    max_retries=0,
                     max_total_tokens=100_000,
                 ),
                 transport=second_transport,

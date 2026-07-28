@@ -30,6 +30,10 @@ from cape_loop.experiment_c_review import (
     import_experiment_c_external_rescore,
     verify_experiment_c_external_rescore,
 )
+from cape_loop.gate_review import (
+    DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
+    OPENROUTER_COLLECTION_PROVENANCE,
+)
 from cape_loop.runner import run_experiment
 from cape_loop.schema_export import SCHEMAS
 
@@ -282,13 +286,13 @@ class ExperimentCExternalReviewTests(unittest.TestCase):
             }
         }
         summary = {
-            "provenance_mode": "selected_live_provider_collection",
+            "provenance_mode": "validated_direct_first_party_collection",
             "collection_status": "complete",
             "providers": ["anthropic", "google_gemini"],
         }
         with patch.object(
             review_module,
-            "validate_official_external_decoder_collection",
+            "validate_selected_external_decoder_collection",
             return_value=(self.judgments, inputs, summary),
         ) as validate:
             result = import_experiment_c_external_rescore(
@@ -306,7 +310,7 @@ class ExperimentCExternalReviewTests(unittest.TestCase):
         design = review["validation"]["source_design"]
         self.assertEqual(
             design["provenance_mode"],
-            "selected_live_provider_collection",
+            "validated_direct_first_party_collection",
         )
         self.assertTrue(design["provider_provenance_validated"])
         self.assertFalse(design["caller_declared_source_metadata_only"])
@@ -328,6 +332,66 @@ class ExperimentCExternalReviewTests(unittest.TestCase):
                 allow_reviewed_generic_decoders=False,
             )
 
+    def test_openrouter_collection_retains_gateway_provenance_boundary(
+        self,
+    ) -> None:
+        collection = self.root / "mock-openrouter-collection"
+        collection.mkdir()
+        output = self.root / "review-openrouter-provenance"
+        inputs = {
+            "decoder_judgments": {
+                "filename": "judgments.jsonl",
+                "sha256": "b" * 64,
+                "bytes": self.judgments_path.stat().st_size,
+                "record_count": len(self.judgments),
+            }
+        }
+        summary = {
+            "provenance_mode": "selected_openrouter_gateway_collection",
+            "collection_status": "complete",
+            "gateway": "openrouter",
+            "shared_gateway": True,
+            "first_party_origin_claimed": False,
+            "statistical_independence_claimed": False,
+        }
+        with patch.object(
+            review_module,
+            "validate_selected_external_decoder_collection",
+            return_value=(self.judgments, inputs, summary),
+        ) as validate:
+            result = import_experiment_c_external_rescore(
+                run_dir=self.run_dir,
+                judgments_path=self.judgments_path,
+                output_dir=output,
+                external_collection_dir=collection,
+                allow_reviewed_generic_decoders=False,
+            )
+        self.assertEqual(validate.call_count, 2)
+        self.assertFalse(result["provider_provenance_validated"])
+        self.assertTrue(result["gateway_provenance_validated"])
+        review = json.loads(
+            (output / "review.json").read_text(encoding="utf-8")
+        )
+        design = review["validation"]["source_design"]
+        self.assertEqual(
+            design["provenance_mode"],
+            "selected_openrouter_gateway_collection",
+        )
+        self.assertFalse(design["provider_provenance_validated"])
+        self.assertTrue(design["gateway_provenance_validated"])
+        self.assertFalse(design["first_party_origin_claimed"])
+        self.assertTrue(design["shared_gateway"])
+        self.assertFalse(design["distinct_transport_origins"])
+        boundary = review["interpretation_boundary"]
+        self.assertIn("audit-validated through OpenRouter", boundary)
+        self.assertIn("shares one gateway", boundary)
+        self.assertIn("no direct first-party provider origin", boundary)
+        valid, errors = verify_experiment_c_external_rescore(
+            output,
+            source_run_dir=self.run_dir,
+        )
+        self.assertTrue(valid, errors)
+
     def test_cli_requires_an_explicit_decoder_provenance_mode(self) -> None:
         parser = build_parser()
         base = [
@@ -347,11 +411,25 @@ class ExperimentCExternalReviewTests(unittest.TestCase):
         )
         self.assertTrue(generic.allow_reviewed_generic_decoders)
         self.assertIsNone(generic.external_collection_dir)
+        self.assertIsNone(generic.external_collection_provenance_mode)
         official = parser.parse_args(
             [*base, "--external-collection-dir", str(self.root)]
         )
         self.assertFalse(official.allow_reviewed_generic_decoders)
         self.assertEqual(official.external_collection_dir, self.root)
+        self.assertEqual(
+            official.external_collection_provenance_mode,
+            DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
+        )
+        openrouter = parser.parse_args(
+            [*base, "--openrouter-collection-dir", str(self.root)]
+        )
+        self.assertFalse(openrouter.allow_reviewed_generic_decoders)
+        self.assertEqual(openrouter.external_collection_dir, self.root)
+        self.assertEqual(
+            openrouter.external_collection_provenance_mode,
+            OPENROUTER_COLLECTION_PROVENANCE,
+        )
 
     def test_import_fails_closed_on_incomplete_or_third_source(self) -> None:
         incomplete = self.root / "incomplete.jsonl"

@@ -31,6 +31,7 @@ from cape_loop.sensitivity import (
     evaluate_grid,
     infer_axis_boundaries,
     response_model_at,
+    sensitivity_breadth_coverage,
     sensitivity_grid,
 )
 from cape_loop.beliefs import PreferenceBelief
@@ -44,6 +45,7 @@ class SensitivityTests(unittest.TestCase):
         mode: str = "replay",
         max_retries: int = 2,
         max_requests: int = 100,
+        sensitivity_design: str = "cartesian",
     ) -> AppConfig:
         return AppConfig(
             run=RunSection(
@@ -72,6 +74,7 @@ class SensitivityTests(unittest.TestCase):
                 calibration="none",
             ),
             sensitivity=SensitivitySection(
+                design=sensitivity_design,
                 decision_noise_values=(1.0,),
                 presentation_multipliers=(1.0,),
                 profile_strength_values=(0.8,),
@@ -112,8 +115,84 @@ class SensitivityTests(unittest.TestCase):
         rows = evaluate_grid(points, lambda point: {"metric": point.decision_noise})
         self.assertEqual(len(rows), len(points))
 
+    def test_one_at_a_time_grid_is_baseline_first_and_non_factorial(self) -> None:
+        points = sensitivity_grid(
+            design="one_at_a_time",
+            decision_noise_values=[1.0, 0.7],
+            presentation_multipliers=[1.0, 1.5],
+            rank_multipliers=[1.0, 0.5],
+            default_multipliers=[1.0, 1.5],
+            suggestion_multipliers=[1.0, 0.5],
+            profile_strength_values=[0.8, 0.65],
+            prior_uncertainty_values=[0.0, 0.4],
+            trajectory_lengths=[8, 12],
+            response_model_families=["random_utility", "rule_based"],
+            rule_noise_values=[0.15, 0.25],
+        )
+        # Baseline + one perturbation on each of eight numeric axes + two
+        # rule-based baseline points (one per declared rule-noise value).
+        self.assertEqual(len(points), 11)
+        self.assertEqual(len({point.point_id for point in points}), 11)
+
+        baseline = points[0]
+        numeric_fields = (
+            "decision_noise",
+            "presentation_multiplier",
+            "rank_multiplier",
+            "default_multiplier",
+            "suggestion_multiplier",
+            "profile_strength",
+            "prior_uncertainty",
+            "trajectory_length",
+        )
+        random_utility_points = points[:9]
+        self.assertTrue(
+            all(
+                point.response_model_family == "random_utility"
+                for point in random_utility_points
+            )
+        )
+        self.assertEqual(
+            [
+                sum(
+                    getattr(point, field) != getattr(baseline, field)
+                    for field in numeric_fields
+                )
+                for point in random_utility_points
+            ],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1],
+        )
+        alternate_family_points = points[9:]
+        self.assertEqual(
+            [point.rule_noise for point in alternate_family_points],
+            [0.15, 0.25],
+        )
+        for point in alternate_family_points:
+            self.assertEqual(
+                tuple(getattr(point, field) for field in numeric_fields),
+                tuple(getattr(baseline, field) for field in numeric_fields),
+            )
+
+    def test_sensitivity_design_rejects_unknown_values(self) -> None:
+        with self.assertRaisesRegex(
+            ConfigError,
+            "sensitivity.design must be",
+        ):
+            SensitivitySection.parse({"design": "fractional"})
+        with self.assertRaisesRegex(
+            ValueError,
+            "sensitivity design must be",
+        ):
+            sensitivity_grid(
+                design="fractional",
+                decision_noise_values=[1.0],
+                presentation_multipliers=[1.0],
+                profile_strength_values=[0.8],
+                trajectory_lengths=[8],
+            )
+
     def test_checked_in_sensitivity_config_loads(self) -> None:
-        config = load_config("configs/sensitivity.toml")
+        config = load_config("configs/offline/sensitivity.toml")
         self.assertEqual(config.experiment.kind, "sensitivity")
         self.assertEqual(len(config.sensitivity.decision_noise_values), 3)
 
@@ -145,9 +224,199 @@ class SensitivityTests(unittest.TestCase):
         self.assertTrue(any(isinstance(model, RandomUtilityModel) for model in models))
         self.assertTrue(any(isinstance(model, RuleBasedResponseModel) for model in models))
         self.assertEqual(
-            load_config("configs/sensitivity_full.toml").sensitivity.response_model_families,
+            load_config("configs/offline/sensitivity.toml").sensitivity.response_model_families,
             ("random_utility", "rule_based"),
         )
+
+    def test_full_sensitivity_oat_config_has_exact_declared_workload(self) -> None:
+        config = load_config("configs/offline/sensitivity.toml")
+        sensitivity = config.sensitivity
+        self.assertEqual(sensitivity.design, "one_at_a_time")
+        self.assertEqual(
+            (
+                sensitivity.decision_noise_values[0],
+                sensitivity.presentation_multipliers[0],
+                sensitivity.rank_multipliers[0],
+                sensitivity.default_multipliers[0],
+                sensitivity.suggestion_multipliers[0],
+                sensitivity.profile_strength_values[0],
+                sensitivity.prior_uncertainty_values[0],
+                sensitivity.trajectory_lengths[0],
+                sensitivity.response_model_families[0],
+                sensitivity.rule_noise_values[0],
+            ),
+            (
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.8,
+                0.0,
+                8,
+                "random_utility",
+                0.15,
+            ),
+        )
+        points = sensitivity_grid(
+            design=sensitivity.design,
+            decision_noise_values=sensitivity.decision_noise_values,
+            presentation_multipliers=sensitivity.presentation_multipliers,
+            rank_multipliers=sensitivity.rank_multipliers,
+            default_multipliers=sensitivity.default_multipliers,
+            suggestion_multipliers=sensitivity.suggestion_multipliers,
+            profile_strength_values=sensitivity.profile_strength_values,
+            prior_uncertainty_values=sensitivity.prior_uncertainty_values,
+            trajectory_lengths=sensitivity.trajectory_lengths,
+            response_model_families=sensitivity.response_model_families,
+            rule_noise_values=sensitivity.rule_noise_values,
+        )
+        self.assertEqual(len(points), 19)
+        self.assertEqual(sum(point.trajectory_length for point in points), 152)
+
+        # Each point runs one incorrect-profile condition across the declared
+        # domain × user × replicate × policy × updater cells.
+        cells_per_point = (
+            len(config.experiment.domains)
+            * config.experiment.users
+            * config.experiment.trajectories_per_cell
+            * len(config.experiment.policies)
+            * len(config.experiment.updaters)
+        )
+        self.assertEqual(cells_per_point, 1_536)
+        self.assertEqual(len(points) * cells_per_point, 29_184)
+        self.assertEqual(
+            sum(point.trajectory_length for point in points)
+            * cells_per_point,
+            233_472,
+        )
+
+    def test_one_at_a_time_grid_varies_one_axis_or_family(self) -> None:
+        points = sensitivity_grid(
+            design="one_at_a_time",
+            decision_noise_values=[1.0, 0.6],
+            presentation_multipliers=[1.0, 0.5],
+            rank_multipliers=[1.0, 0.5],
+            default_multipliers=[1.0, 0.5],
+            suggestion_multipliers=[1.0, 0.5],
+            profile_strength_values=[0.8, 0.65],
+            prior_uncertainty_values=[0.0, 0.35],
+            trajectory_lengths=[3, 6],
+            response_model_families=["random_utility", "rule_based"],
+            rule_noise_values=[0.15, 0.30],
+        )
+        self.assertEqual(len(points), 11)
+        self.assertEqual(
+            sum(point.trajectory_length for point in points),
+            36,
+        )
+        self.assertEqual(
+            sum(
+                point.response_model_family == "random_utility"
+                for point in points
+            ),
+            9,
+        )
+        self.assertEqual(
+            {
+                point.rule_noise
+                for point in points
+                if point.response_model_family == "rule_based"
+            },
+            {0.15, 0.30},
+        )
+        self.assertEqual(
+            len({point.point_id for point in points}),
+            len(points),
+        )
+
+    def test_gate6_breadth_covers_presentation_and_conditional_rule_noise(
+        self,
+    ) -> None:
+        points = sensitivity_grid(
+            design="one_at_a_time",
+            decision_noise_values=[1.0, 0.7],
+            presentation_multipliers=[1.0, 0.5],
+            rank_multipliers=[1.0, 0.5],
+            default_multipliers=[1.0, 0.5],
+            suggestion_multipliers=[1.0, 0.5],
+            profile_strength_values=[0.8, 0.65],
+            prior_uncertainty_values=[0.0, 0.4],
+            trajectory_lengths=[8, 4],
+            response_model_families=["random_utility", "rule_based"],
+            rule_noise_values=[0.15, 0.25],
+        )
+        passing = [
+            {
+                **point.to_dict(),
+                "operational_joint_region": True,
+            }
+            for point in points
+        ]
+        levels, survival, passed = sensitivity_breadth_coverage(
+            points,
+            passing,
+        )
+        self.assertTrue(passed)
+        self.assertEqual(levels["presentation_multiplier"], [0.5, 1.0])
+        self.assertEqual(levels["rule_noise"], [0.15, 0.25])
+        self.assertTrue(all(survival["presentation_multiplier"].values()))
+        self.assertTrue(all(survival["rule_noise"].values()))
+
+        without_presentation_perturbation = [
+            row
+            for row in passing
+            if row["presentation_multiplier"] != 0.5
+        ]
+        _, presentation_survival, presentation_passed = (
+            sensitivity_breadth_coverage(
+                points,
+                without_presentation_perturbation,
+            )
+        )
+        self.assertFalse(presentation_passed)
+        self.assertFalse(presentation_survival["presentation_multiplier"]["0.5"])
+
+        without_rule_noise_perturbation = [
+            row
+            for row in passing
+            if not (
+                row["response_model_family"] == "rule_based"
+                and row["rule_noise"] == 0.25
+            )
+        ]
+        # A malformed non-rule row carrying the same number must not satisfy
+        # this conditional axis.
+        without_rule_noise_perturbation.append(
+            {
+                **points[0].to_dict(),
+                "rule_noise": 0.25,
+                "operational_joint_region": True,
+            }
+        )
+        _, rule_survival, rule_passed = sensitivity_breadth_coverage(
+            points,
+            without_rule_noise_perturbation,
+        )
+        self.assertFalse(rule_passed)
+        self.assertFalse(rule_survival["rule_noise"]["0.25"])
+
+    def test_sensitivity_design_is_strict(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "sensitivity.design"):
+            AppConfig.parse(
+                {
+                    "schema_version": 1,
+                    "sensitivity": {"design": "fractional"},
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "sensitivity design"):
+            sensitivity_grid(
+                design="fractional",
+                decision_noise_values=[1.0],
+                presentation_multipliers=[1.0],
+                profile_strength_values=[0.8],
+                trajectory_lengths=[3],
+            )
 
     def test_prior_uncertainty_and_phase_boundaries_are_explicit(self) -> None:
         point = PreferenceBelief.point_mass((2, 2, 2))
@@ -308,7 +577,11 @@ class SensitivityTests(unittest.TestCase):
                 }
 
         with TemporaryDirectory() as directory:
-            config = self._llm_config(directory, mode="openai")
+            config = self._llm_config(
+                directory,
+                mode="openai",
+                sensitivity_design="one_at_a_time",
+            )
             run = RunArtifacts.create(config, root=directory)
             provider = UniformProvider()
             summary = _run_sensitivity(
@@ -360,6 +633,21 @@ class SensitivityTests(unittest.TestCase):
             self.assertFalse(
                 provider_manifest["credentials_retained"]
             )
+            phase_specification = json.loads(
+                (
+                    run.path
+                    / "metrics"
+                    / "sensitivity-phase-specification.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                phase_specification["design"],
+                "one_at_a_time",
+            )
+            self.assertFalse(
+                phase_specification["interaction_effects_estimable"]
+            )
+            self.assertEqual(phase_specification["declared_points"], 1)
             grand = json.loads(
                 (
                     run.path / "metrics" / "sensitivity-grand.jsonl"

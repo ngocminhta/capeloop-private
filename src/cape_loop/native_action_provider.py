@@ -1826,9 +1826,13 @@ def _build_collection_plan(
         "budget_accounting_unit": "actual_transport_attempt",
         "max_requests": config.max_requests,
         "max_total_tokens": config.max_total_tokens,
-        "within_declared_budget": (
+        "initial_workload_within_declared_budget": (
             len(requests) <= config.max_requests
             and conservative <= config.max_total_tokens
+        ),
+        "within_declared_budget": (
+            theoretical_attempts <= config.max_requests
+            and theoretical_tokens <= config.max_total_tokens
         ),
         "collection_config": collection_config,
         "collection_config_sha256": _digest(collection_config),
@@ -1898,6 +1902,18 @@ def execute_openai_native_actions(
         raise ValueError(
             "native action collection has no eligible retained requests"
         )
+    prepared = tuple(provider.prepare(request) for request in requests)
+    preflight = _build_collection_plan(
+        run,
+        provider.config,
+        requests,
+        prepared,
+    )
+    if not preflight["within_declared_budget"]:
+        raise ValueError(
+            "native action corpus exceeds the declared hard budget after "
+            "retry expansion"
+        )
     output.mkdir(parents=True, exist_ok=True)
     lock_path = output / ".collection.lock"
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
@@ -1949,11 +1965,16 @@ def _execute_openai_native_actions_locked(
         request.request_id: item
         for request, item in zip(material, prepared_rows)
     }
-    if len(material) > provider.config.max_requests or sum(
-        item.estimated_max_tokens for item in prepared.values()
-    ) > provider.config.max_total_tokens:
+    plan = _build_collection_plan(
+        run_dir,
+        provider.config,
+        material,
+        prepared_rows,
+    )
+    if not plan["within_declared_budget"]:
         raise ValueError(
-            "native action corpus exceeds the declared hard budget"
+            "native action corpus exceeds the declared hard budget after "
+            "retry expansion"
         )
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -1963,12 +1984,6 @@ def _execute_openai_native_actions_locked(
     audit_path = output / "provider-audit.jsonl"
     action_path = output / "native-actions.jsonl"
     manifest_path = output / "execution-manifest.json"
-    plan = _build_collection_plan(
-        run_dir,
-        provider.config,
-        material,
-        prepared_rows,
-    )
     if plan_path.exists():
         try:
             existing_plan = json.loads(plan_path.read_text(encoding="utf-8"))

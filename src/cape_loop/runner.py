@@ -9,10 +9,13 @@ from statistics import mean
 from typing import Any, Mapping, Sequence
 import json
 import math
+import tomllib
 
 from .artifacts import (
     RunArtifacts,
     config_digest,
+    file_sha256,
+    read_control_bytes,
     source_tree_digest,
     verify_run,
 )
@@ -91,6 +94,10 @@ from .llm_outcomes import (
     cached_outcome_manifest,
     score_cached_raw_calibrated_terminal,
 )
+from .llm_preflight import (
+    build_llm_request_preflight,
+    require_live_llm_budget,
+)
 from .native import NativeMemoryState
 from .openai_provider import (
     DEFAULT_OPENAI_MODEL_ROLES,
@@ -122,6 +129,7 @@ from .sensitivity import (
     classify_phase_point,
     infer_axis_boundaries,
     response_model_at,
+    sensitivity_breadth_coverage,
     sensitivity_grid,
 )
 from .schemas import LatentUser, Observation, THETA_VALUES
@@ -610,93 +618,21 @@ def _registry(
 def _sensitivity_llm_request_preflight(
     config: AppConfig,
 ) -> dict[str, Any] | None:
-    """Return an exact logical and worst-case live-attempt grid bound.
-
-    Every LLM updater is called once per turn in every declared
-    domain/user/replicate/policy cell. Live modes expand that logical count by
-    ``max_retries + 1`` because provider budgets count physical HTTP attempts.
-    Replay lookups have no transport-attempt budget.
-    """
-
+    """Compatibility wrapper for the sensitivity-specific retained record."""
     if config.experiment.kind != "sensitivity":
         return None
-    llm_updater_ids = tuple(
-        updater_id
-        for updater_id in config.experiment.updaters
-        if updater_id.startswith("llm_")
-    )
-    if not llm_updater_ids:
+    preflight = build_llm_request_preflight(config)
+    if preflight is None:
         return None
-    points = sensitivity_grid(
-        decision_noise_values=config.sensitivity.decision_noise_values,
-        presentation_multipliers=(
-            config.sensitivity.presentation_multipliers
-        ),
-        rank_multipliers=config.sensitivity.rank_multipliers,
-        default_multipliers=config.sensitivity.default_multipliers,
-        suggestion_multipliers=(
-            config.sensitivity.suggestion_multipliers
-        ),
-        profile_strength_values=(
-            config.sensitivity.profile_strength_values
-        ),
-        prior_uncertainty_values=(
-            config.sensitivity.prior_uncertainty_values
-        ),
-        trajectory_lengths=config.sensitivity.trajectory_lengths,
-        response_model_families=(
-            config.sensitivity.response_model_families
-        ),
-        rule_noise_values=config.sensitivity.rule_noise_values,
-    )
-    cell_multiplier = (
-        len(config.experiment.domains)
-        * config.experiment.users
-        * config.experiment.trajectories_per_cell
-        * len(config.experiment.policies)
-        * len(llm_updater_ids)
-    )
-    logical_requests = cell_multiplier * sum(
-        point.trajectory_length for point in points
-    )
-    live = config.llm.mode in {"openai", "openrouter"}
-    retry_expansion_factor = config.llm.max_retries + 1 if live else None
-    physical_attempt_upper_bound = (
-        logical_requests * retry_expansion_factor
-        if retry_expansion_factor is not None
-        else None
-    )
     return {
-        "schema_version": 1,
+        **preflight,
         "kind": "sensitivity-llm-request-preflight",
-        "execution_mode": config.llm.mode,
-        "grid_points": len(points),
-        "llm_updater_ids": list(llm_updater_ids),
         "domains": len(config.experiment.domains),
         "users": config.experiment.users,
         "trajectories_per_cell": (
             config.experiment.trajectories_per_cell
         ),
         "policies": len(config.experiment.policies),
-        "sum_trajectory_lengths_over_points": sum(
-            point.trajectory_length for point in points
-        ),
-        "logical_completion_upper_bound": logical_requests,
-        "live_transport": live,
-        "retry_expansion_factor": retry_expansion_factor,
-        "physical_http_attempt_upper_bound": (
-            physical_attempt_upper_bound
-        ),
-        "configured_max_requests": (
-            config.llm.max_requests if live else None
-        ),
-        "within_request_ceiling": (
-            physical_attempt_upper_bound <= config.llm.max_requests
-            if physical_attempt_upper_bound is not None
-            else None
-        ),
-        "calibration": config.llm.calibration,
-        "calibration_request_count": 0,
     }
 
 
@@ -791,7 +727,7 @@ def _llm_input_manifest(config: AppConfig) -> dict[str, Any] | None:
         }
     response_path = Path(config.llm.responses_file)
     try:
-        payload = response_path.read_bytes()
+        response_sha256 = file_sha256(response_path)
     except OSError as exc:
         raise ValueError(
             f"cannot read LLM replay responses {response_path}: {exc}"
@@ -806,7 +742,7 @@ def _llm_input_manifest(config: AppConfig) -> dict[str, Any] | None:
         "calibration": config.llm.calibration,
         "calibration_users": config.llm.calibration_users,
         "configured_path": config.llm.responses_file,
-        "sha256": sha256(payload).hexdigest(),
+        "sha256": response_sha256,
         "response_count": len(responses),
         "models": sorted({response.model_id for response in responses}),
     }
@@ -1217,15 +1153,15 @@ def _write_llm_exchange(
         provider_manifest["provider_audit_file"] = (
             "llm/provider-audit.jsonl"
         )
-        provider_manifest["provider_audit_sha256"] = sha256(
-            provider_audit_path.read_bytes()
-        ).hexdigest()
+        provider_manifest["provider_audit_sha256"] = file_sha256(
+            provider_audit_path
+        )
         provider_manifest["transport_attempts_file"] = (
             "llm/transport-attempts.jsonl"
         )
-        provider_manifest["transport_attempts_sha256"] = sha256(
-            provider_attempts_path.read_bytes()
-        ).hexdigest()
+        provider_manifest["transport_attempts_sha256"] = file_sha256(
+            provider_attempts_path
+        )
         provider_manifest["transport_attempt_event_count"] = len(
             live_provider.used_attempt_records
         )
@@ -3450,6 +3386,7 @@ def _run_sensitivity(
     live_provider: ResumableCompletionProvider | None = None,
 ) -> dict[str, Any]:
     points = sensitivity_grid(
+        design=config.sensitivity.design,
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=config.sensitivity.presentation_multipliers,
         rank_multipliers=config.sensitivity.rank_multipliers,
@@ -4043,6 +3980,20 @@ def _run_sensitivity(
         "metrics/sensitivity-phase-specification.json",
         {
             "schema_version": 1,
+            "design": config.sensitivity.design,
+            "design_interpretation": (
+                "full-factorial parameter and response-family crossing"
+                if config.sensitivity.design == "cartesian"
+                else (
+                    "baseline-first one-at-a-time marginal perturbations; "
+                    "interactions among sensitivity axes are not estimated"
+                )
+            ),
+            "interaction_effects_estimable": (
+                config.sensitivity.design == "cartesian"
+            ),
+            "baseline_point_id": points[0].point_id,
+            "declared_points": len(points),
             "criteria": [
                 criterion.to_dict() for criterion in phase_criteria
             ],
@@ -4115,45 +4066,14 @@ def _run_sensitivity(
     passing_response_families = {
         row["response_model_family"] for row in passing_phase_rows
     }
-    breadth_axes = {
-        "decision_noise": sorted(
-            {point.decision_noise for point in points}
-        ),
-        "rank_multiplier": sorted(
-            {point.rank_multiplier for point in points}
-        ),
-        "default_multiplier": sorted(
-            {point.default_multiplier for point in points}
-        ),
-        "suggestion_multiplier": sorted(
-            {point.suggestion_multiplier for point in points}
-        ),
-        "profile_strength": sorted(
-            {point.profile_strength for point in points}
-        ),
-        "prior_uncertainty": sorted(
-            {point.prior_uncertainty for point in points}
-        ),
-        "trajectory_length": sorted(
-            {point.trajectory_length for point in points}
-        ),
-    }
-    breadth_survival = {
-        axis: {
-            str(level): any(
-                row[axis] == level for row in passing_phase_rows
-            )
-            for level in levels
-        }
-        for axis, levels in breadth_axes.items()
-    }
+    (
+        breadth_axes,
+        breadth_survival,
+        breadth_levels_passed,
+    ) = sensitivity_breadth_coverage(points, passing_phase_rows)
     broad_parameters_passed = (
         grid_complete
-        and all(len(levels) >= 2 for levels in breadth_axes.values())
-        and all(
-            all(levels.values())
-            for levels in breadth_survival.values()
-        )
+        and breadth_levels_passed
     )
     required_domains = {"travel", "writing"}
     passing_domains = {
@@ -4195,6 +4115,10 @@ def _run_sensitivity(
                 "The effect survives broad declared simulator parameters.",
                 broad_parameters_passed,
                 {
+                    "sensitivity_design": config.sensitivity.design,
+                    "interaction_effects_estimable": (
+                        config.sensitivity.design == "cartesian"
+                    ),
                     "declared_levels": breadth_axes,
                     "passing_level_coverage": breadth_survival,
                     "completed_points": len(grand_rows),
@@ -4294,6 +4218,10 @@ def _run_sensitivity(
     return {
         "experiment": "sensitivity",
         "scientific_claim_status": "not_claimed",
+        "sensitivity_design": config.sensitivity.design,
+        "interaction_effects_estimable": (
+            config.sensitivity.design == "cartesian"
+        ),
         "declared_points": len(points),
         "completed_points": len(grand_rows),
         "stratified_rows": len(stratified_rows),
@@ -4368,19 +4296,58 @@ def run_experiment(
     """Run a validated experiment and return its completed artifact identity."""
 
     config = config.validated()
+    source_material: bytes | None = None
+    if source_config is None:
+        config_origin: Mapping[str, Any] = {
+            "kind": "programmatic",
+            "descriptor": (
+                "AppConfig supplied directly to "
+                "cape_loop.runner.run_experiment"
+            ),
+            "config_sha256": config_digest(config),
+        }
+    else:
+        source = Path(source_config)
+        try:
+            source_material = read_control_bytes(
+                source,
+                label="source_config",
+            )
+            source_payload = tomllib.loads(
+                source_material.decode("utf-8")
+            )
+            retained_source_config = AppConfig.parse(source_payload)
+        except (
+            UnicodeDecodeError,
+            tomllib.TOMLDecodeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"source_config is not a valid CAPE-Loop TOML config: "
+                f"{source}: {exc}"
+            ) from exc
+        if retained_source_config.to_dict() != config.to_dict():
+            raise ValueError(
+                "source_config does not resolve to the supplied AppConfig; "
+                "refusing to create or resume an artifact"
+            )
+        config_origin = {
+            "kind": "toml_file",
+            "retained_file": "config.source.toml",
+            "source_filename": source.name,
+            "source_sha256": sha256(source_material).hexdigest(),
+            "config_sha256": config_digest(config),
+        }
+
+    llm_request_preflight = build_llm_request_preflight(config)
+    if execute_live:
+        # Enforce the whole-design bound before constructing a provider,
+        # reading a credential, creating a journal, or creating a run
+        # artifact. A non-executing live config still reaches the established
+        # explicit-authorization error in _live_completion_provider.
+        llm_request_preflight = require_live_llm_budget(config)
     sensitivity_llm_preflight = _sensitivity_llm_request_preflight(config)
-    if (
-        sensitivity_llm_preflight is not None
-        and sensitivity_llm_preflight["live_transport"]
-        and not sensitivity_llm_preflight["within_request_ceiling"]
-    ):
-        raise ValueError(
-            "live LLM sensitivity can require up to "
-            f"{sensitivity_llm_preflight['physical_http_attempt_upper_bound']} "
-            "physical HTTP attempts after retry expansion, exceeding "
-            f"llm.max_requests = {config.llm.max_requests}; reduce the grid "
-            "or raise the reviewed hard ceiling"
-        )
     llm_input = _llm_input_manifest(config)
     destination = _existing_run(config, output_root=output_root)
     archived_failed_run: Path | None = None
@@ -4464,26 +4431,6 @@ def run_experiment(
         raw_completion_provider = ReplayProvider(
             read_responses(config.llm.responses_file)
         )
-    source_material: bytes | None = None
-    if source_config is None:
-        config_origin: Mapping[str, Any] = {
-            "kind": "programmatic",
-            "descriptor": (
-                "AppConfig supplied directly to "
-                "cape_loop.runner.run_experiment"
-            ),
-            "config_sha256": config_digest(config),
-        }
-    else:
-        source = Path(source_config)
-        source_material = source.read_bytes()
-        config_origin = {
-            "kind": "toml_file",
-            "retained_file": "config.source.toml",
-            "source_filename": source.name,
-            "source_sha256": sha256(source_material).hexdigest(),
-            "config_sha256": config_digest(config),
-        }
     run = RunArtifacts.create(
         config,
         root=output_root,
@@ -4491,6 +4438,11 @@ def run_experiment(
     )
     if llm_input is not None:
         run.write_json("llm/input-manifest.json", llm_input)
+    if llm_request_preflight is not None:
+        run.write_json(
+            "llm/request-preflight.json",
+            llm_request_preflight,
+        )
     if sensitivity_llm_preflight is not None:
         run.write_json(
             "llm/sensitivity-request-preflight.json",

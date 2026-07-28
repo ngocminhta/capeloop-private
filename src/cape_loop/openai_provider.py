@@ -590,6 +590,37 @@ class ExecutionBudget:
         self.request_count = request_count
         self.total_tokens = total_tokens
 
+    def ensure_capacity(
+        self,
+        *,
+        request_count: int,
+        total_tokens: int,
+    ) -> None:
+        """Check a retry-expanded corpus without changing the ledger."""
+
+        if (
+            not isinstance(request_count, int)
+            or isinstance(request_count, bool)
+            or request_count < 0
+        ):
+            raise ValueError("request_count must be a non-negative integer")
+        if (
+            not isinstance(total_tokens, int)
+            or isinstance(total_tokens, bool)
+            or total_tokens < 0
+        ):
+            raise ValueError("total_tokens must be a non-negative integer")
+        if self.request_count + request_count > self.max_requests:
+            raise BudgetExceeded(
+                "remaining retry-expanded corpus would exceed "
+                f"max_requests={self.max_requests}"
+            )
+        if self.total_tokens + total_tokens > self.max_total_tokens:
+            raise BudgetExceeded(
+                "remaining retry-expanded corpus's conservative token "
+                f"allocation would exceed max_total_tokens={self.max_total_tokens}"
+            )
+
     def reserve(self, estimated_max_tokens: int) -> None:
         if self._reservation is not None:
             raise RuntimeError("only one in-flight budget reservation is supported")
@@ -1535,6 +1566,55 @@ def _validate_resumed_audit(
         )
 
 
+def require_retry_expanded_capacity(
+    provider: Any,
+    requests: Iterable[LLMRequest],
+    *,
+    completed_request_ids: Iterable[str] = (),
+) -> dict[str, int]:
+    """Admit every unfinished logical request before any provider dispatch.
+
+    Existing journals are reconciled before this helper is called. The check
+    reserves the worst-case physical-attempt and token envelope for every
+    remaining request, so an empty or partially populated output path cannot
+    turn an infeasible fresh corpus into a paid partial execution.
+    """
+
+    material = tuple(requests)
+    request_by_id = {request.request_id: request for request in material}
+    if len(request_by_id) != len(material):
+        raise ValueError("requests contain duplicate request IDs")
+    completed = frozenset(completed_request_ids)
+    unexpected = sorted(completed - set(request_by_id))
+    if unexpected:
+        raise ValueError(
+            "completed journals contain requests outside the current corpus: "
+            + ", ".join(unexpected)
+        )
+    pending = tuple(
+        request
+        for request in material
+        if request.request_id not in completed
+    )
+    attempts_per_request = provider.config.max_retries + 1
+    conservative_tokens = sum(
+        provider.prepare(request).estimated_max_tokens
+        for request in pending
+    )
+    retry_expanded_attempts = len(pending) * attempts_per_request
+    retry_expanded_tokens = conservative_tokens * attempts_per_request
+    provider.budget.ensure_capacity(
+        request_count=retry_expanded_attempts,
+        total_tokens=retry_expanded_tokens,
+    )
+    return {
+        "pending_request_count": len(pending),
+        "maximum_attempts_per_request": attempts_per_request,
+        "retry_expanded_attempt_count": retry_expanded_attempts,
+        "retry_expanded_token_allocation": retry_expanded_tokens,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionSummary:
     request_count: int
@@ -1695,6 +1775,11 @@ def _execute_requests_locked(
         request_count=restored_request_count,
         total_tokens=restored_tokens,
     )
+    require_retry_expanded_capacity(
+        provider,
+        material,
+        completed_request_ids=existing_responses,
+    )
 
     resumed_count = len(existing_responses)
     executed_count = 0
@@ -1841,6 +1926,37 @@ class ResumableCompletionProvider:
         self._used_request_ids: list[str] = []
         self.executed_count = 0
         self.resumed_count = 0
+
+    def require_static_corpus_capacity(
+        self,
+        requests: Iterable[LLMRequest],
+    ) -> dict[str, int]:
+        """Validate one known corpus and admit all of its remaining calls."""
+
+        material = tuple(requests)
+        request_by_id = {
+            request.request_id: request for request in material
+        }
+        if len(request_by_id) != len(material):
+            raise ValueError("requests contain duplicate request IDs")
+        unexpected = sorted(set(self._audits) - set(request_by_id))
+        if unexpected:
+            raise ValueError(
+                "adaptive journals contain requests outside the current "
+                "static corpus: "
+                + ", ".join(unexpected)
+            )
+        for request_id, audit in self._audits.items():
+            _validate_resumed_audit(
+                audit,
+                request_by_id[request_id],
+                self.provider,
+            )
+        return require_retry_expanded_capacity(
+            self.provider,
+            material,
+            completed_request_ids=self._responses,
+        )
 
     def complete(self, request: LLMRequest) -> LLMResponse:
         self._attempt_ledger.validate_request(request, self.provider)

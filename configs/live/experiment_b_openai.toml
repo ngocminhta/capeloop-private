@@ -1,32 +1,36 @@
 schema_version = 1
 
+# Canonical budget-bounded direct-OpenAI Experiment B pilot. The balanced and soft-profile policy
+# arms preserve the selection-versus-attribution decomposition; the two LLM
+# arms provide the full-context baseline and provenance-aware H7 mitigation.
+# Exact preflight: 768 experiment + 96 calibration = 864 HTTP attempts.
+
 [run]
-name = "experiment-a-openai-replication-pilot"
+name = "experiment-b-openai-primary-pilot"
 seed = 1729
 output_root = "runs"
 deterministic = false
 
 [experiment]
-kind = "provenance_audit"
+kind = "closed_loop"
 domains = ["travel", "writing"]
-mechanisms = ["balanced", "restricted", "default", "suggested"]
-response_modes = ["controlled_anchor", "naturally_sampled"]
+mechanisms = ["ranking", "default", "suggestion"]
+response_modes = ["naturally_sampled"]
 prior_strengths = [0.0]
-policies = ["balanced"]
+policies = ["balanced", "soft_profile_conditioned"]
 updaters = [
-  "no_update",
-  "exact_action_aware",
   "fitted_action_aware",
   "fitted_action_unaware",
-  "llm_response_only",
+  "response_only",
+  "full_context_blind",
+  "provenance_discount",
   "llm_full_context",
   "llm_provenance_aware",
-  "provenance_discount",
 ]
-users = 2
+users = 8
 trajectories_per_cell = 1
-turns = 1
-bootstrap_replicates = 0
+turns = 3
+bootstrap_replicates = 2000
 
 [response_model]
 beta = 1.0
@@ -38,9 +42,9 @@ susceptibility_levels = [0.15, 0.45, 0.85]
 minimum_matched_probability = 0.05
 
 [inference]
-training_interactions = 512
-fit_steps = 600
-learning_rate = 0.04
+training_interactions = 4096
+fit_steps = 1200
+learning_rate = 0.025
 l2 = 0.001
 calibration = "temperature"
 
@@ -56,14 +60,14 @@ ranking_tie_tolerance = 1e-6
 mode = "openai"
 calibration = "temperature"
 calibration_users = 1
-model_role = "replication"
-model = ""
-reasoning_effort = ""
+model_role = "primary"
+model = "gpt-5.6-sol"
+reasoning_effort = "medium"
 api_key_env = "OPENAI_API_KEY"
 base_url = "https://api.openai.com"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-max_retries = 4
+max_retries = 0
 max_output_tokens = 2048
 max_requests = 900
 max_total_tokens = 6000000

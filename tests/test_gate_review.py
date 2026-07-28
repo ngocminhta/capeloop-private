@@ -38,6 +38,7 @@ from cape_loop.gate_review import (
     DecoderSourcePairAssessment,
     DecoderSourceReview,
     NativeTerminalActionRecord,
+    OPENROUTER_COLLECTION_PROVENANCE,
     import_native_gate_review,
     validate_official_external_decoder_collection,
     verify_gate_review,
@@ -45,11 +46,17 @@ from cape_loop.gate_review import (
 from cape_loop.heldout import TerminalAction
 from cape_loop.native_action_provider import (
     OpenAINativeActionProvider,
+    _build_collection_plan,
+    build_native_action_requests,
     execute_openai_native_actions,
 )
 from cape_loop.openai_provider import (
     HTTPResult as OpenAIHTTPResult,
     OpenAIProviderConfig,
+)
+from cape_loop.openrouter_provider import (
+    HTTPResult as OpenRouterHTTPResult,
+    OpenRouterChatProvider,
 )
 from cape_loop.runner import run_experiment
 from cape_loop.schema_export import SCHEMAS
@@ -172,6 +179,72 @@ def _external_provider(config: object) -> ExternalDecoderProvider:
         )
 
     return ExternalDecoderProvider(
+        config,
+        transport=transport,
+        epoch_time=lambda: 1_800_000_000.0,
+    )
+
+
+def _openrouter_external_provider(config: object) -> OpenRouterChatProvider:
+    model = str(getattr(config, "model"))
+    upstream = "Anthropic" if model.startswith("anthropic/") else "Google"
+
+    def transport(**_: object) -> OpenRouterHTTPResult:
+        raw = {
+            "id": f"generation-gate-review-{upstream.lower()}",
+            "object": "chat.completion",
+            "created": 1_800_000_000,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps(
+                            {"beliefs": _EXTERNAL_BELIEFS}
+                        ),
+                    },
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 80,
+                "completion_tokens": 40,
+                "total_tokens": 120,
+            },
+            "openrouter_metadata": {
+                "requested": model,
+                "strategy": "direct",
+                "attempt": 1,
+                "endpoints": {
+                    "available": [
+                        {
+                            "provider": upstream,
+                            "model": model,
+                            "selected": True,
+                        }
+                    ]
+                },
+                "attempts": [
+                    {
+                        "provider": upstream,
+                        "model": model,
+                        "status": 200,
+                    }
+                ],
+                "pipeline": [],
+            },
+        }
+        return OpenRouterHTTPResult(
+            status=200,
+            headers={
+                "X-OpenRouter-Cache-Status": "MISS",
+                "X-Generation-Id": raw["id"],
+            },
+            body=json.dumps(raw).encode("utf-8"),
+        )
+
+    return OpenRouterChatProvider(
         config,
         transport=transport,
         epoch_time=lambda: 1_800_000_000.0,
@@ -379,7 +452,7 @@ class GateReviewIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(
                 wrapped_summary["provenance_mode"],
-                "selected_live_provider_collection",
+                "validated_direct_first_party_collection",
             )
             source_metadata = {
                 judgment.decoder_instance_id: (
@@ -499,7 +572,7 @@ class GateReviewIntegrationTests(unittest.TestCase):
             ]["collection_provenance"]
             self.assertEqual(
                 decoder_provenance["provenance_mode"],
-                "selected_live_provider_collection",
+                "validated_direct_first_party_collection",
             )
             self.assertTrue(
                 decoder_provenance["all_collection_files_digest_bound"]
@@ -539,6 +612,190 @@ class GateReviewIntegrationTests(unittest.TestCase):
                             (native_collection / filename).read_bytes()
                         ).hexdigest(),
                     )
+
+            openrouter_collection = root / "openrouter-decoder-collection"
+            with (
+                patch(
+                    "cape_loop.cli.OpenRouterChatProvider",
+                    side_effect=_openrouter_external_provider,
+                ),
+                patch.dict(
+                    "os.environ",
+                    {"OPENROUTER_API_KEY": "test-openrouter-key"},
+                    clear=True,
+                ),
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(
+                    cli_main(
+                        [
+                            "decoder-study",
+                            "execute-openrouter",
+                            str(requests_path),
+                            str(openrouter_collection),
+                            "--execute-live",
+                        ]
+                    ),
+                    0,
+                )
+            openrouter_judgments_path = (
+                openrouter_collection / "judgments.jsonl"
+            )
+            openrouter_judgments = read_external_decoder_judgments(
+                openrouter_judgments_path
+            )
+            openrouter_source_metadata = {
+                judgment.decoder_instance_id: (
+                    judgment.decoder_family_id,
+                    judgment.judgment_origin,
+                    judgment.source_descriptor,
+                )
+                for judgment in openrouter_judgments
+            }
+            openrouter_source_ids = sorted(openrouter_source_metadata)
+            openrouter_review = DecoderSourceReview.build(
+                review_id="gate4-openrouter-source-review",
+                responsible_researcher_id="researcher-1",
+                reviewed_at="2026-07-26T12:00:00+00:00",
+                requests_sha256=sha256(
+                    requests_path.read_bytes()
+                ).hexdigest(),
+                judgments_sha256=sha256(
+                    openrouter_judgments_path.read_bytes()
+                ).hexdigest(),
+                decision="eligible_distinct_sources",
+                source_assessments=tuple(
+                    DecoderSourceAssessment(
+                        source_id,
+                        openrouter_source_metadata[source_id][0],
+                        openrouter_source_metadata[source_id][1],
+                        openrouter_source_metadata[source_id][2],
+                        True,
+                        "Reviewed family and shared-gateway dependencies.",
+                    )
+                    for source_id in openrouter_source_ids
+                ),
+                pair_assessments=tuple(
+                    DecoderSourcePairAssessment(
+                        left,
+                        right,
+                        True,
+                        "Families are admitted for this reviewed scope; the "
+                        "artifact does not claim statistical independence.",
+                    )
+                    for left, right in combinations(
+                        openrouter_source_ids, 2
+                    )
+                ),
+            )
+            openrouter_review_path = root / "openrouter-source-review.json"
+            openrouter_review_path.write_text(
+                canonical_json(openrouter_review.to_dict()) + "\n",
+                encoding="utf-8",
+            )
+            openrouter_output = root / "gate-review-openrouter"
+            openrouter_result = import_native_gate_review(
+                run_dir=run_dir,
+                requests_path=requests_path,
+                judgments_path=openrouter_judgments_path,
+                truth_labels_path=truth_path,
+                native_collection_dir=native_collection,
+                source_review_path=openrouter_review_path,
+                output_dir=openrouter_output,
+                external_collection_dir=openrouter_collection,
+                external_collection_provenance_mode=(
+                    OPENROUTER_COLLECTION_PROVENANCE
+                ),
+            )
+            self.assertEqual(
+                openrouter_result["claim_status"],
+                "not_claimed",
+            )
+            openrouter_valid, openrouter_errors = verify_gate_review(
+                openrouter_output,
+                source_run_dir=run_dir,
+            )
+            self.assertTrue(openrouter_valid, openrouter_errors)
+            openrouter_artifact = json.loads(
+                (openrouter_output / "gate-review.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            openrouter_provenance = openrouter_artifact[
+                "validation_summary"
+            ]["external_decoder_evidence"]["collection_provenance"]
+            self.assertEqual(
+                openrouter_provenance["provenance_mode"],
+                "selected_openrouter_gateway_collection",
+            )
+            self.assertTrue(openrouter_provenance["shared_gateway"])
+            self.assertFalse(
+                openrouter_provenance["first_party_origin_claimed"]
+            )
+            self.assertFalse(
+                openrouter_provenance[
+                    "strict_first_party_gate4_eligible"
+                ]
+            )
+            self.assertFalse(
+                openrouter_provenance[
+                    "statistical_independence_claimed"
+                ]
+            )
+
+            rejected_openrouter_review = DecoderSourceReview.build(
+                review_id="gate4-openrouter-source-review-rejected",
+                responsible_researcher_id="researcher-1",
+                reviewed_at="2026-07-26T12:00:00+00:00",
+                requests_sha256=sha256(
+                    requests_path.read_bytes()
+                ).hexdigest(),
+                judgments_sha256=sha256(
+                    openrouter_judgments_path.read_bytes()
+                ).hexdigest(),
+                decision="eligible_distinct_sources",
+                source_assessments=openrouter_review.source_assessments,
+                pair_assessments=tuple(
+                    DecoderSourcePairAssessment(
+                        left,
+                        right,
+                        False,
+                        "Shared-gateway dependency rejected for this scope.",
+                    )
+                    for left, right in combinations(
+                        openrouter_source_ids, 2
+                    )
+                ),
+            )
+            rejected_openrouter_review_path = (
+                root / "openrouter-source-review-rejected.json"
+            )
+            rejected_openrouter_review_path.write_text(
+                canonical_json(rejected_openrouter_review.to_dict()) + "\n",
+                encoding="utf-8",
+            )
+            rejected_openrouter_output = (
+                root / "gate-review-openrouter-rejected"
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "not reviewed as genuinely distinct",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=openrouter_judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=native_collection,
+                    source_review_path=rejected_openrouter_review_path,
+                    output_dir=rejected_openrouter_output,
+                    external_collection_dir=openrouter_collection,
+                    external_collection_provenance_mode=(
+                        OPENROUTER_COLLECTION_PROVENANCE
+                    ),
+                )
+            self._assert_no_partial_output(rejected_openrouter_output)
+
             self.assertEqual(
                 before,
                 sha256((run_dir / "SHA256SUMS").read_bytes()).hexdigest(),
@@ -640,6 +897,86 @@ class GateReviewIntegrationTests(unittest.TestCase):
                     native_collection_dir=high_native_budget,
                     source_review_path=source_review_path,
                     output_dir=root / "high-native-budget-review",
+                    external_collection_dir=external_collection,
+                )
+
+            overcommitted_native = root / "overcommitted-native"
+            shutil.copytree(native_collection, overcommitted_native)
+            overcommitted_plan_path = (
+                overcommitted_native / "collection-plan.json"
+            )
+            overcommitted_plan = json.loads(
+                overcommitted_plan_path.read_text(encoding="utf-8")
+            )
+            raw_collection_config = dict(
+                overcommitted_plan["collection_config"]
+            )
+            raw_collection_config["max_total_tokens"] = 1
+            overcommitted_config = OpenAIProviderConfig(
+                model=raw_collection_config["model"],
+                reasoning_effort=raw_collection_config[
+                    "reasoning_effort"
+                ],
+                api_key_env=raw_collection_config["api_key_env"],
+                base_url=raw_collection_config["base_url"],
+                allow_custom_base_url=raw_collection_config[
+                    "allow_custom_base_url"
+                ],
+                timeout_seconds=raw_collection_config[
+                    "timeout_seconds"
+                ],
+                max_retries=raw_collection_config["max_retries"],
+                initial_backoff_seconds=raw_collection_config[
+                    "initial_backoff_seconds"
+                ],
+                max_backoff_seconds=raw_collection_config[
+                    "max_backoff_seconds"
+                ],
+                jitter_fraction=raw_collection_config[
+                    "jitter_fraction"
+                ],
+                max_output_tokens=raw_collection_config[
+                    "max_output_tokens"
+                ],
+                max_requests=raw_collection_config["max_requests"],
+                max_total_tokens=raw_collection_config[
+                    "max_total_tokens"
+                ],
+                live_execution=False,
+            )
+            overcommitted_requests = build_native_action_requests(run_dir)
+            overcommitted_provider = OpenAINativeActionProvider(
+                overcommitted_config
+            )
+            overcommitted_prepared = tuple(
+                overcommitted_provider.prepare(request)
+                for request in overcommitted_requests
+            )
+            overcommitted_plan = _build_collection_plan(
+                run_dir,
+                overcommitted_config,
+                overcommitted_requests,
+                overcommitted_prepared,
+            )
+            self.assertFalse(
+                overcommitted_plan["within_declared_budget"]
+            )
+            overcommitted_plan_path.write_text(
+                canonical_json(overcommitted_plan) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "retry-expanded plan exceeds",
+            ):
+                import_native_gate_review(
+                    run_dir=run_dir,
+                    requests_path=requests_path,
+                    judgments_path=judgments_path,
+                    truth_labels_path=truth_path,
+                    native_collection_dir=overcommitted_native,
+                    source_review_path=source_review_path,
+                    output_dir=root / "overcommitted-native-review",
                     external_collection_dir=external_collection,
                 )
 

@@ -1,28 +1,31 @@
 schema_version = 1
 
+# Canonical offline Experiment B reference design.
+
 [run]
-name = "simulator-sensitivity-full"
+name = "experiment-b-closed-loop"
 seed = 1729
 output_root = "runs"
 deterministic = true
 
 [experiment]
-kind = "sensitivity"
+kind = "closed_loop"
 domains = ["travel", "writing"]
 mechanisms = ["ranking", "default", "suggestion"]
 response_modes = ["naturally_sampled"]
 prior_strengths = [0.0]
-policies = ["balanced", "soft_profile_conditioned"]
+policies = ["balanced", "soft_profile_conditioned", "exploratory"]
 updaters = [
   "fitted_action_aware",
   "fitted_action_unaware",
   "full_context_blind",
-  "provenance_aware",
+  "provenance_discount",
+  "semantic_memory",
 ]
-users = 24
+users = 16
 trajectories_per_cell = 4
-turns = 1
-bootstrap_replicates = 0
+turns = 12
+bootstrap_replicates = 2000
 
 [response_model]
 beta = 1.0
@@ -34,9 +37,9 @@ susceptibility_levels = [0.15, 0.45, 0.85]
 minimum_matched_probability = 0.05
 
 [inference]
-training_interactions = 2048
+training_interactions = 4096
 fit_steps = 1200
-learning_rate = 0.03
+learning_rate = 0.025
 l2 = 0.001
 calibration = "temperature"
 
@@ -48,24 +51,7 @@ false_stability_tolerance = 0.02
 direction_tolerance = 1e-9
 ranking_tie_tolerance = 1e-6
 
-[sensitivity]
-decision_noise_values = [0.7, 1.3]
-presentation_multipliers = [1.0]
-rank_multipliers = [0.5, 1.5]
-default_multipliers = [0.5, 1.5]
-suggestion_multipliers = [0.5, 1.5]
-profile_strength_values = [0.65, 0.90]
-prior_uncertainty_values = [0.0, 0.40]
-trajectory_lengths = [4, 12]
-response_model_families = ["random_utility", "rule_based"]
-rule_noise_values = [0.10, 0.25]
-phase_min_selection_cost = 0.0
-phase_max_aware_ece = 0.10
-phase_min_attribution_cost = 0.0
-phase_min_self_confirming_rate = 0.0
-phase_min_suggestion_rejection_rate = 0.20
-
 [artifacts]
 retain_events = true
-retain_prompts = false
+retain_prompts = true
 checksum_manifest = true

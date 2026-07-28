@@ -17,8 +17,15 @@ from cape_loop.evaluation_suite import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PRIMARY = REPOSITORY_ROOT / "configs" / "openai_primary.toml"
-REPLICATION = REPOSITORY_ROOT / "configs" / "openai_replication.toml"
+PRIMARY = (
+    REPOSITORY_ROOT / "configs" / "live" / "experiment_a_openai.toml"
+)
+REPLICATION = (
+    REPOSITORY_ROOT
+    / "configs"
+    / "live"
+    / "experiment_a_openai_replication.toml"
+)
 
 
 class OpenAIEvaluationSuiteTests(unittest.TestCase):
@@ -57,10 +64,10 @@ class OpenAIEvaluationSuiteTests(unittest.TestCase):
                     role["conservative_request_upper_bound"]
                     for role in index["roles"]
                 },
-                {752},
+                {848},
             )
             self.assertTrue(
-                all(role["request_headroom"] == 148 for role in index["roles"])
+                all(role["request_headroom"] == 52 for role in index["roles"])
             )
             self.assertEqual(
                 len(

@@ -22,7 +22,7 @@ import os
 import shutil
 import tempfile
 
-from .artifacts import canonical_json, verify_run
+from .artifacts import canonical_json, file_sha256, verify_run
 from .config import AppConfig
 
 
@@ -154,7 +154,7 @@ def _digest(value: Any) -> str:
 
 
 def _file_digest(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 def _validate_digest(value: Any, name: str) -> str:
@@ -852,8 +852,17 @@ def _validate_gate_report(
     }
 
 
-def _normalized_scientific_config(config: AppConfig) -> dict[str, Any]:
-    payload = config.to_dict()
+def _normalized_scientific_config(
+    config: AppConfig | Mapping[str, Any],
+) -> dict[str, Any]:
+    # Preserve the exact resolved mapping retained by the producing release.
+    # Re-serializing through today's AppConfig would insert newer defaults and
+    # invalidate an otherwise immutable historical review.
+    payload = (
+        config.to_dict()
+        if isinstance(config, AppConfig)
+        else json.loads(canonical_json(config))
+    )
     run = payload["run"]
     for field in ("name", "seed", "output_root"):
         run.pop(field)
@@ -933,7 +942,7 @@ def _load_source(path: str | Path) -> tuple[dict[str, Any], AppConfig, dict[str,
     ):
         raise ValueError("Experiment C summary/gate binding is invalid")
 
-    scientific = _normalized_scientific_config(config)
+    scientific = _normalized_scientific_config(config_raw)
     scientific_sha256 = _digest(scientific)
     source_artifacts = {
         "run_directory_name": root.name,

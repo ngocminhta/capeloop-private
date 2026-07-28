@@ -24,7 +24,12 @@ import os
 import shutil
 import tempfile
 
-from .artifacts import RunArtifacts, canonical_json, verify_run
+from .artifacts import (
+    RunArtifacts,
+    canonical_json,
+    file_sha256,
+    verify_run,
+)
 from .beliefs import MarginalPreferenceBelief, PreferenceBelief
 from .config import AppConfig
 from .decoder_study import (
@@ -49,7 +54,14 @@ from .experiments.evaluation import (
     mean_terminal_battery_scores,
 )
 from .gates import GateCriterion, GateReport
-from .gate_review import validate_official_external_decoder_collection
+from .gate_review import (
+    EXTERNAL_COLLECTION_PROVENANCE_MODES,
+    OPENROUTER_COLLECTION_PROVENANCE,
+    validate_selected_external_decoder_collection,
+)
+from .openrouter_decoder_collection import (
+    is_openrouter_decoder_collection,
+)
 from .native import NativeMemoryState
 from .schemas import LatentUser
 
@@ -107,7 +119,7 @@ def _digest(value: Any) -> str:
 
 
 def _file_digest(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 def _validate_digest(value: object, name: str) -> str:
@@ -920,18 +932,43 @@ def _strict_two_source_design(
         raise ValueError(
             "official decoder collection provenance must be complete"
         )
+    provenance_mode = (
+        official_collection_summary.get(
+            "provenance_mode",
+            "validated_direct_first_party_collection",
+        )
+        if official_collection_summary is not None
+        else "reviewed_generic_judgments"
+    )
+    if provenance_mode not in {
+        "validated_direct_first_party_collection",
+        "selected_openrouter_gateway_collection",
+        "reviewed_generic_judgments",
+    }:
+        raise ValueError("decoder collection provenance mode is invalid")
+    openrouter_collection = (
+        provenance_mode == "selected_openrouter_gateway_collection"
+    )
     return {
         "import_audit": audit.to_dict(),
         "decoder_family_ids": sorted(families),
         "decoder_instance_ids": sorted(instances),
         "source_descriptors": sorted(descriptors),
         "metadata_design_eligible": True,
-        "provenance_mode": (
-            "selected_live_provider_collection"
-            if official
-            else "reviewed_generic_judgments"
+        "provenance_mode": provenance_mode,
+        "provider_provenance_validated": (
+            official and not openrouter_collection
         ),
-        "provider_provenance_validated": official,
+        "gateway_provenance_validated": (
+            official and openrouter_collection
+        ),
+        "first_party_origin_claimed": (
+            official and not openrouter_collection
+        ),
+        "shared_gateway": openrouter_collection,
+        "distinct_transport_origins": (
+            official and not openrouter_collection
+        ),
         "caller_declared_source_metadata_only": not official,
         "official_collection_inputs": (
             dict(official_collection_inputs)
@@ -1313,15 +1350,16 @@ def import_experiment_c_external_rescore(
     judgments_path: str | Path,
     output_dir: str | Path,
     external_collection_dir: str | Path | None = None,
+    external_collection_provenance_mode: str | None = None,
     allow_reviewed_generic_decoders: bool = True,
 ) -> dict[str, Any]:
     """Import exactly two decoder families and atomically rerun C.
 
-    ``external_collection_dir`` binds the judgments to the complete selected
-    first-party Anthropic/Gemini collection. The programmatic API retains a
-    backwards-compatible generic path, but labels its family/source metadata
-    as caller-declared rather than provider-validated. The CLI requires users
-    to choose one provenance mode explicitly.
+    ``external_collection_dir`` binds judgments to either a validated direct
+    first-party collection or the repository-selected audited OpenRouter
+    collection. The programmatic API retains a backwards-compatible generic
+    path, but labels its family/source metadata as caller-declared. The CLI
+    requires users to choose one provenance mode explicitly.
     """
 
     supplied_run = Path(run_dir)
@@ -1334,8 +1372,24 @@ def import_experiment_c_external_rescore(
     )
     if supplied_collection is None and not allow_reviewed_generic_decoders:
         raise ValueError(
-            "Experiment C import requires --external-collection-dir or "
+            "Experiment C import requires --external-collection-dir, "
+            "--openrouter-collection-dir, or "
             "--allow-reviewed-generic-decoders"
+        )
+    if (
+        supplied_collection is None
+        and external_collection_provenance_mode is not None
+    ):
+        raise ValueError(
+            "external decoder provenance mode requires a collection"
+        )
+    if (
+        external_collection_provenance_mode is not None
+        and external_collection_provenance_mode
+        not in EXTERNAL_COLLECTION_PROVENANCE_MODES
+    ):
+        raise ValueError(
+            "external decoder collection provenance mode is invalid"
         )
     if supplied_run.is_symlink():
         raise ValueError("source run cannot be a symlink")
@@ -1355,9 +1409,32 @@ def import_experiment_c_external_rescore(
     if supplied_collection is not None:
         if supplied_collection.is_symlink() or not supplied_collection.is_dir():
             raise ValueError(
-                "official decoder collection must be a safe directory"
+                "selected decoder collection must be a safe directory"
             )
         collection = supplied_collection.resolve()
+        if external_collection_provenance_mode is not None:
+            detected_openrouter = is_openrouter_decoder_collection(
+                collection
+            )
+            expected_openrouter = (
+                external_collection_provenance_mode
+                == OPENROUTER_COLLECTION_PROVENANCE
+            )
+            if detected_openrouter is not expected_openrouter:
+                expected_flag = (
+                    "--openrouter-collection-dir"
+                    if expected_openrouter
+                    else "--external-collection-dir"
+                )
+                actual = (
+                    "an OpenRouter shared-gateway collection"
+                    if detected_openrouter
+                    else "a direct first-party collection"
+                )
+                raise ValueError(
+                    f"{expected_flag} does not match the supplied artifact: "
+                    f"detected {actual}"
+                )
     if not run_path.is_dir():
         raise ValueError("source run must be a safe directory")
     if output == Path(output.anchor):
@@ -1400,6 +1477,9 @@ def import_experiment_c_external_rescore(
             judgments_input=judgments_source.absolute(),
             output=output,
             external_collection=collection,
+            external_collection_provenance_mode=(
+                external_collection_provenance_mode
+            ),
         )
     finally:
         try:
@@ -1416,6 +1496,7 @@ def _import_experiment_c_external_rescore_locked(
     judgments_input: Path,
     output: Path,
     external_collection: Path | None,
+    external_collection_provenance_mode: str | None,
 ) -> dict[str, Any]:
     """Compute and stage one rescore while holding its exclusive lock."""
 
@@ -1467,16 +1548,19 @@ def _import_experiment_c_external_rescore_locked(
     ] | None = None
     if external_collection is not None:
         official_validation = (
-            validate_official_external_decoder_collection(
+            validate_selected_external_decoder_collection(
                 external_collection,
                 run_dir=run_path,
                 requests=requests,
                 judgments_path=judgments_resolved,
+                expected_provenance_mode=(
+                    external_collection_provenance_mode
+                ),
             )
         )
         if official_validation[0] != judgments:
             raise ValueError(
-                "official decoder collection judgments changed ordering or "
+                "selected decoder collection judgments changed ordering or "
                 "content during validation"
             )
     source_design = _strict_two_source_design(
@@ -1809,8 +1893,19 @@ def _import_experiment_c_external_rescore_locked(
                 "ranking, and Gate 5 computation while retaining "
                 "claim_status=not_claimed. "
                 + (
-                    "Provider provenance was validated against the complete "
-                    "selected first-party Anthropic/Gemini collection. "
+                    (
+                        "Gateway provenance was audit-validated through "
+                        "OpenRouter. The selected Claude/Gemini pair shares "
+                        "one gateway; no direct first-party provider origin "
+                        "or distinct transport-origin claim is made. "
+                    )
+                    if source_design["provenance_mode"]
+                    == "selected_openrouter_gateway_collection"
+                    else (
+                        "Provider provenance was validated against the "
+                        "complete selected first-party Anthropic/Gemini "
+                        "collection. "
+                    )
                     if official_validation is not None
                     else (
                         "Decoder family, instance, source, and "
@@ -1885,16 +1980,19 @@ def _import_experiment_c_external_rescore_locked(
             raise ValueError("judgments changed while the import was running")
         if external_collection is not None:
             repeated_official_validation = (
-                validate_official_external_decoder_collection(
+                validate_selected_external_decoder_collection(
                     external_collection,
                     run_dir=run_path,
                     requests=requests,
                     judgments_path=judgments_resolved,
+                    expected_provenance_mode=(
+                        external_collection_provenance_mode
+                    ),
                 )
             )
             if repeated_official_validation != official_validation:
                 raise ValueError(
-                    "official decoder collection changed while the import "
+                    "selected decoder collection changed while the import "
                     "was running"
                 )
 
@@ -1932,6 +2030,9 @@ def _import_experiment_c_external_rescore_locked(
         "provenance_mode": source_design["provenance_mode"],
         "provider_provenance_validated": source_design[
             "provider_provenance_validated"
+        ],
+        "gateway_provenance_validated": source_design[
+            "gateway_provenance_validated"
         ],
         "gate_5_computed_status": gate_5.computed_status,
     }
@@ -2063,6 +2164,14 @@ def verify_experiment_c_external_rescore(
         provider_validated = source_design.get(
             "provider_provenance_validated"
         )
+        gateway_validated = source_design.get(
+            "gateway_provenance_validated"
+        )
+        first_party = source_design.get("first_party_origin_claimed")
+        shared_gateway = source_design.get("shared_gateway")
+        distinct_origins = source_design.get(
+            "distinct_transport_origins"
+        )
         caller_declared = source_design.get(
             "caller_declared_source_metadata_only"
         )
@@ -2070,22 +2179,53 @@ def verify_experiment_c_external_rescore(
         official_summary = source_design.get(
             "official_collection_summary"
         )
-        if provenance_mode == "selected_live_provider_collection":
+        if provenance_mode in {
+            "validated_direct_first_party_collection",
+            "selected_openrouter_gateway_collection",
+        }:
+            is_openrouter = (
+                provenance_mode
+                == "selected_openrouter_gateway_collection"
+            )
             if (
-                provider_validated is not True
+                provider_validated is not (not is_openrouter)
+                or gateway_validated is not is_openrouter
+                or first_party is not (not is_openrouter)
+                or shared_gateway is not is_openrouter
+                or distinct_origins is not (not is_openrouter)
                 or caller_declared is not False
                 or not isinstance(official_inputs, Mapping)
                 or not official_inputs
                 or not isinstance(official_summary, Mapping)
                 or official_summary.get("provenance_mode")
-                != "selected_live_provider_collection"
+                != provenance_mode
             ):
                 errors.append(
-                    "official decoder collection provenance is incomplete"
+                    "selected decoder collection provenance is incomplete"
+                )
+            if (
+                is_openrouter
+                and (
+                    official_summary.get("gateway") != "openrouter"
+                    or official_summary.get("shared_gateway") is not True
+                    or official_summary.get("first_party_origin_claimed")
+                    is not False
+                    or official_summary.get(
+                        "statistical_independence_claimed"
+                    )
+                    is not False
+                )
+            ):
+                errors.append(
+                    "OpenRouter decoder provenance boundary is incomplete"
                 )
         elif provenance_mode == "reviewed_generic_judgments":
             if (
                 provider_validated is not False
+                or gateway_validated is not False
+                or first_party is not False
+                or shared_gateway is not False
+                or distinct_origins is not False
                 or caller_declared is not True
                 or official_inputs is not None
                 or official_summary is not None

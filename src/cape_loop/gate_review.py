@@ -25,7 +25,7 @@ import os
 import shutil
 import tempfile
 
-from .artifacts import canonical_json, verify_run
+from .artifacts import canonical_json, file_sha256, verify_run
 from .decoder_study import (
     DecoderAnalysis,
     DecoderTruthLabel,
@@ -42,6 +42,11 @@ from .heldout import (
     HeldOutTerminalSuite,
     TerminalAction,
     score_heldout_terminal_actions,
+)
+from .openrouter_decoder_collection import (
+    OPENROUTER_COLLECTION_LOCKS,
+    is_openrouter_decoder_collection,
+    validate_openrouter_decoder_collection,
 )
 from .schemas import validate_theta
 
@@ -92,6 +97,18 @@ _EXTERNAL_COLLECTION_LOCKS = (
 _GATE4_EXTERNAL_MAX_REQUESTS = 900
 _GATE4_EXTERNAL_MAX_TOTAL_TOKENS = 6_000_000
 _GATE4_EXTERNAL_MAX_OUTPUT_TOKENS = 1_024
+DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE = (
+    "validated_direct_first_party_collection"
+)
+OPENROUTER_COLLECTION_PROVENANCE = (
+    "selected_openrouter_gateway_collection"
+)
+EXTERNAL_COLLECTION_PROVENANCE_MODES = frozenset(
+    {
+        DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
+        OPENROUTER_COLLECTION_PROVENANCE,
+    }
+)
 
 
 def _require_text(value: object, name: str) -> str:
@@ -121,7 +138,7 @@ def _digest_value(value: Any) -> str:
 
 
 def _file_digest(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1912,6 +1929,11 @@ def _validate_native_action_collection(
             "native action collection plan does not match the verified "
             "source run and implemented adapter"
         )
+    if expected_plan.get("within_declared_budget") is not True:
+        raise ValueError(
+            "native action collection retry-expanded plan exceeds its "
+            "declared hard budget"
+        )
     expected_request_bytes = "".join(
         canonical_json(request.to_dict()) + "\n" for request in requests
     ).encode("utf-8")
@@ -2803,7 +2825,7 @@ def _validate_external_decoder_collection(
         for key in _EXTERNAL_COLLECTION_FILES
     }
     summary = {
-        "provenance_mode": "selected_live_provider_collection",
+        "provenance_mode": DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
         "collection_status": "complete",
         "providers": [
             {
@@ -2933,6 +2955,123 @@ def validate_official_external_decoder_collection(
         return judgments, inputs, summary
 
 
+def validate_selected_external_decoder_collection(
+    collection_dir: str | Path,
+    *,
+    run_dir: str | Path,
+    requests: Sequence[ExternalDecoderRequest],
+    judgments_path: str | Path,
+    expected_provenance_mode: str | None = None,
+) -> tuple[
+    tuple[ExternalDecoderJudgment, ...],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
+    """Validate the selected direct or shared-gateway decoder collection.
+
+    When ``expected_provenance_mode`` is supplied, validation fails before
+    admitting an artifact of the opposite collection kind. This preserves
+    the semantic distinction carried by the two CLI collection flags.
+    """
+
+    is_openrouter = is_openrouter_decoder_collection(collection_dir)
+    if expected_provenance_mode is not None:
+        if expected_provenance_mode not in EXTERNAL_COLLECTION_PROVENANCE_MODES:
+            raise ValueError(
+                "external decoder collection provenance mode is invalid"
+            )
+        expected_openrouter = (
+            expected_provenance_mode == OPENROUTER_COLLECTION_PROVENANCE
+        )
+        if is_openrouter is not expected_openrouter:
+            expected_flag = (
+                "--openrouter-collection-dir"
+                if expected_openrouter
+                else "--external-collection-dir"
+            )
+            actual = (
+                "an OpenRouter shared-gateway collection"
+                if is_openrouter
+                else "a direct first-party collection"
+            )
+            raise ValueError(
+                f"{expected_flag} does not match the supplied artifact: "
+                f"detected {actual}"
+            )
+
+    if not is_openrouter:
+        return validate_official_external_decoder_collection(
+            collection_dir,
+            run_dir=run_dir,
+            requests=requests,
+            judgments_path=judgments_path,
+        )
+
+    supplied_run = Path(run_dir).absolute()
+    supplied_collection = Path(collection_dir).absolute()
+    supplied_judgments = Path(judgments_path).absolute()
+    if supplied_run.is_symlink() or not supplied_run.is_dir():
+        raise ValueError("source run must be a safe directory")
+    if (
+        supplied_collection.is_symlink()
+        or not supplied_collection.is_dir()
+    ):
+        raise ValueError(
+            "selected OpenRouter decoder evidence requires a complete "
+            "collection directory"
+        )
+    run_path = supplied_run.resolve()
+    collection = supplied_collection.resolve()
+    if collection == run_path or run_path in collection.parents:
+        raise ValueError(
+            "external decoder collection cannot equal or be inside the "
+            "source run"
+        )
+    valid, errors = verify_run(run_path)
+    if not valid:
+        raise ValueError(
+            "source run verification failed: " + "; ".join(errors)
+        )
+    source_run = _source_run_binding(run_path)
+    judgment_snapshot = _snapshot_file(
+        supplied_judgments,
+        name="decoder judgments",
+    )
+    locks = tuple(
+        (
+            f"OpenRouter decoder collection lock {name}",
+            collection / name,
+        )
+        for name in OPENROUTER_COLLECTION_LOCKS
+    )
+    with _hold_shared_collection_locks(locks):
+        validated = validate_openrouter_decoder_collection(
+            collection,
+            requests=tuple(requests),
+            judgments_path=supplied_judgments,
+        )
+        _assert_snapshot_unchanged(
+            supplied_judgments,
+            judgment_snapshot,
+            name="decoder judgments",
+        )
+        repeated = validate_openrouter_decoder_collection(
+            collection,
+            requests=tuple(requests),
+            judgments_path=supplied_judgments,
+        )
+        if repeated != validated:
+            raise ValueError(
+                "OpenRouter decoder collection changed during validation"
+            )
+        _assert_source_run_unchanged(
+            supplied_run,
+            run_path,
+            source_run,
+        )
+        return validated
+
+
 def import_native_gate_review(
     *,
     run_dir: str | Path,
@@ -2943,6 +3082,7 @@ def import_native_gate_review(
     source_review_path: str | Path,
     output_dir: str | Path,
     external_collection_dir: str | Path | None = None,
+    external_collection_provenance_mode: str | None = None,
     allow_reviewed_generic_decoders: bool = False,
 ) -> dict[str, Any]:
     """Validate evidence and atomically publish an immutable review."""
@@ -2979,6 +3119,21 @@ def import_native_gate_review(
             "external_collection_dir or set "
             "allow_reviewed_generic_decoders=True"
         )
+    if (
+        external_collection_dir is None
+        and external_collection_provenance_mode is not None
+    ):
+        raise ValueError(
+            "external decoder provenance mode requires a collection"
+        )
+    if (
+        external_collection_provenance_mode is not None
+        and external_collection_provenance_mode
+        not in EXTERNAL_COLLECTION_PROVENANCE_MODES
+    ):
+        raise ValueError(
+            "external decoder collection provenance mode is invalid"
+        )
     unresolved_native = supplied_native
     if unresolved_native.is_symlink() or not unresolved_native.is_dir():
         raise ValueError(
@@ -2993,6 +3148,7 @@ def import_native_gate_review(
         )
     external_collection: Path | None = None
     supplied_external: Path | None = None
+    external_collection_is_openrouter = False
     locks: list[tuple[str, Path]] = []
     if external_collection_dir is not None:
         unresolved_external = Path(external_collection_dir).absolute()
@@ -3018,18 +3174,41 @@ def import_native_gate_review(
                 "external decoder and native action collections must differ"
             )
         supplied_external = unresolved_external
+        external_collection_is_openrouter = is_openrouter_decoder_collection(
+            external_collection
+        )
+        if external_collection_provenance_mode is not None:
+            expected_openrouter = (
+                external_collection_provenance_mode
+                == OPENROUTER_COLLECTION_PROVENANCE
+            )
+            if external_collection_is_openrouter is not expected_openrouter:
+                expected_flag = (
+                    "--openrouter-collection-dir"
+                    if expected_openrouter
+                    else "--external-collection-dir"
+                )
+                actual = (
+                    "an OpenRouter shared-gateway collection"
+                    if external_collection_is_openrouter
+                    else "a direct first-party collection"
+                )
+                raise ValueError(
+                    f"{expected_flag} does not match the supplied artifact: "
+                    f"detected {actual}"
+                )
+        external_lock_names = (
+            OPENROUTER_COLLECTION_LOCKS
+            if external_collection_is_openrouter
+            else _EXTERNAL_COLLECTION_LOCKS
+        )
         # Match the collector's outer-to-inner nesting order.
         locks.extend(
             (
-                (
-                    "external decoder command collection",
-                    external_collection / _EXTERNAL_COLLECTION_LOCKS[0],
-                ),
-                (
-                    "external decoder journal collection",
-                    external_collection / _EXTERNAL_COLLECTION_LOCKS[1],
-                ),
+                f"external decoder collection lock {name}",
+                external_collection / name,
             )
+            for name in external_lock_names
         )
     locks.append(
         (
@@ -3056,6 +3235,9 @@ def import_native_gate_review(
                 output=output,
                 external_collection_dir=external_collection,
                 external_collection_input=supplied_external,
+                external_collection_is_openrouter=(
+                    external_collection_is_openrouter
+                ),
                 allow_reviewed_generic_decoders=(
                     allow_reviewed_generic_decoders
                 ),
@@ -3075,6 +3257,7 @@ def _import_native_gate_review_locked(
     output: Path,
     external_collection_dir: Path | None,
     external_collection_input: Path | None,
+    external_collection_is_openrouter: bool,
     allow_reviewed_generic_decoders: bool,
 ) -> dict[str, Any]:
     """Validate locked collections and stage one immutable review."""
@@ -3132,38 +3315,56 @@ def _import_native_gate_review_locked(
     external_collection_inputs: dict[str, dict[str, Any]]
     external_collection_summary: dict[str, Any]
     external_collection_snapshots: dict[str, _FileSnapshot] = {}
+    external_collection_validation: tuple[
+        tuple[ExternalDecoderJudgment, ...],
+        dict[str, dict[str, Any]],
+        dict[str, Any],
+    ] | None = None
     if external_collection_dir is not None:
         if external_collection_input is None:
             raise ValueError("external decoder collection path is missing")
-        external_collection_snapshots = _snapshot_collection_files(
-            external_collection_dir,
-            file_names=_EXTERNAL_COLLECTION_FILES,
-            lock_names=_EXTERNAL_COLLECTION_LOCKS,
-            label="external decoder collection",
-        )
+        if external_collection_is_openrouter:
+            external_collection_validation = (
+                validate_openrouter_decoder_collection(
+                    external_collection_dir,
+                    requests=requests,
+                    judgments_path=judgment_snapshot.path,
+                )
+            )
+        else:
+            external_collection_snapshots = _snapshot_collection_files(
+                external_collection_dir,
+                file_names=_EXTERNAL_COLLECTION_FILES,
+                lock_names=_EXTERNAL_COLLECTION_LOCKS,
+                label="external decoder collection",
+            )
+            external_collection_validation = (
+                _validate_external_decoder_collection(
+                    external_collection_dir,
+                    run_path=run_path,
+                    requests=requests,
+                    supplied_judgments=judgment_snapshot,
+                )
+            )
         (
             judgments,
             external_collection_inputs,
             external_collection_summary,
-        ) = _validate_external_decoder_collection(
-            external_collection_dir,
-            run_path=run_path,
-            requests=requests,
-            supplied_judgments=judgment_snapshot,
-        )
-        _assert_collection_unchanged(
-            external_collection_input,
-            external_collection_dir,
-            external_collection_snapshots,
-            file_names=_EXTERNAL_COLLECTION_FILES,
-            lock_names=_EXTERNAL_COLLECTION_LOCKS,
-            label="external decoder collection",
-        )
-        _assert_collection_manifest_bindings(
-            external_collection_inputs,
-            external_collection_snapshots,
-            label="external decoder collection",
-        )
+        ) = external_collection_validation
+        if not external_collection_is_openrouter:
+            _assert_collection_unchanged(
+                external_collection_input,
+                external_collection_dir,
+                external_collection_snapshots,
+                file_names=_EXTERNAL_COLLECTION_FILES,
+                lock_names=_EXTERNAL_COLLECTION_LOCKS,
+                label="external decoder collection",
+            )
+            _assert_collection_manifest_bindings(
+                external_collection_inputs,
+                external_collection_snapshots,
+                label="external decoder collection",
+            )
     else:
         if not allow_reviewed_generic_decoders:
             raise ValueError(
@@ -3523,14 +3724,31 @@ def _import_native_gate_review_locked(
                 raise ValueError(
                     "external decoder collection path is missing"
                 )
-            _assert_collection_unchanged(
-                external_collection_input,
-                external_collection_dir,
-                external_collection_snapshots,
-                file_names=_EXTERNAL_COLLECTION_FILES,
-                lock_names=_EXTERNAL_COLLECTION_LOCKS,
-                label="external decoder collection",
-            )
+            if external_collection_is_openrouter:
+                repeated_openrouter_validation = (
+                    validate_openrouter_decoder_collection(
+                        external_collection_dir,
+                        requests=requests,
+                        judgments_path=judgment_snapshot.path,
+                    )
+                )
+                if (
+                    repeated_openrouter_validation
+                    != external_collection_validation
+                ):
+                    raise ValueError(
+                        "OpenRouter decoder collection changed while the "
+                        "Gate 4 review was being built"
+                    )
+            else:
+                _assert_collection_unchanged(
+                    external_collection_input,
+                    external_collection_dir,
+                    external_collection_snapshots,
+                    file_names=_EXTERNAL_COLLECTION_FILES,
+                    lock_names=_EXTERNAL_COLLECTION_LOCKS,
+                    label="external decoder collection",
+                )
 
         staged_valid, staged_errors = verify_gate_review(
             stage,

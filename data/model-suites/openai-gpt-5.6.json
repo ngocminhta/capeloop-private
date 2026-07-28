@@ -26,7 +26,7 @@
       "role": "decoder",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "low",
-      "purpose": "High-volume blinded decoder and pilot workloads. Do not mix this role into within-model profile-writer comparisons."
+      "purpose": "Generic high-volume blinded-decoder and pilot workloads. This role is not a selected Gate 4 decoder source and must not be mixed into within-model profile-writer comparisons."
     }
   ],
   "invariants": {

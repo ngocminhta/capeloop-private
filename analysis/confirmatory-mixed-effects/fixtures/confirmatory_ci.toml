@@ -1,6 +1,6 @@
 schema_version = 1
 
-# Deterministic synthetic fixture for the optional R mixed-effects CI job.
+# Component-local deterministic fixture for the optional R mixed-effects CI job.
 # This configuration exercises the complete artifact and analysis contracts;
 # it is not a paper run and its generated values are not scientific evidence.
 

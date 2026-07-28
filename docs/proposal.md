@@ -9,6 +9,13 @@
 **Primary contribution:** Causal diagnosis of persistent-profile updating
 **Not a contribution:** A new recommendation algorithm, memory architecture, user simulator, or personalization controller
 
+> **Document status.** This is the scientific proposal and claim plan, not a
+> results report. The repository implements the declared software protocols,
+> but the paper-scale live-model, external-decoder, native-action, human, and
+> confirmatory-analysis evidence is not checked in. Every `[TBD]` below is
+> therefore intentional. See [Implementation status](implementation-status.md)
+> for the current executable and evidence boundaries.
+
 ## One-sentence pitch
 
 A user's acceptance of an agent-selected option is not independent evidence of preference; CAPE-Loop tests whether persistent LLM profile writers nevertheless treat restricted choices, defaults, rankings, and agent suggestions as if the user had freely revealed an intrinsic preference—and whether this error makes initially false profiles reinforce themselves.
@@ -296,9 +303,10 @@ That is substantially stronger than “the LLM differs from an omniscient simula
 Every updater receives:
 
 * the same prior distribution;
-* the complete action context;
 * the user response;
-* previous interaction history where applicable.
+* previous interaction history where applicable; and
+* exactly its declared information view: response-only, full visible context,
+  or full context plus policy provenance.
 
 It emits:
 
@@ -336,25 +344,41 @@ This track supports:
 * confidence gain;
 * calibration.
 
-LLM probabilities are calibrated only on development users using a declared transformation such as temperature scaling or isotonic regression. Both raw and calibrated results are reported.
+LLM probabilities are calibrated only on development users using the
+implemented temperature-scaling transformation; `none` is retained as an
+explicit uncalibrated ablation. Both raw and active calibrated results are
+reported.
 
 ## Track B: Native persistent memory
 
-Each system writes its ordinary memory representation:
+The current implementation evaluates three native updater families:
 
-* free-text profile;
-* episodic memory;
-* recurrent summary;
-* structured profile;
-* provenance-linked memory.
+* `episodic_memory`;
+* `semantic_memory`, including its policy-facing persona projection; and
+* `provenance_linked_memory`.
+
+Structured probabilistic updaters remain in Track A rather than being relabeled
+as native memory. Every eligible Track B trajectory retains its complete native
+state and the common held-out terminal suite.
 
 Native states are evaluated through:
 
-1. two independent blinded profile decoders;
+1. two separately executed blinded profile decoders from distinct model
+   families;
 2. the common terminal behavioral battery;
-3. native end-to-end actions.
+3. native end-to-end actions produced directly from the retained state.
 
 No main conclusion may depend on only one decoder.
+Distinct model families do not imply statistically independent errors,
+especially when both executions share a gateway or other infrastructure.
+
+The selected external-decoder protocol uses
+`anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` through the shared
+OpenRouter gateway. The selected native action adapter is
+`cape-loop-openai-native-agent-v1`, backed by OpenAI `gpt-5.6-sol`. These are
+versioned evaluation choices, not claims about all models from those
+developers. Direct Anthropic and Gemini transports remain optional
+first-party-origin replications.
 
 Track B prevents the paper from becoming merely a numerical Bayesian-reasoning benchmark.
 
@@ -887,7 +911,8 @@ This is pragmatic validation, not a claim that human judgments are an exact caus
 
 The controlled track is scientifically necessary but insufficient for a paper about persistent agents.
 
-The native validation will therefore include an inspectable **memory–persona–action loop**:
+The implemented native protocol provides an inspectable
+**memory–persona–action loop**:
 
 $$
 \text{episodic/semantic memory}
@@ -903,15 +928,26 @@ $$
 
 This follows the coupling pattern explicitly studied by PersonaAgent, in which memory-derived personas guide personalized actions and action outcomes refine memory. ([ACL Anthology][2])
 
-The paper need not claim a complete reproduction of that system. It should implement an inspectable adapter with:
+The repository does not claim a reproduction of that system. Its native
+updaters and selected action adapter provide:
 
 * logged episodic and semantic memories;
 * an explicit persona state;
-* deterministic or recorded policy actions;
+* deterministic diagnostic actions and separately collected recorded
+  model-mediated actions;
 * auditable memory updates;
 * a standardized terminal evaluation.
 
-The native experiment asks whether causal-provenance blindness observed in Track A also appears in a real persistent state loop.
+The selected model-mediated adapter,
+`cape-loop-openai-native-agent-v1`, sends the complete retained state and
+held-out suite to OpenAI `gpt-5.6-sol` and requires one content-bound action per
+item. Local deterministic projections are diagnostics and cannot satisfy the
+native-action requirement.
+
+The native experiment asks whether causal-provenance blindness observed in
+Track A also appears in an inspectable persistent state loop. The protocol is
+implemented; no eligible paper-scale external-decoder or native-action corpus
+is checked in.
 
 # 14. Diagnostic Mitigation, Not a New Method
 
@@ -1108,7 +1144,9 @@ Splits must be disjoint over:
 * scenario families;
 * natural-language paraphrase templates.
 
-Calibration transformations and fitted response-model parameters are learned only on training and development users.
+Fitted response-model parameters are learned from training users only.
+Calibration transformations and model-selection diagnostics use development
+users only. Neither stage uses test labels.
 
 The common terminal battery uses held-out items and does not reuse training provenance templates.
 
@@ -1336,7 +1374,11 @@ Show self-confirmation over user noise and presentation-effect strength.
 | `[System B]` |           `[TBD]` |         `[TBD]` |          `[TBD]` |            `[TBD]` |           `[TBD]` |
 | `[System C]` |           `[TBD]` |         `[TBD]` |          `[TBD]` |            `[TBD]` |           `[TBD]` |
 
-# 25. Eight-Week Execution Plan
+# 25. Original Eight-Week Execution Plan
+
+This table records the proposed sequencing. It is not the current repository
+status: the software components are implemented, while the paper evidence
+collection and responsible-researcher review remain outstanding.
 
 | Week | Deliverable                                                                                                                          |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1383,17 +1425,39 @@ Otherwise, the paper is primarily about recommendation exposure rather than prof
 
 ## Gate 4: Native-system validity
 
-At least one inspectable persistent memory–action loop must exhibit the same causal-provenance failure.
+At least one inspectable persistent memory–action loop must exhibit the same
+causal-provenance failure under the matched, equal-strength contrast. Every
+eligible state must also have:
+
+* blind judgments from at least two responsibly reviewed, genuinely distinct
+  decoder sources from distinct model families; and
+* hash-bound terminal actions emitted by the native system directly from the
+  retained native state.
+
+The selected decoder pair shares OpenRouter. It may satisfy the
+responsible-researcher-reviewed distinct-source protocol, but it does not
+establish distinct transport origins, first-party decoder origin, or
+statistically independent errors. The local deterministic decoders and
+structured/persona action projections are ineligible substitutes.
 
 Otherwise, restrict the claim to controlled profile updating.
 
 ## Gate 5: Evaluation implication
 
-Use the evaluation-reversal headline only when there is:
+Conceptually, the evaluation implication concerns rank disagreement,
+credible reversal, or meaningful selection regret. The executable gate uses
+the stronger preregisterable rules below:
 
-* low open/closed rank agreement;
-* statistically credible pairwise reversals;
-* or substantial Evaluation Selection Regret.
+* a joint-paired complete-user analysis resolves a system pair in opposite
+  directions in fixed-balanced and endogenous closed-loop evaluation and
+  resolves the corresponding regime shift; or
+* development inferential top tiers select different candidate sets and the
+  minimum held-out closed-loop Evaluation Selection Regret, together with its
+  conservative paired interval envelope, exceeds the declared practical
+  threshold.
+
+Kendall rank agreement, marginal rank intervals, and raw pairwise reversal
+probabilities remain descriptive and cannot pass Gate 5 by themselves.
 
 When rankings remain stable, retain the causal-provenance paper but remove the claim that static evaluation selects the wrong system.
 
@@ -1474,7 +1538,13 @@ The final conclusion would be:
 
 > **A persistent personalized agent can mistake compliance with its own interaction policy for independent evidence about the user. Once stored, that evidence changes later interactions and can make an initially false profile appear increasingly well supported.**
 
-This is now the version to implement. Further conceptual expansion would weaken it. The immediate priority is the anchor-option Experiment A pilot, the fitted action-aware baseline, and the structured-versus-native two-track interface; the full closed-loop run begins only after Gate 1 passes.
+The implementation now covers the anchor audit, fitted references, closed-loop
+decomposition, structured/native tracks, evaluation-validity analysis,
+provider-neutral and live-provider exchanges, immutable reviews, and the
+optional confirmatory mixed-effects harness. That software completeness is not
+evidence for the narrative above. The next scientific step is a separately
+authorized, preregistered collection and analysis wave; until then every result
+placeholder and gate claim remains unresolved.
 
 [1]: https://arxiv.org/abs/2602.07442 "Echoes in the Loop: Diagnosing Risks in LLM-Powered Recommender Systems under Feedback Loops"
 [2]: https://aclanthology.org/2026.findings-acl.1315/ "PersonaAgent: Bridging Memory and Action for Personalized LLM Agents ..."

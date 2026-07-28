@@ -42,7 +42,10 @@ from cape_loop.runner import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 OPENROUTER_CONFIG = (
-    REPOSITORY_ROOT / "configs" / "openrouter_gemini.toml"
+    REPOSITORY_ROOT
+    / "configs"
+    / "live"
+    / "experiment_a_openrouter.toml"
 )
 
 
@@ -304,9 +307,31 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
             def __init__(
                 self,
                 provider: OpenRouterChatProvider,
+                *,
+                responses_path: Path,
+                audit_path: Path,
                 **_: object,
             ) -> None:
                 self.provider = provider
+                self.responses_path = responses_path
+                self.audit_path = audit_path
+                self.attempts_path = audit_path.with_name(
+                    "provider-audit-transport-attempts.jsonl"
+                )
+                responses_path.parent.mkdir(parents=True, exist_ok=True)
+                for path in (
+                    self.responses_path,
+                    self.audit_path,
+                    self.attempts_path,
+                ):
+                    path.write_text("", encoding="utf-8")
+
+            def require_static_corpus_capacity(
+                self,
+                requests: object,
+            ) -> dict[str, int]:
+                del requests
+                return {}
 
             def complete(self, provider_request: LLMRequest) -> LLMResponse:
                 dispatched_requests.append(provider_request)
@@ -322,6 +347,14 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
                         for attribute in ATTRIBUTES
                     },
                 )
+
+            @property
+            def used_audit_records(self) -> tuple[object, ...]:
+                return ()
+
+            @property
+            def used_attempt_records(self) -> tuple[object, ...]:
+                return ()
 
             def to_manifest(self) -> dict[str, object]:
                 return {
@@ -339,7 +372,13 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
             stdout = io.StringIO()
             with redirect_stdout(stdout):
                 status = cli_main(
-                    ["decoder-study", "plan-openrouter", str(path)]
+                    [
+                        "decoder-study",
+                        "plan-openrouter",
+                        str(path),
+                        "--model",
+                        OPENROUTER_EXAMPLE_MODEL,
+                    ]
                 )
             self.assertEqual(status, 0)
             payload = json.loads(stdout.getvalue())
@@ -358,12 +397,16 @@ class OpenRouterCLIIntegrationTests(unittest.TestCase):
                         "execute-openrouter",
                         str(path),
                         str(root / "output"),
+                        "--model",
+                        OPENROUTER_EXAMPLE_MODEL,
                         "--execute-live",
                     ]
                 )
 
             self.assertEqual(execution_status, 0)
-            self.assertFalse(payload["strict_gate4_eligible"])
+            self.assertFalse(
+                payload["strict_first_party_gate4_eligible"]
+            )
             self.assertFalse(payload["statistical_independence_claimed"])
             self.assertFalse(payload["first_party_origin_claimed"])
             self.assertEqual(len(dispatched_requests), 1)

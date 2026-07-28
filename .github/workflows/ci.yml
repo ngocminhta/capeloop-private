@@ -45,6 +45,16 @@ jobs:
           PYTHONHASHSEED: "0"
         run: PYTHONPATH=src python -m cape_loop doctor
 
+      - name: Validate checked-in configurations
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          find configs -path configs/local -prune -o \
+            -type f -name '*.toml' -print | LC_ALL=C sort |
+          while IFS= read -r config; do
+            PYTHONPATH=src python -m cape_loop config validate "$config" >/dev/null
+          done
+
       - name: Run offline test suite
         env:
           PYTHONHASHSEED: "0"
@@ -85,7 +95,7 @@ jobs:
           CAPE_R_CI_RUN_ROOT: ${{ runner.temp }}/cape-r-ci-runs
         run: >-
           PYTHONPATH=src python -m cape_loop run
-          configs/confirmatory_ci.toml
+          analysis/confirmatory-mixed-effects/fixtures/confirmatory_ci.toml
           --output-root "$CAPE_R_CI_RUN_ROOT"
 
       - name: Execute the mixed-effects harness

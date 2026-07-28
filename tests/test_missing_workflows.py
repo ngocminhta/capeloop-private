@@ -331,6 +331,13 @@ class ExternalDecoderTests(unittest.TestCase):
             analysis.interpretation_boundary,
         )
 
+    def test_empty_decoder_import_is_not_eligible(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "requires at least one request",
+        ):
+            validate_external_decoder_import((), ())
+
     def test_decoder_payload_leakage_and_deterministic_view_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             ExternalDecoderRequest.build(

@@ -15,24 +15,63 @@ are called out below.
 
 ## Checked-in configurations
 
-| File | `experiment.kind` | Purpose |
-| --- | --- | --- |
-| `configs/smoke.toml` | `provenance_audit` | Small Experiment A implementation run across prior strengths 0.0, 0.35, and 0.7 |
-| `configs/closed_loop.toml` | `closed_loop` | Experiment B reference matrix |
-| `configs/evaluation.toml` | `evaluation_validity` | Experiment C reference matrix |
-| `configs/sensitivity.toml` | `sensitivity` | Explicit 81-point simulator grid |
-| `configs/sensitivity_full.toml` | `sensitivity` | Broader alternative-model robustness grid |
-| `configs/openai_primary.toml` | `provenance_audit` | Two-user GPT-5.6 Sol live-execution pilot |
-| `configs/openai_replication.toml` | `provenance_audit` | Matched GPT-5.6 Terra replication pilot |
-| `configs/openrouter_gemini.toml` | `provenance_audit` | Two-user OpenRouter/Gemini routed-execution pilot |
+CAPE-Loop keeps user-facing presets in three places:
 
-These are executable software configurations. They are not preregistrations and
-their outputs are not paper results. In particular, the OpenAI and OpenRouter
-files are pilot designs rather than paper power settings or evidence of
-completed live runs. They hold their selected model and reasoning effort fixed
-across all three LLM information views and declare hard ceilings of 900
-requests and 6,000,000 conservatively estimated tokens. Those ceilings cover
-the development calibration probe plus all three test/runtime views.
+```text
+configs/smoke.toml     quick offline validation
+configs/offline/       deterministic study and source-packet designs
+configs/live/          bounded provider-specific pilots
+```
+
+The 18 public presets are intentionally split by responsibility:
+
+| File | Kind | Purpose |
+| --- | --- | --- |
+| `configs/smoke.toml` | A | Fast offline implementation check |
+| `configs/offline/experiment_a.toml` | A | Synthetic Experiment A dataset candidate |
+| `configs/offline/experiment_b.toml` | B | Full offline closed-loop reference |
+| `configs/offline/gate4_source.toml` | B | Gate 4 source: 640 decoder requests/source and 80 native actions |
+| `configs/offline/experiment_c.toml` | C | Full offline evaluation-validity reference, seed 1729 |
+| `configs/offline/experiment_c_seed_271828.toml` | C | Matched robustness seed 271828 |
+| `configs/offline/experiment_c_seed_314159.toml` | C | Matched robustness seed 314159 |
+| `configs/offline/experiment_c_rescore_source.toml` | C | External-rescore source: 360 decoder requests/source |
+| `configs/offline/sensitivity.toml` | sensitivity | Baseline-first 19-point OAT robustness design |
+| `configs/live/experiment_a_openai.toml` | A | Direct-OpenAI primary pilot |
+| `configs/live/experiment_a_openai_replication.toml` | A | Matched GPT-5.6 model-variant replication |
+| `configs/live/experiment_a_openrouter.toml` | A | Matched OpenRouter/Gemini pilot |
+| `configs/live/experiment_b_openai.toml` | B | Bounded direct-OpenAI pilot |
+| `configs/live/experiment_b_openrouter.toml` | B | Matched OpenRouter pilot |
+| `configs/live/experiment_c_openai.toml` | C | Bounded direct-OpenAI pilot |
+| `configs/live/experiment_c_openrouter.toml` | C | Matched OpenRouter pilot |
+| `configs/live/sensitivity_openai.toml` | sensitivity | Direct-OpenAI Gate 6 OAT pilot |
+| `configs/live/sensitivity_openrouter.toml` | sensitivity | Matched OpenRouter Gate 6 OAT pilot |
+
+Transport-only smoke presets and the superseded 81-point Cartesian diagnostic
+are deliberately not public configs. Provider behavior is covered by offline
+tests and explicit bounded commands instead of additional near-duplicate
+TOMLs. Local model/route variants belong under ignored `configs/local/`; copy a
+reviewed live preset there rather than modifying the checked declaration. The
+optional R job owns its synthetic fixture at
+`analysis/confirmatory-mixed-effects/fixtures/confirmatory_ci.toml`.
+
+These files are executable designs, not preregistrations or paper results.
+Every live pilot declares the approved hard ceiling of 900 physical HTTP
+attempts and 6,000,000 conservatively accounted tokens per provider ledger.
+They set `max_retries = 0`, so the complete retry-expanded plan remains inside
+those ceilings.
+
+The live pilot counts are whole-design bounds, not expected call counts:
+
+| Pilot | Experiment calls | Calibration | A paraphrases | Physical bound | Maximum output allocation |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A primary/replication/OpenRouter | 768 | 48 | 32 | 848 | 1,736,704 |
+| B pair | 768 | 96 | 0 | 864 | 1,769,472 |
+| C pair | 768 | 48 | 0 | 816 | 1,671,168 |
+| Gate 6 OAT pair | 576 | 0 | 0 | 576 | 1,179,648 |
+
+The offline Gate 4 and Experiment C external-rescore source configs do not call
+models. They are sized so their later selected OpenRouter or optional direct
+external-model collections fit the same approved per-source ceilings.
 
 ## Root schema
 
@@ -109,7 +148,7 @@ completed run.
 | --- | --- | --- |
 | `kind` | string | `"provenance_audit"` |
 | `domains` | nonempty string array | `["travel", "writing"]` |
-| `mechanisms` | nonempty string array | `["balanced", "restricted", "ranking", "default", "suggested", "suggestion"]` |
+| `mechanisms` | nonempty string array | `["balanced", "restricted", "default", "suggested"]` |
 | `response_modes` | nonempty string array | `["controlled_anchor", "naturally_sampled"]` |
 | `prior_strengths` | nonempty numeric array | `[0.0]` |
 | `policies` | nonempty string array | `["balanced"]` |
@@ -163,14 +202,21 @@ travel
 writing
 ```
 
-Accepted mechanisms:
+Globally accepted mechanism labels:
 
 ```text
 balanced
 restricted
+ranking
 default
 suggested
+suggestion
 ```
+
+Experiment A (`provenance_audit`) accepts only `balanced`, `restricted`,
+`default`, and `suggested`. Experiments B, C, and sensitivity require the set
+`ranking`, `default`, and `suggestion`; their policies produce the actual
+presentation context.
 
 Accepted response modes:
 
@@ -322,6 +368,7 @@ paper-intended test set.
 
 | Key | Default | Validation |
 | --- | --- | --- |
+| `design` | `"cartesian"` | `"cartesian"` or `"one_at_a_time"` |
 | `decision_noise_values` | `[0.6, 1.0, 1.6]` | nonempty; finite, positive, and unique |
 | `presentation_multipliers` | `[0.5, 1.0, 1.5]` | nonempty; finite, nonnegative, and unique |
 | `rank_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
@@ -338,12 +385,19 @@ paper-intended test set.
 | `phase_min_self_confirming_rate` | `0.0` | finite value in `[0, 1]` |
 | `phase_min_suggestion_rejection_rate` | `0.20` | finite value in `[0, 1]`; frozen “often rejects” criterion |
 
-These fields are consumed only by `kind = "sensitivity"`. The compact
-checked-in Cartesian product has 81 points. The broader configuration crosses
-the random-utility and noisy rule-based response families. The suggestion
-rejection rate counts only profile-conditioned suggestions where the
-counter-profile option remains displayed; selecting that alternative is a
-rejection.
+These fields are consumed only by `kind = "sensitivity"`. Under
+`one_at_a_time`, the first value of every numeric axis and the first
+response-model family define the baseline; each later value is varied
+separately. Alternate response families are evaluated at the numeric baseline,
+with every declared rule-noise value for a rule-based alternative.
+
+The canonical `configs/offline/sensitivity.toml` declaration is a 19-point OAT
+design. It covers every declared axis efficiently but cannot estimate
+interactions among axes; artifacts record
+`interaction_effects_estimable = false`. The two live Gate 6 OAT pilots contain
+11 points whose trajectory lengths sum to 36. The suggestion rejection rate
+counts only profile-conditioned suggestions where the counter-profile option
+remains displayed; selecting that alternative is a rejection.
 
 ## `[llm]`
 
@@ -456,7 +510,9 @@ closed unless the CLI also supplies `--execute-live`. The API key itself is
 never a configuration value: only the environment-variable **name** is stored.
 No credential, Authorization header, or secret is retained in journals or run
 artifacts. [`.env.example`](../.env.example) documents the expected name, but
-the CLI does not automatically load that file.
+the CLI does not automatically load that file or a local `.env`. Load an
+ignored `.env` explicitly into the invoking shell, for example with
+`set -a; source .env; set +a`, and never commit it.
 
 With the default `allow_custom_base_url = false`, `base_url` must be exactly the
 official `https://api.openai.com` origin (an optional trailing slash is
@@ -478,6 +534,36 @@ restart does not reset a ceiling. These are safety bounds, not a currency
 budget; review current pricing independently. The same ledger covers the
 development calibration probe and all subsequent test/runtime calls.
 
+### Universal live request preflight
+
+Every adaptive configuration containing an `llm_*` updater is passed through
+the same credential-free preflight:
+
+```text
+A = matched experiment cells + temperature calibration + held-out paraphrases
+B = users × domains × four initial profiles × repeats × policies × turns
+    × LLM updater count + calibration
+C = (max(8, users) development users + users test users) × domains
+    × repeats × three regimes × turns × LLM updater count + calibration
+sensitivity = domains × users × repeats × policies × LLM updater count
+              × sum(point trajectory lengths)
+```
+
+The logical completion bound is multiplied by `max_retries + 1` to obtain the
+maximum physical HTTP attempts. That bound must not exceed `max_requests`, and
+`physical_attempts × max_output_tokens` must not by itself exceed
+`max_total_tokens`. Configuration validation, suite planning, and live runner
+startup all fail closed when either condition is false. Live startup performs
+this check before provider construction, credential access, journal creation,
+or run-directory creation.
+
+Adaptive input bytes depend on earlier model outputs, so no tool claims an
+exact whole-run prompt-token total. The provider ledger reserves and enforces
+the cumulative token ceiling before every attempt. Every run with an LLM
+updater records the calculation in `llm/request-preflight.json`; sensitivity
+also retains its compatibility view in
+`llm/sensitivity-request-preflight.json`.
+
 The runner writes successful audit records before replay-compatible response
 records. By default the durable journal paths are:
 
@@ -488,7 +574,8 @@ records. By default the durable journal paths are:
 
 On a successful run, used audit records and a credential-free provider
 manifest are copied into the checksummed artifact. The external journal remains
-available for `--resume-failed-live`. See [LLM exchange](llm-exchange.md) for
+available for `--resume-failed-live`. See
+[Live execution](live-execution.md#transport-audits-locks-and-recovery) for
 planning, static execution, recovery, and decoder commands.
 
 ### OpenRouter mode
@@ -574,13 +661,30 @@ OpenRouter's official documentation defines the
 and [app-attribution headers](https://openrouter.ai/docs/app-attribution).
 Recheck endpoint support and the model catalog before each collection wave.
 
-This gateway mode is valid for profile-writer studies and reviewed-generic
-decoder collection, but it is not direct first-party provenance. Multiple
-models or reported upstream providers behind the same gateway do not establish
-statistically independent errors. OpenRouter artifacts are therefore
-ineligible for strict Gate 4, which remains restricted to the direct
-first-party collection paths documented in
-[Gate 4 live collection](gate4-live-collection.md).
+This gateway mode is valid for profile-writer studies and multi-model decoder
+collection, but it is not direct first-party provenance. Multiple models or
+reported upstream providers behind the same gateway do not establish
+statistically independent errors. Gate 4's selected decoder pair is the exact
+`anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` collection, with
+Claude `low` and Gemini `minimal` reasoning recorded separately. The decoder
+CLI supports repeatable
+`--model-reasoning-effort MODEL=EFFORT` overrides for alternate/generic
+collections; the selected validator rejects a changed effort until the
+versioned protocol is updated. The selected defaults do not use one global
+effort for both families.
+
+Unlike the standalone profile-writer CLI defaults, the decoder-study
+`plan-openrouter` and `execute-openrouter` commands with no model/budget
+overrides load the selected two-model suite with zero retries, 1,024 output
+tokens, 900 attempts, and 6,000,000 conservative tokens per model. Supplying
+`--model` switches to an explicit alternate collection; `--additional-model`
+then adds more exact slugs.
+
+The complete pair is admitted under
+`selected_openrouter_gateway_collection`, with
+`first_party_origin_claimed = false` and responsible-researcher review. Direct
+Anthropic/Gemini adapters remain an optional origin-replication mode. See
+[Live execution](live-execution.md#gate-4-collection-and-admission).
 
 ## `[artifacts]`
 
@@ -629,5 +733,6 @@ Configuration validation does not establish:
 The runner consumes the split manifest through feature-matched
 atlas/beacon/cedar option, dialogue, and scenario families and through the
 content-addressed paraphrase suite. It writes a concrete binding/overlap audit;
-see [Data splits](data-splits.md). Gate 1 still remains incomplete whenever its
+see [Data model](data-model.md#splits-and-leakage-controls). Gate 1 still
+remains incomplete whenever its
 required held-out updater/case pairs are absent.

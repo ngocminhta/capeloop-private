@@ -27,7 +27,7 @@ The runtime requires exactly two distinct family/source rows per native state,
 development-only calibration, exact source-run/row/state/battery hashes, and an
 unchanged non-native row set before producing a separate immutable reranking
 artifact. See
-[Experiment C external-decoder rescore](../docs/experiment-c-external-decoder.md).
+[Experiment C external-decoder rescore](../docs/experiments.md#experiment-c-external-decoder-rescore).
 Other experiment-specific event/metric rows, beliefs, native memory states,
 split manifests, and model records do not yet have standalone exported schemas.
 Experiment A therefore uses an explicitly documented normalized artifact pair:
@@ -43,7 +43,10 @@ attempt, additive router metadata, generation/cache identifiers, usage,
 timings, hashes, redacted raw response, and provider-neutral replay response.
 Its `first_party_origin_claimed` field is always `false`. Schema validity
 therefore demonstrates record shape, not direct first-party origin, upstream
-authentication, statistical independence, or strict Gate 4 eligibility.
+authentication, statistical independence, or Gate 4 admission. A single audit
+row is never sufficient evidence. The selected shared-gateway path additionally
+requires the complete two-model collection, exact coverage validation, and a
+hash-bound responsible-researcher source review.
 
 `llm-provider-transport-attempt.schema.json` is the crash-safe physical-call
 contract shared by direct OpenAI and OpenRouter execution. A `started` event is

@@ -1,0 +1,62 @@
+schema_version = 1
+
+# Canonical offline Experiment C source for a ceiling-safe two-family external-decoder
+# rescore. The later repository-selected automated collection routes the
+# declared Claude and Gemini models through OpenRouter; the source run itself
+# remains provider-free.
+
+[run]
+name = "experiment-c-external-rescore-pilot"
+seed = 1729
+output_root = "runs"
+deterministic = true
+
+[experiment]
+kind = "evaluation_validity"
+domains = ["travel", "writing"]
+mechanisms = ["ranking", "default", "suggestion"]
+response_modes = ["naturally_sampled"]
+prior_strengths = [0.0]
+policies = ["balanced", "fixed_bias", "soft_profile_conditioned"]
+updaters = [
+  "response_only",
+  "full_context_blind",
+  "provenance_aware",
+  "conservative",
+  "episodic_memory",
+  "semantic_memory",
+  "provenance_linked_memory",
+]
+users = 10
+trajectories_per_cell = 1
+turns = 16
+bootstrap_replicates = 2000
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 4096
+fit_steps = 1200
+learning_rate = 0.025
+l2 = 0.001
+calibration = "temperature"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[artifacts]
+retain_events = true
+retain_prompts = true
+checksum_manifest = true

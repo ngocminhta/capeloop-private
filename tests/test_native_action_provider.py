@@ -145,6 +145,7 @@ class NativeActionProviderTests(unittest.TestCase):
             run_dir = _closed_loop_run(root)
             config = OpenAIProviderConfig(
                 api_key_env="ABSENT_NATIVE_ACTION_TEST_KEY",
+                max_retries=0,
                 max_requests=900,
                 max_total_tokens=6_000_000,
             )
@@ -159,6 +160,12 @@ class NativeActionProviderTests(unittest.TestCase):
             self.assertFalse(plan["live_execution"])
             self.assertFalse(plan["credential_read"])
             self.assertTrue(plan["within_declared_budget"])
+            self.assertTrue(
+                plan["initial_workload_within_declared_budget"]
+            )
+            self.assertTrue(
+                plan["all_retry_attempts_within_declared_budget"]
+            )
             self.assertEqual(plan["request_count"], len(requests))
             self.assertEqual(plan["native_system_id"], NATIVE_ACTION_SYSTEM_ID)
             self.assertEqual(
@@ -219,6 +226,38 @@ class NativeActionProviderTests(unittest.TestCase):
             with patch.dict("os.environ", {}, clear=True):
                 moved_plan = plan_openai_native_actions(moved, config)
             self.assertEqual(plan, moved_plan)
+
+    def test_live_collection_rejects_retry_expansion_before_output_or_key(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = _closed_loop_run(root)
+            requests = build_native_action_requests(run_dir)
+            output = root / "must-not-exist"
+            provider = OpenAINativeActionProvider(
+                OpenAIProviderConfig(
+                    live_execution=True,
+                    api_key_env="ABSENT_NATIVE_ACTION_TEST_KEY",
+                    max_retries=1,
+                    max_requests=len(requests),
+                    max_total_tokens=6_000_000,
+                ),
+                transport=lambda **_: self.fail(
+                    "budget preflight must run before transport"
+                ),
+            )
+            with patch.dict("os.environ", {}, clear=True):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "hard budget after retry expansion",
+                ):
+                    execute_openai_native_actions(
+                        run_dir,
+                        output,
+                        provider,
+                    )
+            self.assertFalse(output.exists())
 
     def test_ambiguous_transport_failure_is_never_retried(self) -> None:
         with TemporaryDirectory() as directory:
@@ -793,8 +832,7 @@ class NativeActionProviderTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             run_dir = _closed_loop_run(root)
-            request_count = len(build_native_action_requests(run_dir))
-            output = root / "native-actions"
+            request = build_native_action_requests(run_dir)[0]
             config = OpenAIProviderConfig(
                 live_execution=True,
                 api_key_env="CAPE_LOOP_NATIVE_ACTION_TEST_KEY",
@@ -802,7 +840,7 @@ class NativeActionProviderTests(unittest.TestCase):
                 initial_backoff_seconds=0,
                 max_backoff_seconds=0,
                 jitter_fraction=0,
-                max_requests=request_count,
+                max_requests=1,
                 max_total_tokens=100_000_000,
             )
             calls = 0
@@ -822,28 +860,14 @@ class NativeActionProviderTests(unittest.TestCase):
                 clear=True,
             ):
                 with self.assertRaises(BudgetExceeded):
-                    execute_openai_native_actions(
-                        run_dir,
-                        output,
-                        OpenAINativeActionProvider(
-                            config,
-                            transport=rate_limited,
-                            sleep=lambda _: None,
-                        ),
+                    provider = OpenAINativeActionProvider(
+                        config,
+                        transport=rate_limited,
+                        sleep=lambda _: None,
                     )
-            self.assertEqual(calls, request_count)
-            attempts = _jsonl(output / "transport-attempts.jsonl")
-            self.assertEqual(
-                sum(row["event"] == "started" for row in attempts),
-                request_count,
-            )
-            self.assertTrue(
-                all(
-                    row["charged_tokens"]
-                    == attempts[2 * index]["estimated_max_tokens"]
-                    for index, row in enumerate(attempts[1::2])
-                )
-            )
+                    provider.complete(request)
+            self.assertEqual(calls, 1)
+            self.assertEqual(provider.budget.request_count, 1)
 
             bounded = OpenAINativeActionProvider(
                 OpenAIProviderConfig(

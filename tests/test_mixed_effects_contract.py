@@ -371,9 +371,7 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
 
     def test_interpretation_limits_are_explicit(self) -> None:
         readme = (ANALYSIS / "README.md").read_text(encoding="utf-8")
-        guide = (ROOT / "docs" / "mixed-effects-analysis.md").read_text(
-            encoding="utf-8"
-        )
+        guide = (ROOT / "docs" / "metrics.md").read_text(encoding="utf-8")
         for text in (readme, guide):
             normalized = " ".join(text.split())
             self.assertIn(

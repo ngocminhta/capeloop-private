@@ -246,7 +246,9 @@ def _write_jsonl(path: Path, rows) -> None:
 
 
 def _verified_source(root: Path) -> Path:
-    config = load_config(_REPO_ROOT / "configs" / "openai_primary.toml")
+    config = load_config(
+        _REPO_ROOT / "configs" / "live" / "experiment_a_openai.toml"
+    )
     run = RunArtifacts.create(config, root=root)
     run.write_jsonl("population/users.jsonl", _population_rows())
     metric_rows = [

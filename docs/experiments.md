@@ -63,7 +63,48 @@ to the source context and selected option. Experiment B independently checks
 terminal-v2 option IDs, feature vectors, wording IDs, and scenario families
 against its training material.
 
-The complete contract is documented in [Data splits](data-splits.md).
+### Data splits and leakage controls
+
+A split is a collection of complete semantic groups, not a random row
+partition. Training, development, and test are disjoint on all six declared
+axes:
+
+| Axis | Executable boundary |
+| --- | --- |
+| Latent preference | The complete three-attribute `theta` tuple belongs to one split |
+| Susceptibility | The complete ranking/default/suggestion tuple belongs to one split |
+| Option template | Feature-matched atlas, beacon, and cedar families belong to train, development, and test |
+| Dialogue template | Each split has a distinct opaque visible wording-template ID |
+| Scenario family | Each split has a distinct scenario-family prefix |
+| Paraphrase template | Each content-addressed family belongs to exactly one split |
+
+Atlas, beacon, and cedar are intentionally opaque so that split labels do not
+enter model-visible text. Their option features remain matched. The preparation
+path fits response likelihoods on atlas interactions, fits temperatures and
+computes held-out response diagnostics on beacon interactions, and reserves
+cedar assets for A–C test evaluation. The terminal-v2 suite is an additional
+test-only family with novel IDs, feature values, scenarios, and wording.
+
+`build_default_paraphrase_suite()` supplies train/development/test language
+families. Before Experiment A renders held-out test surfaces, the runner rejects
+overlap with every train/development template ID, content hash, and literal
+pattern.
+
+Every A–C run retains:
+
+```text
+splits.json
+metrics/split-leakage-audit.json
+events/fitted-model-training.jsonl       # when events are retained
+events/fitted-model-development.jsonl    # when events are retained
+```
+
+The audit names concrete asset counts, pairwise overlap sets, all
+manifest-to-generator bindings, the paraphrase-suite digest, and its status.
+Any overlap or inconsistent generator binding aborts the run. This proves the
+software split; it cannot prove that researchers avoided looking at test
+results while tuning prompts or thresholds, which remains a preregistration and
+release-review obligation.
 
 ## Experiment A: provenance audit
 
@@ -184,45 +225,167 @@ The separate hypothesis-estimand artifact prevents those general-purpose ACUE
 analyses from being mistaken for H1 or H2. It reports H1's anchor-directional
 and update-strength contrasts, H2's explicit distance-to-unaware versus
 distance-to-aware comparison, and H7's mitigation/valid-learning component.
-See [H1, H2, and H7 estimands](hypothesis-estimands.md) for the frozen formulas
-and incomplete-data rules.
+The frozen formulas and incomplete-data rules are in [Metrics](metrics.md).
 
 The dependency-free CR1 regression is an auditable marginal robustness
 analysis. It is **not** the proposal's confirmatory generalized mixed-effects
 model with user random slopes and scenario random intercepts. The optional
-[R mixed-effects harness](mixed-effects-analysis.md) now implements that exact
-model, planned contrasts, source-digest checks, and convergence/singularity
-diagnostics. Executing it on verified paper runs and reviewing any inferential
-claim remain a separate statistical stage. A configured bootstrap count of
-zero uses 200 replicates as an explicitly recorded smoke fallback, not a paper
-default.
+[R mixed-effects harness](../analysis/confirmatory-mixed-effects/README.md)
+implements that exact model, planned contrasts, source-digest checks, and
+convergence/singularity diagnostics. Executing it on verified paper runs and
+reviewing any inferential claim remain a separate statistical stage. A
+configured bootstrap count of zero uses 200 replicates as an explicitly
+recorded smoke fallback, not a paper default.
 
-Human-derived evidence strength is not fabricated. The fitted ordering artifact
-records that volunteered-control strength is unavailable until eligible
-external judgments are imported. Separately,
-`experiment-a-control-battery.json` fixes the proposal's volunteered, repeated
-balanced, direct-correction, indifferent, randomized-choice, and
-target-nondistinguishing protocols. It remains explicitly
-`fixed_protocol_not_scored_by_one_step_choice_runner`: those signals are not
-relabeled anchor choices.
+### Six-control execution protocol
 
-The runner now materializes a separate content-addressed six-control plan,
-transparent reference and no-update baseline reports, and a provenance-aware
-provider-neutral request packet. Reference/baseline outcomes are labeled
-diagnostic rather than external evidence. Imported provider responses are
-scored only after exact request, prompt, plan, and stimulus binding through
-`cape-loop control-study analyze`. See
-[Experiment A control execution](experiment-a-controls.md).
+Human-derived evidence strength is never fabricated. The fitted ordering
+artifact records volunteered strength as unavailable until eligible external
+judgments are imported. Independently, `experiment-a-controls-v1` fixes three
+positive and three negative controls:
 
-H7's user-clustered volunteered valid-learning criterion is intentionally
-separate from that single fixed protocol case. `control-study h7-plan`
-exhaustively creates direct statements for every retained test
-user/domain/attribute and crosses the ordinary full-context and
-provenance-aware views. `h7-review` admits only complete accepted
-OpenAI/OpenRouter evidence, converts the bound posteriors to
-`VolunteeredPreferenceUpdate`, and recomputes H7 in a new immutable artifact;
-`h7-verify` repeats the full computation. See
-[H7 volunteered-preference controls](h7-volunteered-controls.md).
+| Control | Polarity | Executed construction | Expected diagnostic |
+| --- | --- | --- | --- |
+| Volunteered preference | Positive | One user-originated, option-free preference statement | Mass moves toward the stated direction |
+| Repeated balanced choices | Positive | Three independently worded, scenario-disjoint balanced choices in the same direction | Evidence accumulates toward that direction |
+| Direct correction | Positive | One explicit correction after the same fixed false-profile seed | Target mass moves toward the correction |
+| Indifference | Negative | One explicit indifference response to an opposing pair | No target-direction update |
+| Registered random choices | Negative | Three choices from a precommitted SHA-256 device independent of user and presentation | No target-direction update |
+| Target-nondistinguishing choice | Negative | Options share the target feature and differ only elsewhere | No target-direction update |
+
+The executable layer, `experiment-a-control-execution-v1`, uses typed statement,
+indifference, randomization, and correction events. It never coerces them into
+the one-step choice `Observation` schema or relabels anchor choices as controls.
+
+`ExperimentAControlPlan` content-binds the high-level battery, six ordered
+stimuli, test-split status, target and direction, control prior, surfaces,
+options, selections, scenarios, wording, response sources, randomization
+registration, and tolerances. Every stimulus and the complete plan has an
+independent digest. The registered random device uses
+`sha256-modulo-option-count-v1`; each draw hashes the registration digest,
+event ID, and option count and never reads latent preference, provider output,
+or a credential.
+
+Each outcome binds the plan, stimulus, executor, prior/posterior,
+directional-mass change, criterion, and evidence source. Provider outcomes also
+bind request, prompt, model, and response digests. All plans, reports, and
+outcomes retain `claim_status = "not_claimed"`.
+
+Two deterministic executors validate the protocol:
+
+- the transparent reference applies declared sign-likelihood updates to
+  volunteered and repeated-balanced evidence, a versioned log-odds correction
+  adapter to direct correction, and no target update to negative controls; and
+- the identity baseline leaves all six unchanged, so it should pass the
+  negative but not the positive controls.
+
+They are respectively labeled `diagnostic_reference` and
+`diagnostic_baseline`, with `is_live_evidence = false`; neither can replace an
+external model response.
+
+The provider-neutral control exchange emits three response-only cases, five
+full-context cases, or all six provenance-aware cases. A view omits any control
+whose required context/provenance it cannot represent, with an explicit reason.
+Model-visible payloads contain the actual interaction but not polarity,
+expected outcome, or control ID.
+
+After collecting responses through the ordinary replay/OpenAI/OpenRouter
+exchange, analyze exact bindings with:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study analyze \
+  RUN/llm/experiment-a-control-request-bindings.jsonl \
+  control-provider-responses.jsonl \
+  control-provider-analysis.json \
+  --source-descriptor "reviewed provider collection artifact"
+```
+
+The analyzer reconstructs the fixed plan, requires exact request coverage and
+prompt bindings, parses immutable regular-file snapshots, refuses an existing
+output, and rechecks every input before atomic publication. Execution evidence
+is kept in four non-interchangeable classes:
+
+| Execution | Evidence class | Live evidence |
+| --- | --- | --- |
+| Transparent reference | `diagnostic_reference` | No |
+| Identity baseline | `diagnostic_baseline` | No |
+| Provider replay | `external_model_response` | No call in this execution |
+| Live provider | `external_model_response` | Yes |
+
+Provider setup, budgets, and collection commands are centralized in
+[Live execution](live-execution.md).
+
+### H7 volunteered-preference control
+
+The six-control plan contains one volunteered case for protocol diagnosis. H7's
+valid-learning estimand instead exhaustively generates one direct statement for
+every retained test user, configured domain, and preference attribute, crossed
+with exactly `llm_full_context` and `llm_provenance_aware`. The two views share
+the uniform prior, statement, target, and context; only the provenance-aware
+view receives:
+
+```text
+response_source = user
+elicitation_provenance = user_originated_unprompted
+```
+
+The plan withholds the latent target direction from model-visible prompts and
+binds every case to its source user, request, prompt, and plan digest. There is
+no sampling or author-selected subset, and the complete user remains the
+independent unit.
+
+Build the immutable provider-neutral plan from a verified Experiment A run:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study h7-plan \
+  runs/EXPERIMENT-A \
+  artifacts/h7-volunteered-plan
+```
+
+The output contains:
+
+```text
+h7-volunteered-plan.json
+h7-volunteered-request-bindings.jsonl
+h7-volunteered-requests.jsonl
+```
+
+Collect one fixed provider/returned-model corpus for both updater views as
+described in [Live execution](live-execution.md), then derive and reverify the
+review:
+
+```bash
+PYTHONPATH=src python -m cape_loop control-study h7-review \
+  runs/EXPERIMENT-A \
+  artifacts/h7-volunteered-plan \
+  artifacts/h7-responses.jsonl \
+  artifacts/h7-provider-audit.jsonl \
+  artifacts/h7-review.json
+
+PYTHONPATH=src python -m cape_loop control-study h7-verify \
+  runs/EXPERIMENT-A \
+  artifacts/h7-volunteered-plan \
+  artifacts/h7-responses.jsonl \
+  artifacts/h7-provider-audit.jsonl \
+  artifacts/h7-review.json
+```
+
+Review requires the checksum-valid source run; exact regeneration of the plan,
+bindings, and requests; complete accepted response/audit coverage; and matching
+request, prompt, request-body, raw-response, provider, and returned-model
+identity. Every case must have both updater views. Missing direct statements
+are never filled with balanced choices, the diagnostic case, an average, zero,
+or any other placeholder.
+
+Each accepted posterior becomes a
+`VolunteeredPreferenceUpdate(case_id, user_id, updater_id,
+directional_log_odds_update)`. The new artifact reuses the source run's bound
+ACUE-superiority and balanced-valid-learning components, recomputes volunteered
+valid learning and the Experiment A H7 criterion, and leaves the source run
+unchanged. It records `claim_status = "not_claimed"`,
+`source_run_modified = false`, and `missing_values_imputed = false`. The
+closed-loop Experiment B component is still required for any full H7 claim.
+Exact formulas are in [Metrics](metrics.md).
 
 ### Held-out paraphrase transfer and Gate 1
 
@@ -246,8 +409,16 @@ either case.
 Use:
 
 ```bash
-PYTHONPATH=src python -m cape_loop run configs/closed_loop.toml
+PYTHONPATH=src python -m cape_loop run configs/offline/experiment_b.toml
 ```
+
+The bounded live pair is
+`configs/live/experiment_b_openai.toml` and
+`configs/live/experiment_b_openrouter.toml`. Both preserve balanced versus
+soft-profile-conditioned policies and the ordinary/provenance-aware LLM arms.
+Each preflights 768 trajectory updates plus 96 development-calibration calls:
+864 physical attempts with retries disabled. The current request and token
+ceilings are defined and preflighted in [Live execution](live-execution.md).
 
 ### Executed crossing
 
@@ -428,10 +599,12 @@ PYTHONPATH=src python -m cape_loop decoder-study analyze \
   REQUESTS.jsonl JUDGMENTS.jsonl TRUTH-LABELS.jsonl --output analysis.json
 ```
 
-`decoder-study plan-openai` estimates the two-source request budget without a
-key. `decoder-study execute-openai ... --execute-live` is an optional collection
-adapter; using two declared model roles still does not establish statistically
-independent decoder errors.
+`decoder-study plan-openrouter` constructs the selected Claude/Gemini
+shared-gateway plan without reading a key. The corresponding live command is
+explicitly authorized and budget-bound as described in
+[Live execution](live-execution.md). Direct-provider and two-role OpenAI
+adapters remain optional alternatives; distinct role or model labels still do
+not establish statistically independent decoder errors.
 
 ### Artifacts
 
@@ -496,8 +669,9 @@ remain required.
 The Gate 2/3 runner targets only `llm_full_context`, the central ordinary
 full-context writer. `llm_response_only` and `llm_provenance_aware` are controls
 and are not pooled into the gate decision. The checked-in
-`closed_loop.toml` has no `llm_full_context` updater, so its target set is empty
-and Gates 2 and 3 are incomplete.
+`configs/offline/experiment_b.toml` has no `llm_full_context` updater, so its
+target set is empty and Gates 2 and 3 are incomplete. Both bounded live B
+pilots include that target, but neither has been executed as a paper result.
 
 With correctly configured replay or explicitly authorized live LLM updaters,
 the code can compute the declared checks, but still records
@@ -526,22 +700,48 @@ transition strength differs.
 `_gate_4_for_b` has an internal post-validation evidence-injection boundary so
 the criterion logic can be audited without weakening it. Completed runs remain
 immutable. `gate-review import-native` validates and binds the complete
-selected Anthropic/Gemini decoder collection and complete OpenAI native-action
-collection to eligible trajectory IDs, recomputes Gate 4, and writes a separate
-checksum-bound artifact. Every plan, physical attempt, accepted audit,
-judgment/action record, execution manifest, and evidence-file digest is
-checked under the collectors' shared locks. The explicit reviewed-generic
-decoder alternative does not claim provider-collection provenance. The import
-never rewrites the run's gate report. Ordinary Experiment B runs remain
+selected OpenRouter `anthropic/claude-sonnet-5` plus
+`google/gemini-3.6-flash` decoder collection and complete OpenAI native-action
+collection to eligible trajectory IDs, recomputes Gate 4, and writes a
+separate checksum-bound artifact. Every per-model plan, reasoning setting,
+physical attempt, accepted gateway audit, judgment/action record, execution
+manifest, and evidence-file digest is checked under the collection locks. The
+gateway collection retains `first_party_origin_claimed = false`; the explicit
+reviewed-generic alternative does not claim validated provider provenance. The
+import never rewrites the run's gate report. Ordinary Experiment B runs remain
 incomplete until that import exists.
+
+For the selected evidence packet, use the separate offline
+`configs/offline/gate4_source.toml`. It produces 320 trajectories, 640
+blinded decoder requests for each model family, and 80 eligible native actions
+without calling a provider. The selected zero-retry plans must fit the approved
+per-source hard ceilings documented in [Live execution](live-execution.md).
+The two decoder rows are distinct model families, not distinct transport
+origins or a statistical-independence claim. Current local validation and
+collection state is reported only in
+[Implementation status](implementation-status.md).
 
 ## Experiment C: evaluation validity
 
 Use:
 
 ```bash
-PYTHONPATH=src python -m cape_loop run configs/evaluation.toml
+PYTHONPATH=src python -m cape_loop run configs/offline/experiment_c.toml
 ```
+
+The bounded live pair is `configs/live/experiment_c_openai.toml` and
+`configs/live/experiment_c_openrouter.toml`. Each crosses the same seven local
+systems plus one `llm_full_context` writer over both splits, domains, and all
+three regimes. Its whole-design bound is 768 evaluation calls plus 48
+calibration calls, with retries disabled and hard ceilings validated before
+credential access.
+
+For external-decoder reranking, the separate offline
+`configs/offline/experiment_c_rescore_source.toml` preserves all seven local
+systems and produces 360 requests for each external decoder family. Its
+selected zero-retry OpenRouter plan must fit the approved per-model ceilings.
+Generating the source packet performs no provider call and is not an external
+rescore result.
 
 ### Required policies and regimes
 
@@ -678,54 +878,216 @@ selection-regret checks. Point Kendall tau, marginal rank intervals, and raw
 reversal probabilities remain visible but are not gate-sufficient. The gate
 never changes `claim_status` from `not_claimed`.
 
-### Reproduction across random seeds
+### Experiment C external-decoder rescore
 
-The separate offline reviewer admits two to 32 checksum-valid completed
-Experiment C runs with distinct seeds and otherwise identical scientific
-configuration/source identity. It compares all three point rankings,
-open/closed inferential top tiers and partial orders, Gate 5 decision/status,
-and ESR selection sets. It reports exact rational stability proportions and
-every disagreement without pooling bootstrap draws or creating a claim. See
-[Experiment C multi-seed robustness](experiment-c-robustness.md) for its CLI,
-strict admission checks, artifact layout, and interpretation boundary.
+Experiment C finishes and checksums its original ranking before external
+judgments exist. Rescoring is append-only: it writes a separate immutable
+review and never edits the source run.
+
+Only these native updater families are rescored:
+
+```text
+episodic_memory
+semantic_memory
+provenance_linked_memory
+```
+
+Structured rows remain byte-equivalent JSON objects. The fixed local native
+projections remain diagnostics and are not admitted as external judgments.
+
+Every eligible source run exports:
+
+```text
+decoder/experiment-c-external-requests.jsonl
+decoder/experiment-c-truth-labels.researcher-only.jsonl
+decoder/experiment-c-researcher-codebook.jsonl
+decoder/experiment-c-external-design-manifest.json
+```
+
+Only the external-request file is provider-visible. Its payload contains the
+blinded native representation and pseudonymous state ID. The truth and codebook
+files remain evaluator-only. The codebook binds every request to its exact
+split/regime/replicate/user/domain/updater row, complete metric-row digest,
+terminal-suite digest, native-state digest, and fixed-replay or endogenous
+source-record digest. The design manifest binds all packet files, source C
+rows, batteries, and source-run identity.
+
+The selected collection obtains exactly one
+`anthropic/claude-sonnet-5` and one `google/gemini-3.6-flash` judgment for every
+request through OpenRouter. The bounded source configuration exports 360
+requests per model. With zero retries, its complete plans must remain below the
+approved 900-attempt and 6,000,000-token per-model ceilings. Both models share
+the gateway; neither first-party origin nor statistically independent errors
+are claimed. Direct Anthropic/Gemini collection remains an optional separate
+origin replication.
+
+Provider collection is documented in [Live execution](live-execution.md).
+Import the selected complete collection with:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-c-decoder import \
+  RUN_DIR \
+  DECODER_COLLECTION_DIR/judgments.jsonl \
+  C_EXTERNAL_REVIEW_DIR \
+  --openrouter-collection-dir DECODER_COLLECTION_DIR
+```
+
+Exactly one provenance mode is mandatory:
+
+- `--openrouter-collection-dir` validates the complete selected gateway
+  collection, including exact models, per-model reasoning, journals, route and
+  cache identity, audits, manifest, and judgment digest;
+- `--external-collection-dir` validates the optional direct-origin
+  Anthropic/Gemini collection; or
+- `--allow-reviewed-generic-decoders` treats instance, family, source, and
+  origin metadata as caller-declared and makes no provider-provenance claim.
+
+The two collection-directory flags reject the opposite collection kind; they
+are not aliases. Every request must have exactly two `external_model`
+judgments with distinct instance, family, and source descriptors. Those
+metadata conditions establish design eligibility, not independence.
+
+After provenance admission, the importer:
+
+1. fits one temperature per decoder family on development labels only;
+2. freezes and applies those calibrators to development and test judgments;
+3. converts each calibrated marginal forecast to an independent-joint belief;
+4. scores both beliefs on the exact common terminal battery;
+5. replaces each native row's ranking score with the arithmetic mean of exactly
+   the two family/source scores;
+6. proves that no non-native row changed; and
+7. reruns complete-user paired ranking, ESR, and Gate 5.
+
+User-supplied calibrators and test-label fitting are rejected. The selected
+gateway review records
+`provenance_mode = "selected_openrouter_gateway_collection"`,
+`gateway_provenance_validated = true`,
+`provider_provenance_validated = false`,
+`first_party_origin_claimed = false`, `shared_gateway = true`,
+`distinct_transport_origins = false`, and
+`statistical_independence_claimed = false`.
+
+The importer rejects existing/symlinked destinations, outputs inside the source
+run, unsafe inputs, and source/judgment mutation. It stages and fsyncs every
+file, reverifies the source and collection, invokes the ordinary verifier on
+the stage, and publishes only by same-filesystem atomic rename. Its output is:
+
+```text
+inputs/external-requests.jsonl
+inputs/truth-labels.researcher-only.jsonl
+inputs/researcher-codebook.jsonl
+inputs/judgments.jsonl
+metrics/external-decoder-scores.jsonl
+metrics/experiment-c-rescored.jsonl
+metrics/calibration.json
+metrics/decoder-analysis.json
+metrics/experiment-c-rankings.json
+metrics/gate-5.json
+review.json
+manifest.json
+SHA256SUMS
+```
+
+Verify it alone or bind verification back to the exact source:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-c-decoder verify \
+  C_EXTERNAL_REVIEW_DIR
+
+PYTHONPATH=src python -m cape_loop experiment-c-decoder verify \
+  C_EXTERNAL_REVIEW_DIR --source-run RUN_DIR
+```
+
+The source run, review, recomputed Gate 5, and all collection artifacts remain
+`not_claimed`.
+
+### Experiment C multi-seed robustness
+
+The offline multi-seed reviewer admits two to 32 checksum-valid completed
+Experiment C source runs. Every source must retain a positive clustered
+bootstrap, complete paired intervals, the complete-latent-user inference unit,
+the stable alignment key, rankings, Gate 5 report, summary, and a distinct
+nonnegative seed.
+
+Scientific configurations must be byte-equivalent after removing only:
+
+```text
+run.name
+run.seed
+run.output_root
+```
+
+Updater sets/order, response and inference parameters, artifact settings, LLM
+settings, tie tolerance, and executable source digest must remain identical.
+External-decoder review directories are not accepted as source runs under this
+v1 protocol.
+
+Nine comparison dimensions are fixed before reading outcomes:
+
+1. fixed-balanced development point ranking;
+2. fixed-biased development point ranking;
+3. endogenous closed-loop development point ranking;
+4. fixed-balanced inferential top tier;
+5. endogenous inferential top tier;
+6. fixed-balanced inferential partial order;
+7. endogenous inferential partial order;
+8. Gate 5 decision together with computation status; and
+9. open-selected and closed-selected ESR development sets.
+
+For every dimension the review retains each distinct value pattern and its
+source runs/seeds, unanimity, exact modal stability, exact pairwise agreement,
+and every disagreeing run pair. Proportions are integer numerator/denominator
+and reduced rational strings; rounded decimals never control a decision.
+Bootstrap draws are not pooled, rerun, or treated as independent paper
+replications.
+
+Create and verify the review:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-c-robustness review \
+  artifacts/experiment-c-multiseed \
+  runs/experiment-c-seed-1 \
+  runs/experiment-c-seed-2
+
+PYTHONPATH=src python -m cape_loop experiment-c-robustness verify \
+  artifacts/experiment-c-multiseed
+
+PYTHONPATH=src python -m cape_loop experiment-c-robustness verify \
+  artifacts/experiment-c-multiseed \
+  --source-run runs/experiment-c-seed-1 \
+  --source-run runs/experiment-c-seed-2
+```
+
+Supplying only a subset of bound sources fails. The immutable output contains
+`review.json`, `manifest.json`, and `SHA256SUMS`; it refuses existing outputs,
+duplicate paths/seeds, incompatible configurations, unsafe checksum paths,
+unknown boundary fields, non-finite numbers, incomplete pairs, and source
+mutation. Unanimity means only exact equality across the supplied verified
+seeds. It does not establish adequate power, Gate 5 passage, or a paper claim.
 
 ## Sensitivity grid
 
 Use:
 
 ```bash
-PYTHONPATH=src python -m cape_loop run configs/sensitivity.toml
+PYTHONPATH=src python -m cape_loop run configs/offline/sensitivity.toml
 ```
 
-The compact checked-in `configs/sensitivity.toml` product is:
+The checked-in config is a baseline-first, 19-point one-at-a-time declaration:
 
 ```text
-3 decision-noise values
-× 3 presentation multipliers
-× 3 initial-profile strengths
-× 3 trajectory lengths
-= 81 points
-```
-
-All additional axes default to neutral singleton values, so this compact config
-retains its original identity. `configs/sensitivity_full.toml` is the broader
-384-point executable declaration:
-
-```text
-2 decision-noise values
-× 1 shared presentation multiplier
-× 2 rank multipliers
-× 2 default multipliers
-× 2 suggestion multipliers
-× 2 initial-profile strengths
-× 2 prior-uncertainty values
-× 2 trajectory lengths
-× (1 random-utility point + 2 rule-noise points)
-= 384 points
+1 all-baseline random-utility point
++ 2 nonbaseline values on each of decision noise, shared presentation,
+  rank, default, suggestion, profile strength, and trajectory length
++ 1 nonbaseline prior-uncertainty value
++ 3 rule-based baseline points, one per declared rule-noise value
+= 19 points
 ```
 
 Random-utility points do not carry a rule-noise value. Rule-based points are
-repeated once per declared rule-noise value, keeping family identity explicit.
+repeated once per declared rule-noise value at the numeric baseline, keeping
+family identity explicit. This design estimates marginal departures from the
+baseline; it does not estimate interactions among sensitivity axes.
 
 Each point:
 
@@ -756,8 +1118,10 @@ request hashes. LLM sensitivity has a stricter contract:
 - before live execution, the exact logical update bound is multiplied by
   `max_retries + 1` and must fit within `llm.max_requests`.
 
-`configs/sensitivity_llm_openrouter_smoke.toml` is a one-point, two-domain
-transport smoke configuration. It is not a robustness grid or paper result.
+Transport-only sensitivity smoke presets are intentionally not part of the
+public configuration matrix. Provider construction, retry accounting, and
+content-addressed reuse are exercised by offline tests; operators can derive a
+temporary bounded diagnostic under ignored `configs/local/` when needed.
 `experiment.turns` must be `1`; each point's actual trajectory length comes
 only from `[sensitivity].trajectory_lengths`.
 
@@ -774,6 +1138,7 @@ metrics/sensitivity-phase-boundaries.jsonl
 metrics/sensitivity-phase-specification.json
 tables/sensitivity.csv
 events/sensitivity-trajectories.jsonl  # when retain_events = true
+llm/request-preflight.json             # when an LLM updater is configured
 llm/sensitivity-request-preflight.json # when an LLM updater is configured
 llm/requests.jsonl                     # mandatory for LLM sensitivity
 llm/responses.jsonl                    # when an LLM updater is configured
@@ -806,14 +1171,95 @@ whether it is an external LLM, and whether execution was replay or live.
 
 Gate 6 now reports the proposal's six clauses separately. Another-response-
 model, broad-parameter, both-domain, and exact/fitted-reference clauses are
-computed from completed point and domain phase rows. Multiple independent LLM
-families and held-out paraphrases remain explicitly incomplete inside any one
-run. Once complete live-model sensitivity and Experiment A runs exist,
-`gate6-review build` can bind explicit family/source declarations to exact
-provider evidence, recompute the held-out transfer, and aggregate all six
-clauses in a separate checksum-bound artifact. Model labels or ordinary
-wording templates are never promoted into family identity, independence, or a
-paper claim.
+computed from completed point and domain phase rows. Multiple LLM families and
+held-out paraphrases remain explicitly incomplete inside any one run. Model
+labels or wording templates are never promoted into family identity,
+independence, or a paper claim.
+
+### Gate 6 cross-run review
+
+The offline `gate6-review` joins the evidence that one sensitivity run cannot
+contain. Each caller-declared family requires:
+
+1. a complete checksum-valid sensitivity run whose phase target is the live
+   `llm_full_context` updater; and
+2. a complete checksum-valid Experiment A run using the same requested and
+   returned model/provider evidence.
+
+Both runs must retain prompts, responses, exchange/provider manifests, accepted
+provider audit, settled physical-attempt journal, and development-only or
+no-calibration manifest. Sensitivity contributes Gate 6, phase/domain, and
+fitted-model rows; Experiment A contributes its fixed held-out paraphrase
+suite, bound cases/scores, and transfer result. The importer recomputes both
+the within-sensitivity clauses and the held-out transfer, including the binding
+from each LLM score to its retained provider response.
+
+All family pairs use the same scientific design. Only run name, seed, output
+location, and LLM provider/model/transport fields may differ. Calibration,
+updater design, response parameters, phase rules, and every other scientific
+field remain matched.
+
+The declaration is written before review and binds:
+
+- a responsible-researcher ID, timestamp, preregistration record, and whether
+  family assignments preceded outcome inspection;
+- `statistical_independence_claimed = false`;
+- a unique pair and caller-declared family ID;
+- exact sensitivity/A run IDs plus each source `SHA256SUMS` digest; and
+- provider source, requested model, returned model, and any retained
+  OpenRouter upstream display metadata.
+
+At least two distinct family/model bindings and distinct source runs are
+required. OpenRouter upstream labels are retained gateway metadata, not proof
+of a physical route. The software validates declaration consistency but does
+not infer family lineage or genuine independence.
+
+Build and verify the separate artifact:
+
+```bash
+PYTHONPATH=src python -m cape_loop gate6-review build \
+  gate6-declaration.json artifacts/GATE6-REVIEW
+
+PYTHONPATH=src python -m cape_loop gate6-review verify \
+  artifacts/GATE6-REVIEW
+
+PYTHONPATH=src python -m cape_loop gate6-review verify \
+  artifacts/GATE6-REVIEW --reverify-sources
+```
+
+The output contains:
+
+```text
+declaration.json
+evidence/pairs.jsonl
+metrics/gate-6.json
+review.json
+manifest.json
+SHA256SUMS
+```
+
+It refuses incomplete responses, unresolved transport attempts, ambiguous model
+identity, source mutation, missing paraphrase coverage, unsafe paths, or
+incompatible grids. The six tri-state clauses are exactly:
+
+1. another response model;
+2. broad simulator parameters;
+3. both domains;
+4. multiple caller-declared LLM families;
+5. held-out natural-language paraphrases; and
+6. exact and fitted action-aware references.
+
+The four within-sensitivity clauses use a conservative conjunction across
+pairs: any explicit failure is `false`, all passing is `true`, and missing
+evidence remains `null`. Multiple-family replication requires a surviving
+complete phase result for every declared binding; paraphrase transfer must
+recompute completely for every pair.
+
+All outputs remain `claim_status = "not_claimed"`. Even six computational
+passes require researcher defense of the family taxonomy, source identity,
+shared-provider/training dependence, preregistration timing, and paper analysis.
+Provider collection and request ceilings are documented in
+[Live execution](live-execution.md).
 
 ## Human pragmatic-study collection and analysis
 
@@ -904,16 +1350,21 @@ pair-level debts, and per-stage summaries for:
 
 The independent unit is the pair, not an individual recovery turn. The default
 adapter is a transparent log-odds protocol reference, not an LLM or native
-memory. The authorization flag only prevents accidental early execution; it
-does not prove that a scientific gate passed. A paper result requires a real
-system adapter, retained evidence, and frozen review.
+memory. A real H9 native/LLM adapter is intentionally deferred, and H9 remains
+stage-gated and excluded from the minimum paper. The authorization flag only
+prevents accidental early execution; it does not prove that a scientific gate
+passed. A future H9 result requires a real system adapter, retained evidence,
+and frozen review.
 
 ## Evidence still external
 
-The repository contains no API keys or live model responses, genuinely distinct
-external decoder judgments, recruited human participants, ethics determination,
-full generalized mixed-effects fit, or paper results. Authors, repository/DOI,
-and accepted-paper metadata are also unset. See
-[External evidence boundaries](external-evidence.md).
+The repository contains no checked-in API keys or paper-intended live model
+response corpus, genuinely distinct external decoder judgments, recruited
+human participants, ethics determination, confirmatory mixed-effects result,
+or paper results. Local OpenAI/OpenRouter transport smokes are execution checks
+only. Authors, repository/DOI, and accepted-paper metadata are also unset. See
+[Implementation status](implementation-status.md) for the current evidence
+inventory and [Ethics and limitations](ethics-and-limitations.md) for
+collection and claim boundaries.
 
 No smoke, gate, packet, or checked-in configuration is an empirical result.

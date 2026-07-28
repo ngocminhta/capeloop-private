@@ -19,6 +19,21 @@ The machine-readable source of truth is
 [`analysis-spec.json`](analysis-spec.json). The JSON file is a protocol, not a
 result.
 
+## Relationship to the core analyses
+
+The standard-library Python runner emits complete-user paired bootstraps and a
+user-clustered CR1 marginal OLS analysis. Those are transparent primary or
+robustness summaries for the corresponding artifacts, but they are not
+substitutes for the proposal's user-random-slope and
+scenario-random-intercept models.
+
+This R project is the sole canonical mixed-effects harness. It verifies
+completed source runs, normalizes the retained event rows, fits the exact
+maximal models below, evaluates coding-invariant planned contrasts, retains
+complete numerical diagnostics, and publishes a separate checksum-bound
+analysis directory. It never edits a source run or promotes a technically
+successful fit to a scientific claim.
+
 ## Models
 
 Experiment A uses naturally sampled rows and operationalizes proposal
@@ -79,7 +94,7 @@ and create a new analysis ID rather than silently reusing v1.
 
 The repository CI has a dedicated R 4.6.1 job. It restores `renv.lock`,
 generates a checksum-verified synthetic Experiment A run from
-`configs/confirmatory_ci.toml`, executes this harness, verifies every output
+`analysis/confirmatory-mixed-effects/fixtures/confirmatory_ci.toml`, executes this harness, verifies every output
 checksum, and checks that the result remains explicitly `not_claimed`. The
 synthetic fit may validly finish as `complete`, `not_confirmatory`, or
 `not_estimable`; CI tests the runtime and failure semantics, not a scientific

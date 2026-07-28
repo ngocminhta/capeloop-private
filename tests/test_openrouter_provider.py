@@ -38,6 +38,7 @@ from cape_loop.provider_attempts import (
 
 
 MODEL = "google/gemini-3.6-flash"
+CLAUDE_MODEL = "anthropic/claude-sonnet-5"
 UPSTREAM_SLUG = "google-ai-studio"
 UPSTREAM_NAME = "Google AI Studio"
 TEST_KEY_ENV = "CAPE_LOOP_TEST_OPENROUTER_KEY"
@@ -306,6 +307,10 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
             vector = beliefs["properties"][attribute]
             self.assertFalse(vector["additionalProperties"])
             self.assertEqual(vector["required"], list(BELIEFS[attribute]))
+            for value in BELIEFS[attribute]:
+                probability = vector["properties"][value]
+                self.assertEqual(probability["minimum"], 0)
+                self.assertEqual(probability["maximum"], 1)
         self.assertNotIn("Authorization", first.headers)
         self.assertEqual(first.headers["X-OpenRouter-Metadata"], "enabled")
         self.assertEqual(first.headers["X-OpenRouter-Cache"], "false")
@@ -317,6 +322,28 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
             first.headers["X-OpenRouter-Title"],
             "CAPE-Loop tests",
         )
+
+    def test_claude_schema_omits_bedrock_unsupported_numeric_bounds(
+        self,
+    ) -> None:
+        prepared = prepare_openrouter_request(
+            build_request(),
+            OpenRouterProviderConfig(
+                model=CLAUDE_MODEL,
+                reasoning_effort="low",
+            ),
+        )
+        schema = prepared.body["response_format"]["json_schema"]["schema"]
+        encoded_schema = json.dumps(schema, sort_keys=True)
+        self.assertNotIn('"minimum"', encoded_schema)
+        self.assertNotIn('"maximum"', encoded_schema)
+        beliefs = schema["properties"]["beliefs"]
+        for attribute in BELIEFS:
+            vector = beliefs["properties"][attribute]
+            for value in BELIEFS[attribute]:
+                probability = vector["properties"][value]
+                self.assertEqual(probability["type"], "number")
+                self.assertIn("[0, 1]", probability["description"])
 
     def test_live_execution_and_runtime_key_are_both_explicit(self) -> None:
         request = build_request()
@@ -344,6 +371,67 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
 
 
 class OpenRouterTransportAndParsingTests(unittest.TestCase):
+    def test_claude_unbounded_wire_schema_still_rejects_invalid_vectors(
+        self,
+    ) -> None:
+        invalid_vectors = (
+            (
+                {
+                    "-2": -0.1,
+                    "-1": 0.2,
+                    "+1": 0.3,
+                    "+2": 0.6,
+                },
+                "outside \\[0, 1\\]",
+            ),
+            (
+                {
+                    "-2": 0.1,
+                    "-1": 0.2,
+                    "+1": 0.3,
+                    "+2": 0.5,
+                },
+                "do not sum to one",
+            ),
+        )
+        for vector, message in invalid_vectors:
+            with self.subTest(message=message):
+                raw = json.loads(
+                    response_body(
+                        model=CLAUDE_MODEL,
+                        upstream_provider="Amazon Bedrock",
+                        upstream_model=CLAUDE_MODEL,
+                    )
+                )
+                malformed = {
+                    attribute: dict(values)
+                    for attribute, values in BELIEFS.items()
+                }
+                malformed["attribute_1"] = vector
+                raw["choices"][0]["message"]["content"] = json.dumps(
+                    {"beliefs": malformed},
+                    separators=(",", ":"),
+                )
+                provider = OpenRouterChatProvider(
+                    live_config(
+                        model=CLAUDE_MODEL,
+                        upstream_provider="",
+                        max_retries=0,
+                    ),
+                    transport=lambda **_: HTTPResult(
+                        200,
+                        {"X-OpenRouter-Cache-Status": "MISS"},
+                        json.dumps(raw).encode("utf-8"),
+                    ),
+                )
+                with patch.dict(
+                    "os.environ",
+                    {TEST_KEY_ENV: "test"},
+                    clear=True,
+                ):
+                    with self.assertRaisesRegex(ValueError, message):
+                        provider.complete(build_request())
+
     def test_request_constrained_route_accepts_display_identity_snapshot(
         self,
     ) -> None:
@@ -1017,7 +1105,7 @@ class OpenRouterResumeTests(unittest.TestCase):
                 )
 
             first = OpenRouterChatProvider(
-                live_config(max_requests=1),
+                live_config(max_requests=1, max_retries=0),
                 transport=first_transport,
             )
             with patch.dict(
@@ -1025,14 +1113,14 @@ class OpenRouterResumeTests(unittest.TestCase):
                 {TEST_KEY_ENV: "test"},
                 clear=True,
             ):
-                with self.assertRaises(OpenRouterBudgetExceeded):
-                    execute_openrouter_requests(
-                        first,
-                        requests,
-                        responses_path=responses_path,
-                        audit_path=audit_path,
-                    )
+                first_summary = execute_openrouter_requests(
+                    first,
+                    requests[:1],
+                    responses_path=responses_path,
+                    audit_path=audit_path,
+                )
             self.assertEqual(first_calls, [1])
+            self.assertEqual(first_summary.executed_count, 1)
             self.assertEqual(len(read_responses(responses_path)), 1)
 
             second_calls: list[int] = []
@@ -1046,7 +1134,7 @@ class OpenRouterResumeTests(unittest.TestCase):
                 )
 
             second = OpenRouterChatProvider(
-                live_config(max_requests=2),
+                live_config(max_requests=2, max_retries=0),
                 transport=second_transport,
             )
             with patch.dict(

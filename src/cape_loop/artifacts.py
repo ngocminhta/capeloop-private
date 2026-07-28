@@ -10,8 +10,13 @@ import json
 import platform
 import subprocess
 import sys
+import tomllib
 
-from .config import AppConfig, load_config
+from .config import AppConfig
+
+
+_FILE_HASH_CHUNK_BYTES = 1024 * 1024
+_MAX_CONTROL_FILE_BYTES = 32 * 1024 * 1024
 
 
 def canonical_json(value: Any) -> str:
@@ -26,6 +31,63 @@ def canonical_json(value: Any) -> str:
 
 def config_digest(config: AppConfig) -> str:
     return sha256(config.canonical_json().encode("utf-8")).hexdigest()
+
+
+def retained_config_digest(config: Mapping[str, Any]) -> str:
+    """Hash a retained resolved mapping with the historical config encoding.
+
+    Parsing an older resolved configuration with a newer release can insert
+    newly introduced default fields. Those defaults are useful for semantic
+    validation, but they must not change the historical digest recorded by
+    the run manifest. ``AppConfig.canonical_json`` has always used
+    ``json.dumps``'s default ASCII escaping, which intentionally differs from
+    the human-readable artifact JSON encoder for non-ASCII strings.
+    """
+
+    if not isinstance(config, Mapping):
+        raise TypeError("retained resolved config must be an object")
+    encoded = json.dumps(
+        config,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    """Hash an artifact with bounded memory, regardless of file size."""
+
+    digest = sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_FILE_HASH_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_control_bytes(path: Path, *, label: str) -> bytes:
+    """Read a small run-control file without trusting its declared size."""
+
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symbolic link")
+    try:
+        with path.open("rb") as handle:
+            payload = handle.read(_MAX_CONTROL_FILE_BYTES + 1)
+    except OSError as exc:
+        raise ValueError(f"cannot read {label}: {exc}") from exc
+    if len(payload) > _MAX_CONTROL_FILE_BYTES:
+        raise ValueError(
+            f"{label} exceeds {_MAX_CONTROL_FILE_BYTES} bytes"
+        )
+    return payload
+
+
+def _read_control_text(path: Path, *, label: str) -> str:
+    try:
+        return read_control_bytes(path, label=label).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{label} is not UTF-8: {exc}") from exc
 
 
 def _validated_config_origin(
@@ -237,10 +299,14 @@ class RunArtifacts:
         checksum_path = self.path / "SHA256SUMS"
         lines: list[str] = []
         for file_path in sorted(self.path.rglob("*")):
+            relative = file_path.relative_to(self.path).as_posix()
+            if file_path.is_symlink():
+                raise ValueError(
+                    f"artifact tree contains symbolic link: {relative}"
+                )
             if not file_path.is_file() or file_path == checksum_path:
                 continue
-            relative = file_path.relative_to(self.path).as_posix()
-            digest = sha256(file_path.read_bytes()).hexdigest()
+            digest = file_sha256(file_path)
             lines.append(f"{digest}  {relative}")
         checksum_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return checksum_path
@@ -250,11 +316,27 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
     run_path = Path(path).resolve()
     checksum_path = run_path / "SHA256SUMS"
     errors: list[str] = []
-    if not checksum_path.is_file():
-        return False, ("missing SHA256SUMS",)
+    tree_entries = tuple(run_path.rglob("*"))
+    for entry in tree_entries:
+        if entry.is_symlink():
+            errors.append(
+                "symbolic link not allowed: "
+                + entry.relative_to(run_path).as_posix()
+            )
+    if not checksum_path.is_file() or checksum_path.is_symlink():
+        errors.append("missing SHA256SUMS")
+        return False, tuple(errors)
+    try:
+        checksum_text = _read_control_text(
+            checksum_path,
+            label="SHA256SUMS",
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+        return False, tuple(errors)
     retained_paths: set[str] = set()
     for line_number, line in enumerate(
-        checksum_path.read_text(encoding="utf-8").splitlines(), start=1
+        checksum_text.splitlines(), start=1
     ):
         if not line.strip():
             continue
@@ -282,6 +364,18 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
             errors.append(f"unsafe checksum path on line {line_number}")
             continue
         unresolved_path = run_path.joinpath(*relative_path.parts)
+        current_path = run_path
+        traverses_symlink = False
+        for part in relative_path.parts:
+            current_path /= part
+            if current_path.is_symlink():
+                traverses_symlink = True
+                break
+        if traverses_symlink:
+            errors.append(
+                f"checksum path traverses symbolic link: {relative}"
+            )
+            continue
         file_path = unresolved_path.resolve()
         if file_path == run_path or run_path not in file_path.parents:
             errors.append(f"checksum path escapes run directory: {relative}")
@@ -294,13 +388,21 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
         if not file_path.is_file():
             errors.append(f"missing {relative}")
             continue
-        actual = sha256(file_path.read_bytes()).hexdigest()
+        try:
+            actual = file_sha256(file_path)
+        except OSError as exc:
+            errors.append(f"cannot hash {relative}: {exc}")
+            continue
         if not expected == actual:
             errors.append(f"checksum mismatch: {relative}")
     actual_paths = {
         file_path.relative_to(run_path).as_posix()
-        for file_path in run_path.rglob("*")
-        if file_path.is_file() and file_path != checksum_path
+        for file_path in tree_entries
+        if (
+            not file_path.is_symlink()
+            and file_path.is_file()
+            and file_path != checksum_path
+        )
     }
     for relative in sorted(actual_paths - retained_paths):
         errors.append(f"unlisted artifact: {relative}")
@@ -312,11 +414,16 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
         errors.append("missing manifest.json")
     else:
         try:
-            decoded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            decoded = json.loads(
+                _read_control_text(
+                    manifest_path,
+                    label="manifest.json",
+                )
+            )
             if not isinstance(decoded, Mapping):
                 raise TypeError("manifest is not an object")
             manifest = decoded
-        except (OSError, TypeError, json.JSONDecodeError) as exc:
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"invalid manifest.json: {exc}")
     if manifest is not None:
         if manifest.get("status") != "complete":
@@ -325,13 +432,21 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
             errors.append("run manifest ID does not match directory name")
         resolved_path = run_path / "config.resolved.json"
         resolved_config_sha256: str | None = None
+        resolved_config: AppConfig | None = None
         if not resolved_path.is_file():
             errors.append("missing config.resolved.json")
         else:
             try:
-                resolved = json.loads(resolved_path.read_text(encoding="utf-8"))
+                resolved = json.loads(
+                    _read_control_text(
+                        resolved_path,
+                        label="config.resolved.json",
+                    )
+                )
+                if not isinstance(resolved, Mapping):
+                    raise TypeError("resolved config must be an object")
                 resolved_config = AppConfig.parse(resolved)
-                resolved_config_sha256 = config_digest(resolved_config)
+                resolved_config_sha256 = retained_config_digest(resolved)
                 if (
                     manifest.get("config_sha256")
                     != resolved_config_sha256
@@ -340,7 +455,6 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
                         "manifest config digest does not match resolved config"
                     )
             except (
-                OSError,
                 TypeError,
                 ValueError,
                 json.JSONDecodeError,
@@ -348,46 +462,60 @@ def verify_run(path: str | Path) -> tuple[bool, tuple[str, ...]]:
                 errors.append(f"invalid config.resolved.json: {exc}")
         source_config_path = run_path / "config.source.toml"
         origin = manifest.get("config_origin")
+        validated_origin: Mapping[str, Any] | None = None
+        try:
+            if not isinstance(origin, Mapping):
+                raise ValueError("config_origin must be an object")
+            validated_origin = _validated_config_origin(
+                origin,
+                expected_config_sha256=manifest.get("config_sha256"),
+            )
+        except ValueError as exc:
+            errors.append(f"invalid config_origin: {exc}")
         if source_config_path.is_file():
+            if (
+                validated_origin is None
+                or validated_origin.get("kind") != "toml_file"
+            ):
+                errors.append(
+                    "config.source.toml requires a TOML config origin"
+                )
             try:
-                source_config = load_config(source_config_path)
-                source_config_sha256 = config_digest(source_config)
+                source_bytes = read_control_bytes(
+                    source_config_path,
+                    label="config.source.toml",
+                )
+                try:
+                    source_text = source_bytes.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError(
+                        f"config.source.toml is not UTF-8: {exc}"
+                    ) from exc
+                source_config = AppConfig.parse(tomllib.loads(source_text))
                 if (
-                    resolved_config_sha256 is not None
-                    and source_config_sha256 != resolved_config_sha256
+                    resolved_config is not None
+                    and source_config.to_dict() != resolved_config.to_dict()
                 ):
                     errors.append(
-                        "source TOML config digest does not match resolved "
+                        "source TOML config does not resolve to the retained "
                         "config"
                     )
-                if isinstance(origin, Mapping) and origin.get(
-                    "kind"
-                ) == "toml_file":
-                    if origin.get("retained_file") != "config.source.toml":
-                        errors.append(
-                            "TOML config origin retained_file mismatch"
-                        )
-                    if origin.get("source_sha256") != sha256(
-                        source_config_path.read_bytes()
-                    ).hexdigest():
+                if (
+                    validated_origin is not None
+                    and validated_origin.get("kind") == "toml_file"
+                ):
+                    if (
+                        validated_origin.get("source_sha256")
+                        != sha256(source_bytes).hexdigest()
+                    ):
                         errors.append(
                             "TOML config origin source SHA-256 mismatch"
                         )
-                    if origin.get("config_sha256") != manifest.get(
-                        "config_sha256"
-                    ):
-                        errors.append(
-                            "TOML config origin resolved digest mismatch"
-                        )
-            except (OSError, TypeError, ValueError) as exc:
+            except (TypeError, ValueError, tomllib.TOMLDecodeError) as exc:
                 errors.append(f"invalid config.source.toml: {exc}")
-        elif not (
-            isinstance(origin, Mapping)
-            and origin.get("kind") == "programmatic"
-            and isinstance(origin.get("descriptor"), str)
-            and origin["descriptor"].strip()
-            and origin.get("config_sha256")
-            == manifest.get("config_sha256")
+        elif (
+            validated_origin is None
+            or validated_origin.get("kind") != "programmatic"
         ):
             errors.append(
                 "run lacks config.source.toml and a hash-bound "

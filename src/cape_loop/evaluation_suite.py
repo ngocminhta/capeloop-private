@@ -9,9 +9,12 @@ import json
 import os
 import tempfile
 
-from .artifacts import canonical_json, config_digest
+from .artifacts import canonical_json, config_digest, file_sha256
 from .config import AppConfig, load_config
-from .heldout import build_default_paraphrase_suite
+from .llm_preflight import (
+    build_llm_request_preflight,
+    require_live_llm_budget,
+)
 from .openai_provider import DEFAULT_OPENAI_MODEL_ROLES
 
 
@@ -20,7 +23,7 @@ SUITE_ROLES = ("primary", "replication")
 
 
 def _source_sha256(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 def _resolved_role(config: AppConfig) -> tuple[str, str]:
@@ -50,43 +53,10 @@ def _experiment_a_request_upper_bound(config: AppConfig) -> int:
         raise ValueError(
             "the OpenAI paper suite currently supports Experiment A only"
         )
-    llm_updaters = tuple(
-        updater_id
-        for updater_id in config.experiment.updaters
-        if updater_id.startswith("llm_")
-    )
-    test_requests = (
-        config.experiment.users
-        * len(config.experiment.domains)
-        * 3
-        * 2
-        * len(config.experiment.prior_strengths)
-        * len(config.experiment.mechanisms)
-        * len(config.experiment.response_modes)
-        * len(llm_updaters)
-    )
-    calibration_requests = 0
-    if config.llm.calibration == "temperature":
-        calibration_requests = (
-            config.llm.calibration_users
-            * len(config.experiment.domains)
-            * 3
-            * 2
-            * 4
-            * len(llm_updaters)
-        )
-    paraphrase_requests = 0
-    if (
-        "llm_full_context" in llm_updaters
-        and "naturally_sampled" in config.experiment.response_modes
-    ):
-        paraphrase_requests = (
-            len(config.experiment.domains)
-            * len(config.experiment.mechanisms)
-            * 2
-            * len(build_default_paraphrase_suite().for_split("test"))
-        )
-    return test_requests + calibration_requests + paraphrase_requests
+    preflight = build_llm_request_preflight(config)
+    if preflight is None:
+        raise ValueError("the OpenAI paper suite requires an LLM updater")
+    return int(preflight["logical_completion_upper_bound"])
 
 
 def _validate_role_config(
@@ -109,13 +79,13 @@ def _validate_role_config(
         raise ValueError(
             f"suite role {role!r} has no LLM updater to evaluate"
         )
-    request_upper_bound = _experiment_a_request_upper_bound(config)
-    if request_upper_bound > config.llm.max_requests:
+    try:
+        require_live_llm_budget(config)
+    except ValueError as exc:
         raise ValueError(
-            f"suite role {role!r} can require up to "
-            f"{request_upper_bound} requests, exceeding max_requests = "
-            f"{config.llm.max_requests}"
-        )
+            f"suite role {role!r} fails credential-free budget preflight: "
+            f"{exc}"
+        ) from exc
     declared = DEFAULT_OPENAI_MODEL_ROLES[role]
     model, effort = _resolved_role(config)
     if model != declared.model or effort != declared.reasoning_effort:
@@ -285,6 +255,9 @@ def build_openai_evaluation_suite_plan(
         config_digests,
     ):
         model, effort = _resolved_role(config)
+        preflight = build_llm_request_preflight(config)
+        if preflight is None:  # already rejected by _validate_role_config
+            raise AssertionError("validated suite role lost its LLM updater")
         run_id = f"{config.run.name}-{digest[:12]}"
         run_directory = (resolved_output_root / run_id).resolve()
         roles.append(
@@ -310,9 +283,29 @@ def build_openai_evaluation_suite_plan(
                 "conservative_request_upper_bound": (
                     _experiment_a_request_upper_bound(config)
                 ),
+                "retry_expansion_factor": preflight[
+                    "retry_expansion_factor"
+                ],
+                "physical_http_attempt_upper_bound": preflight[
+                    "physical_http_attempt_upper_bound"
+                ],
+                "maximum_output_token_allocation": preflight[
+                    "maximum_output_token_allocation"
+                ],
+                "output_token_headroom_before_input": preflight[
+                    "output_token_headroom_before_input"
+                ],
+                "adaptive_input_token_preflight": preflight[
+                    "adaptive_input_token_preflight"
+                ],
+                "within_declared_retry_expanded_bounds": preflight[
+                    "within_declared_retry_expanded_bounds"
+                ],
                 "request_headroom": (
                     config.llm.max_requests
-                    - _experiment_a_request_upper_bound(config)
+                    - int(
+                        preflight["physical_http_attempt_upper_bound"]
+                    )
                 ),
                 "execution_status": "planned",
                 "result": None,
@@ -359,8 +352,10 @@ def build_openai_evaluation_suite_plan(
         "budget_enforcement": (
             "Each role receives a fresh provider ledger with only that "
             "config's max_requests and max_total_tokens ceilings. The suite "
-            "also rejects a deterministic Experiment A request upper bound "
-            "that exceeds max_requests before live execution."
+            "also rejects a retry-expanded Experiment A request/output "
+            "allocation bound that exceeds either ceiling before live "
+            "execution; adaptive prompt-input tokens remain enforced before "
+            "each request."
         ),
         "replication_scope": (
             "GPT-5.6 model-variant/tier replication; not distinct-family "

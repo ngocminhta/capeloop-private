@@ -1,5 +1,12 @@
 # Scientific design
 
+This page is the concise implementation-facing scientific contract. The
+paper-facing narrative remains in [the proposal](proposal.md), exact formulas
+and decision quantities are in [Metrics](metrics.md), executable study and
+review procedures are in [Experiments](experiments.md), and provider operations
+are in [Live execution](live-execution.md). None of those documents treats
+software completion as an empirical result.
+
 ## The claim
 
 CAPE-Loop studies **performative observation**, not changing preferences. A
@@ -229,14 +236,30 @@ trajectory and never replace ranking or gate inputs.
 
 ### Track B: native persistent memory
 
-Systems keep their native representation. The current evaluator uses two
-distinct fixed deterministic blinded projections and a shared exogenous
-terminal battery. Battery choices are produced from each projected belief, not
-through a separate native-system action API. The proposal's independent
-decoder judgments and native end-to-end action evaluation therefore remain
-future empirical work. Gate 4 encodes both as incomplete prerequisites: local
-decoder projections and structured/persona action references are never
-accepted as substitutes.
+The executable native families are `episodic_memory`, `semantic_memory`, and
+`provenance_linked_memory`. Systems keep their native representation, including
+the policy-facing persona projection where present. The ordinary offline
+evaluator uses two distinct fixed deterministic blinded projections and a
+shared exogenous terminal battery.
+
+Those local projections are diagnostics. Gate 4 instead requires two external
+evidence streams:
+
+1. the exact retained terminal state is decoded blindly by
+   `anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` through the
+   selected OpenRouter collection; and
+2. `cape-loop-openai-native-agent-v1`, backed by OpenAI `gpt-5.6-sol`, receives
+   the complete retained native state and held-out suite and returns one bound
+   terminal action per item.
+
+Plans, per-model reasoning settings, responses, physical-attempt journals,
+provider audits, state/suite bindings, and imports are hash-bound and
+validated. No eligible paper corpus is checked in. Both decoder families share
+one gateway, so first-party decoder origin, distinct transport origins, and
+statistical independence are not claimed. Gate 4 remains incomplete until the
+collections are executed and a responsible researcher accepts the sources for
+the stated claim. Direct Anthropic/Gemini adapters remain optional
+first-party-origin replications.
 
 ## Positive and negative controls
 
@@ -264,13 +287,21 @@ automatically turn a gate outcome into a claim:
 2. **Nontrivial soft self-confirmation:** effect under soft presentation with
    positive excess confidence and downstream action influence.
 3. **Attribution beyond selection:** updater worse than its same-history shadow.
-4. **Native validity:** failure appears in an inspectable persistent loop and
-   is supported by imported independent blinded decoders plus genuine native
-   end-to-end terminal actions.
-5. **Evaluation implication:** a joint-paired complete-user reversal or
-   inferential-top-tier selection regret clears its declared threshold.
-6. **Robustness:** transfer across response models, parameters, domains, model
-   families, and paraphrases.
+4. **Native validity:** a matched native failure appears in an inspectable
+   persistent loop; every eligible state has imported blind judgments from two
+   responsibly reviewed genuinely distinct decoder sources and hash-bound
+   actions emitted directly by the native system. Shared-gateway metadata is
+   never promoted to first-party origin or independence.
+5. **Evaluation implication:** either a joint-paired complete-user analysis
+   resolves a reversal and its regime shift, or the minimum inferential-top-tier
+   selection regret and conservative paired-test interval envelope clear the
+   declared practical threshold. Descriptive rank disagreement cannot pass the
+   gate.
+6. **Robustness:** verified sensitivity/Experiment A pairs cover another
+   response model, broad parameters, both domains, at least two
+   researcher-declared LLM families, held-out paraphrases, and exact/fitted
+   aware references. The cross-run review does not infer family identity or
+   statistical independence from model names.
 
 Until retained evidence supports a gate, documentation and reports must call the
 associated conclusion unestablished.

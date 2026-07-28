@@ -1,10 +1,14 @@
 schema_version = 1
 
+# Canonical ceiling-safe direct-OpenAI Experiment C pilot. One LLM profile writer is compared
+# against all structured and native repository systems under both fixed and
+# endogenous regimes. Exact preflight: 768 evaluation + 48 calibration calls.
+
 [run]
-name = "experiment-c-evaluation-validity"
+name = "experiment-c-openai-primary-pilot"
 seed = 1729
 output_root = "runs"
-deterministic = true
+deterministic = false
 
 [experiment]
 kind = "evaluation_validity"
@@ -21,10 +25,11 @@ updaters = [
   "episodic_memory",
   "semantic_memory",
   "provenance_linked_memory",
+  "llm_full_context",
 ]
-users = 32
-trajectories_per_cell = 8
-turns = 16
+users = 8
+trajectories_per_cell = 1
+turns = 8
 bootstrap_replicates = 2000
 
 [response_model]
@@ -37,9 +42,9 @@ susceptibility_levels = [0.15, 0.45, 0.85]
 minimum_matched_probability = 0.05
 
 [inference]
-training_interactions = 8192
-fit_steps = 1600
-learning_rate = 0.02
+training_interactions = 4096
+fit_steps = 1200
+learning_rate = 0.025
 l2 = 0.001
 calibration = "temperature"
 
@@ -50,6 +55,23 @@ shadow_equivalence_tolerance = 0.05
 false_stability_tolerance = 0.02
 direction_tolerance = 1e-9
 ranking_tie_tolerance = 1e-6
+
+[llm]
+mode = "openai"
+calibration = "temperature"
+calibration_users = 1
+model_role = "primary"
+model = "gpt-5.6-sol"
+reasoning_effort = "medium"
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com"
+allow_custom_base_url = false
+timeout_seconds = 180.0
+max_retries = 0
+max_output_tokens = 2048
+max_requests = 900
+max_total_tokens = 6000000
+journal_dir = ""
 
 [artifacts]
 retain_events = true

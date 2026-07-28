@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import json
 import os
 import platform
@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 from . import __version__
-from .artifacts import verify_run
+from .artifacts import file_sha256, verify_run
 from .config import ConfigError, load_config
 from .control_study import (
     build_control_llm_exchange,
@@ -36,6 +36,7 @@ from .external_decoder_providers import (
     plan_external_decoder_collection,
 )
 from .decoder_study import (
+    ExternalDecoderRequest,
     analyze_external_decoders,
     analyze_human_evidence_strength,
     external_decoder_judgment_from_response,
@@ -72,7 +73,12 @@ from .experiment_c_robustness import (
     create_experiment_c_multiseed_review,
     verify_experiment_c_multiseed_review,
 )
-from .gate_review import import_native_gate_review, verify_gate_review
+from .gate_review import (
+    DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
+    OPENROUTER_COLLECTION_PROVENANCE,
+    import_native_gate_review,
+    verify_gate_review,
+)
 from .llm_exchange import ReplayProvider, read_responses
 from .openai_provider import (
     DEFAULT_OPENAI_MODEL_ROLES,
@@ -92,6 +98,21 @@ from .openrouter_provider import (
     ResumableOpenRouterCompletionProvider,
     execute_openrouter_jsonl,
 )
+from .openrouter_decoder_collection import (
+    OPENROUTER_COLLECTION_LOCKS,
+    OPENROUTER_DECODER_MAX_OUTPUT_TOKENS,
+    OPENROUTER_DECODER_MAX_REQUESTS,
+    OPENROUTER_DECODER_MAX_RETRIES,
+    OPENROUTER_DECODER_MAX_TOTAL_TOKENS,
+    SELECTED_OPENROUTER_DECODER_MODELS,
+    SELECTED_OPENROUTER_REASONING_EFFORTS,
+    build_openrouter_decoder_collection_plan,
+    build_openrouter_decoder_execution_manifest,
+    openrouter_decoder_family,
+    openrouter_decoder_identity,
+    openrouter_decoder_source_descriptor,
+    openrouter_source_execution_summary,
+)
 from .native_action_provider import (
     OpenAINativeActionProvider,
     execute_openai_native_actions,
@@ -104,6 +125,35 @@ from .robustness_review import (
 )
 from .schema_export import export_schemas
 from .schema_export import SCHEMAS
+
+
+class _ExternalCollectionDirAction(argparse.Action):
+    """Store a collection path together with the flag's provenance contract."""
+
+    def __init__(
+        self,
+        option_strings: Sequence[str],
+        dest: str,
+        *,
+        provenance_mode: str,
+        **kwargs: Any,
+    ) -> None:
+        self.provenance_mode = provenance_mode
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        setattr(namespace, self.dest, values)
+        setattr(
+            namespace,
+            "external_collection_provenance_mode",
+            self.provenance_mode,
+        )
 
 
 def _json(value: object) -> str:
@@ -347,6 +397,9 @@ def _doctor(_: argparse.Namespace) -> int:
 
 def _config_validate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    from .llm_preflight import require_live_llm_budget
+
+    require_live_llm_budget(config)
     print(_json(config.to_dict()))
     return 0
 
@@ -383,6 +436,9 @@ def _gate_review_import_native(args: argparse.Namespace) -> int:
         source_review_path=args.source_review,
         output_dir=args.output_dir,
         external_collection_dir=args.external_collection_dir,
+        external_collection_provenance_mode=(
+            args.external_collection_provenance_mode
+        ),
         allow_reviewed_generic_decoders=(
             args.allow_reviewed_generic_decoders
         ),
@@ -519,6 +575,38 @@ def _llm_models(_: argparse.Namespace) -> int:
                         "excluded from reproducible runs."
                     ),
                     "strict_gate4_first_party_origin": False,
+                },
+                "selected_decoder_pair": {
+                    "provenance_mode": (
+                        "selected_openrouter_gateway_collection"
+                    ),
+                    "shared_gateway": True,
+                    "first_party_origin_claimed": False,
+                    "statistical_independence_claimed": False,
+                    "sources": [
+                        {
+                            "model": model,
+                            "reasoning_effort": (
+                                SELECTED_OPENROUTER_REASONING_EFFORTS[
+                                    model
+                                ]
+                            ),
+                            "decoder_family_id": (
+                                openrouter_decoder_family(model)
+                            ),
+                        }
+                        for model in SELECTED_OPENROUTER_DECODER_MODELS
+                    ],
+                    "optional_direct_adapters_retained": [
+                        {
+                            "provider": "anthropic",
+                            "model": ANTHROPIC_DEFAULT_MODEL,
+                        },
+                        {
+                            "provider": "google_gemini",
+                            "model": GEMINI_DEFAULT_MODEL,
+                        },
+                    ],
                 },
             }
         )
@@ -735,7 +823,14 @@ def _decoder_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
-_GENERIC_DECODER_COMMAND_LOCK_NAME = ".generic-decoder-command.lock"
+_GENERIC_DECODER_COMMAND_LOCK_NAME = ".external-decoder-command.lock"
+
+
+def _openai_decoder_roles(args: argparse.Namespace) -> tuple[str, ...]:
+    roles = tuple(args.roles)
+    if len(roles) != len(set(roles)):
+        raise ValueError("OpenAI decoder roles must not contain duplicates")
+    return roles
 
 
 def _decoder_execute_openai(args: argparse.Namespace) -> int:
@@ -743,56 +838,30 @@ def _decoder_execute_openai(args: argparse.Namespace) -> int:
         raise ValueError(
             "decoder execution requires the explicit --execute-live flag"
         )
+    _openai_decoder_roles(args)
+    _reject_output_inside_input_run(args.requests, args.output_dir)
+    requests = read_external_decoder_requests(args.requests)
     output = Path(args.output_dir)
     with _ExclusiveCollectionLock(
         output / _GENERIC_DECODER_COMMAND_LOCK_NAME
     ):
-        return _decoder_execute_openai_locked(args, output=output)
+        return _decoder_execute_openai_locked(
+            args,
+            output=output,
+            requests=requests,
+        )
 
 
 def _decoder_execute_openai_locked(
     args: argparse.Namespace,
     *,
     output: Path,
+    requests: Sequence[ExternalDecoderRequest],
 ) -> int:
     """Reconcile, dispatch, and publish one OpenAI decoder transaction."""
 
-    requests = read_external_decoder_requests(args.requests)
-    for role_name in args.roles:
-        if not (output / "journals" / role_name).exists():
-            planning_provider = OpenAIResponsesProvider(
-                _openai_cli_config(
-                    args,
-                    live_execution=False,
-                    role_name=role_name,
-                )
-            )
-            prepared_requests = (
-                external_decoder_llm_request(
-                    request,
-                    decoder_instance_id=f"plan-{role_name}",
-                )
-                for request in requests
-            )
-            conservative_tokens = sum(
-                planning_provider.prepare(request).estimated_max_tokens
-                for request in prepared_requests
-            )
-            retry_budget = _retry_expanded_budget(
-                request_count=len(requests),
-                conservative_tokens=conservative_tokens,
-                max_retries=planning_provider.config.max_retries,
-                max_requests=planning_provider.config.max_requests,
-                max_total_tokens=planning_provider.config.max_total_tokens,
-            )
-            if not retry_budget["within_declared_budget"]:
-                raise ValueError(
-                    f"decoder role {role_name!r} would exceed its hard "
-                    "budget before any request; run decoder-study plan-openai"
-                )
-    judgments = []
-    manifests = []
-    for role_name in args.roles:
+    prepared_runs = []
+    for role_name in _openai_decoder_roles(args):
         role = DEFAULT_OPENAI_MODEL_ROLES[role_name]
         model, _ = _resolved_model(role_name, "", "")
         instance_id = (
@@ -817,13 +886,37 @@ def _decoder_execute_openai_locked(
             responses_path=journal / "responses.jsonl",
             audit_path=journal / "provider-audit.jsonl",
         )
-        for request in requests:
-            response = adapter.complete(
-                external_decoder_llm_request(
-                    request,
-                    decoder_instance_id=instance_id,
-                )
+        provider_requests = tuple(
+            external_decoder_llm_request(
+                request,
+                decoder_instance_id=instance_id,
             )
+            for request in requests
+        )
+        adapter.require_static_corpus_capacity(provider_requests)
+        prepared_runs.append(
+            (
+                role_name,
+                role,
+                model,
+                instance_id,
+                adapter,
+                provider_requests,
+            )
+        )
+
+    judgments = []
+    manifests = []
+    for (
+        role_name,
+        role,
+        model,
+        instance_id,
+        adapter,
+        provider_requests,
+    ) in prepared_runs:
+        for request, provider_request in zip(requests, provider_requests):
+            response = adapter.complete(provider_request)
             judgments.append(
                 external_decoder_judgment_from_response(
                     request,
@@ -841,7 +934,8 @@ def _decoder_execute_openai_locked(
             }
         )
     judgment_path = output / "judgments.jsonl"
-    judgment_path.write_text(
+    _atomic_write_text(
+        judgment_path,
         "".join(
             json.dumps(
                 judgment.to_dict(),
@@ -852,16 +946,16 @@ def _decoder_execute_openai_locked(
             + "\n"
             for judgment in judgments
         ),
-        encoding="utf-8",
     )
     design_audit = validate_external_decoder_import(requests, judgments)
-    (output / "execution-manifest.json").write_text(
+    _atomic_write_text(
+        output / "execution-manifest.json",
         _json(
             {
                 "schema_version": 1,
                 "request_count": len(requests),
                 "judgment_count": len(judgments),
-                "roles": list(args.roles),
+                "roles": list(_openai_decoder_roles(args)),
                 "provider_runs": manifests,
                 "source_design_audit": design_audit.to_dict(),
                 "statistical_independence_claimed": False,
@@ -869,7 +963,6 @@ def _decoder_execute_openai_locked(
             }
         )
         + "\n",
-        encoding="utf-8",
     )
     print(
         _json(
@@ -887,10 +980,11 @@ def _decoder_execute_openai_locked(
 
 
 def _decoder_plan_openai(args: argparse.Namespace) -> int:
+    roles = _openai_decoder_roles(args)
     requests = read_external_decoder_requests(args.requests)
     sources = []
     all_within_budget = True
-    for role_name in args.roles:
+    for role_name in roles:
         role = DEFAULT_OPENAI_MODEL_ROLES[role_name]
         provider = OpenAIResponsesProvider(
             _openai_cli_config(
@@ -950,17 +1044,67 @@ def _decoder_plan_openai(args: argparse.Namespace) -> int:
 def _openrouter_decoder_models(
     args: argparse.Namespace,
 ) -> tuple[str, ...]:
-    models = (args.model, *args.additional_model)
+    model = getattr(args, "model", None)
+    additional = tuple(getattr(args, "additional_model", ()))
+    if model is None:
+        if additional:
+            raise ValueError(
+                "--additional-model requires an explicit --model"
+            )
+        models = SELECTED_OPENROUTER_DECODER_MODELS
+    else:
+        models = (model, *additional)
     if len(models) != len(set(models)):
         raise ValueError("OpenRouter decoder models must not contain duplicates")
     return models
 
 
-def _openrouter_decoder_identity(model: str) -> tuple[str, str]:
-    """Return the journal digest and stable live decoder instance identity."""
+_OPENROUTER_DECODER_REASONING_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+)
 
-    model_digest = sha256(model.encode("utf-8")).hexdigest()[:12]
-    return model_digest, f"openrouter-{model_digest}"
+
+def _openrouter_model_effort_overrides(
+    args: argparse.Namespace,
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in getattr(args, "model_reasoning_effort", ()):
+        model, separator, effort = raw.partition("=")
+        if (
+            not separator
+            or not model
+            or effort not in _OPENROUTER_DECODER_REASONING_EFFORTS
+        ):
+            raise ValueError(
+                "--model-reasoning-effort must use MODEL=EFFORT with effort "
+                "one of none, minimal, low, medium, high, xhigh, or max"
+            )
+        if model in result:
+            raise ValueError(
+                "OpenRouter per-model reasoning overrides must be unique"
+            )
+        result[model] = effort
+    models = set(_openrouter_decoder_models(args))
+    unexpected = sorted(set(result) - models)
+    if unexpected:
+        raise ValueError(
+            "reasoning override references an unselected model: "
+            + ", ".join(unexpected)
+        )
+    return result
+
+
+def _openrouter_decoder_reasoning_effort(
+    args: argparse.Namespace,
+    model: str,
+) -> str:
+    override = _openrouter_model_effort_overrides(args).get(model)
+    if override is not None:
+        return override
+    global_effort = getattr(args, "reasoning_effort", "")
+    if global_effort:
+        return global_effort
+    return SELECTED_OPENROUTER_REASONING_EFFORTS.get(model, "")
 
 
 def _openrouter_decoder_config(
@@ -971,6 +1115,10 @@ def _openrouter_decoder_config(
 ) -> OpenRouterProviderConfig:
     prepared = argparse.Namespace(**vars(args))
     prepared.model = model
+    prepared.reasoning_effort = _openrouter_decoder_reasoning_effort(
+        args,
+        model,
+    )
     return _openrouter_cli_config(
         prepared,
         live_execution=live_execution,
@@ -979,96 +1127,17 @@ def _openrouter_decoder_config(
 
 def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
     requests = read_external_decoder_requests(args.requests)
-    sources = []
-    all_within_budget = True
-    for model in _openrouter_decoder_models(args):
-        provider = OpenRouterChatProvider(
-            _openrouter_decoder_config(
-                args,
-                model=model,
-                live_execution=False,
-            )
+    configs = tuple(
+        _openrouter_decoder_config(
+            args,
+            model=model,
+            live_execution=False,
         )
-        _, instance_id = _openrouter_decoder_identity(model)
-        provider_requests = tuple(
-            external_decoder_llm_request(
-                request,
-                decoder_instance_id=instance_id,
-            )
-            for request in requests
-        )
-        prepared = tuple(
-            provider.prepare(request) for request in provider_requests
-        )
-        conservative_tokens = sum(
-            request.estimated_max_tokens for request in prepared
-        )
-        retry_budget = _retry_expanded_budget(
-            request_count=len(prepared),
-            conservative_tokens=conservative_tokens,
-            max_retries=provider.config.max_retries,
-            max_requests=provider.config.max_requests,
-            max_total_tokens=provider.config.max_total_tokens,
-        )
-        within_budget = bool(retry_budget["within_declared_budget"])
-        all_within_budget = all_within_budget and within_budget
-        sources.append(
-            {
-                "gateway": "openrouter",
-                "model": model,
-                "decoder_instance_id": instance_id,
-                "reasoning_effort": (
-                    provider.config.reasoning_effort or None
-                ),
-                "upstream_provider_constraint": (
-                    provider.config.upstream_provider or None
-                ),
-                "provider_preferences": (
-                    provider.config.provider_preferences()
-                ),
-                "request_count": len(prepared),
-                "conservative_max_tokens": conservative_tokens,
-                "max_requests": provider.config.max_requests,
-                "max_retries_per_logical_request": (
-                    provider.config.max_retries
-                ),
-                "max_total_tokens": provider.config.max_total_tokens,
-                **retry_budget,
-                "request_body_sha256": [
-                    {
-                        "request_id": source_request.request_id,
-                        "provider_request_id": provider_request.request_id,
-                        "sha256": prepared_request.body_sha256,
-                        "estimated_max_tokens": (
-                            prepared_request.estimated_max_tokens
-                        ),
-                    }
-                    for source_request, provider_request, prepared_request in zip(
-                        requests,
-                        provider_requests,
-                        prepared,
-                    )
-                ],
-            }
-        )
-    print(
-        _json(
-            {
-                "provider": "openrouter",
-                "live_execution": False,
-                "credential_read": False,
-                "decoder_source_count": len(sources),
-                "sources": sources,
-                "all_within_declared_budget": all_within_budget,
-                "response_cache_enabled": False,
-                "router_metadata_requested": True,
-                "first_party_origin_claimed": False,
-                "strict_gate4_eligible": False,
-                "statistical_independence_claimed": False,
-            }
-        )
+        for model in _openrouter_decoder_models(args)
     )
-    return 0 if all_within_budget else 1
+    plan = build_openrouter_decoder_collection_plan(requests, configs)
+    print(_json(plan))
+    return 0 if plan["all_within_declared_budget"] is True else 1
 
 
 def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
@@ -1077,31 +1146,165 @@ def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
             "OpenRouter decoder execution requires the explicit "
             "--execute-live flag"
         )
+    models = _openrouter_decoder_models(args)
+    _reject_output_inside_input_run(args.requests, args.output_dir)
+    requests = read_external_decoder_requests(args.requests)
     output = Path(args.output_dir)
+    if output.parent.is_symlink():
+        raise ValueError("OpenRouter decoder output parent cannot be a symlink")
+    if output.exists() and (output.is_symlink() or not output.is_dir()):
+        raise ValueError(
+            "OpenRouter decoder output must be a safe directory"
+        )
     with _ExclusiveCollectionLock(
-        output / _GENERIC_DECODER_COMMAND_LOCK_NAME
+        output / OPENROUTER_COLLECTION_LOCKS[0]
     ):
-        return _decoder_execute_openrouter_locked(args, output=output)
+        _require_safe_openrouter_decoder_output(output, models=models)
+        with _ExclusiveCollectionLock(
+            output / OPENROUTER_COLLECTION_LOCKS[1]
+        ):
+            return _decoder_execute_openrouter_locked(
+                args,
+                output=output,
+                requests=requests,
+            )
+
+
+def _require_safe_openrouter_decoder_output(
+    output: Path,
+    *,
+    models: Sequence[str],
+) -> None:
+    """Reject unsafe resume paths before any credential can be read."""
+
+    if output.parent.is_symlink():
+        raise ValueError("OpenRouter decoder output parent cannot be a symlink")
+    if output.exists() and (output.is_symlink() or not output.is_dir()):
+        raise ValueError(
+            "OpenRouter decoder output must be a safe directory"
+        )
+    if not output.exists():
+        return
+    allowed_root = {
+        *OPENROUTER_COLLECTION_LOCKS,
+        "collection-plan.json",
+        "transport-attempts.jsonl",
+        "provider-audit.jsonl",
+        "judgments.jsonl",
+        "execution-manifest.json",
+        "journals",
+    }
+    actual_root = {item.name for item in output.iterdir()}
+    unexpected = sorted(actual_root - allowed_root)
+    if unexpected:
+        raise ValueError(
+            "OpenRouter decoder output contains unexpected entries: "
+            + ", ".join(unexpected)
+        )
+    for name in actual_root - {"journals"}:
+        candidate = output / name
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError(
+                f"unsafe OpenRouter decoder resume file: {name}"
+            )
+    journals = output / "journals"
+    if not journals.exists():
+        return
+    if journals.is_symlink() or not journals.is_dir():
+        raise ValueError(
+            "OpenRouter decoder journals must be a safe directory"
+        )
+    expected_journals = {
+        openrouter_decoder_identity(model)[0] for model in models
+    }
+    unexpected_journals = sorted(
+        {item.name for item in journals.iterdir()} - expected_journals
+    )
+    if unexpected_journals:
+        raise ValueError(
+            "OpenRouter decoder output contains unexpected model journals: "
+            + ", ".join(unexpected_journals)
+        )
+    allowed_journal_files = {
+        "provider-audit-transport-attempts.jsonl",
+        "provider-audit.jsonl",
+        "responses.jsonl",
+    }
+    for journal in journals.iterdir():
+        if journal.is_symlink() or not journal.is_dir():
+            raise ValueError(
+                "OpenRouter model journal must be a safe directory"
+            )
+        unexpected_files = sorted(
+            {item.name for item in journal.iterdir()} - allowed_journal_files
+        )
+        if unexpected_files:
+            raise ValueError(
+                "OpenRouter model journal contains unexpected files: "
+                + ", ".join(unexpected_files)
+            )
+        for item in journal.iterdir():
+            if item.is_symlink() or not item.is_file():
+                raise ValueError(
+                    "OpenRouter model journal contains an unsafe file"
+                )
 
 
 def _decoder_execute_openrouter_locked(
     args: argparse.Namespace,
     *,
     output: Path,
+    requests: Sequence[ExternalDecoderRequest],
 ) -> int:
     """Reconcile, dispatch, and publish one OpenRouter decoder transaction."""
 
-    requests = read_external_decoder_requests(args.requests)
-    judgments = []
-    manifests = []
-    for index, model in enumerate(_openrouter_decoder_models(args), start=1):
+    requests = tuple(sorted(requests, key=lambda row: row.request_id))
+    planning_configs = tuple(
+        _openrouter_decoder_config(
+            args,
+            model=model,
+            live_execution=False,
+        )
+        for model in _openrouter_decoder_models(args)
+    )
+    plan = build_openrouter_decoder_collection_plan(
+        requests,
+        planning_configs,
+    )
+    if plan["all_within_declared_budget"] is not True:
+        raise ValueError(
+            "remaining retry-expanded corpus would exceed the OpenRouter "
+            "decoder collection hard budget before any provider call"
+        )
+    plan_path = output / "collection-plan.json"
+    if plan_path.exists():
+        if plan_path.is_symlink() or not plan_path.is_file():
+            raise ValueError(
+                "existing OpenRouter collection plan is not a safe file"
+            )
+        try:
+            retained_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                "existing OpenRouter collection plan is invalid JSON"
+            ) from exc
+        if retained_plan != plan:
+            raise ValueError(
+                "existing OpenRouter collection plan differs from the current "
+                "request, model, effort, route, or budget configuration"
+            )
+    else:
+        _atomic_write_text(plan_path, _json(plan) + "\n")
+
+    prepared_runs = []
+    for index, model in enumerate(plan["models"], start=1):
         config = _openrouter_decoder_config(
             args,
             model=model,
             live_execution=True,
         )
         provider = OpenRouterChatProvider(config)
-        model_digest, instance_id = _openrouter_decoder_identity(model)
+        model_digest, instance_id = openrouter_decoder_identity(model)
         provider_requests = tuple(
             external_decoder_llm_request(
                 request,
@@ -1110,29 +1313,25 @@ def _decoder_execute_openrouter_locked(
             for request in requests
         )
         journal = output / "journals" / model_digest
-        if not journal.exists():
-            conservative_tokens = sum(
-                provider.prepare(request).estimated_max_tokens
-                for request in provider_requests
-            )
-            retry_budget = _retry_expanded_budget(
-                request_count=len(requests),
-                conservative_tokens=conservative_tokens,
-                max_retries=config.max_retries,
-                max_requests=config.max_requests,
-                max_total_tokens=config.max_total_tokens,
-            )
-            if not retry_budget["within_declared_budget"]:
-                raise ValueError(
-                    f"OpenRouter decoder model {model!r} would exceed its "
-                    "hard budget before any request; run "
-                    "decoder-study plan-openrouter"
-                )
         adapter = ResumableOpenRouterCompletionProvider(
             provider,
             responses_path=journal / "responses.jsonl",
             audit_path=journal / "provider-audit.jsonl",
         )
+        adapter.require_static_corpus_capacity(provider_requests)
+        prepared_runs.append(
+            (index, model, instance_id, adapter, provider_requests)
+        )
+
+    judgments = []
+    manifests = []
+    for (
+        index,
+        model,
+        instance_id,
+        adapter,
+        provider_requests,
+    ) in prepared_runs:
         for request, provider_request in zip(requests, provider_requests):
             response = adapter.complete(provider_request)
             judgments.append(
@@ -1140,20 +1339,23 @@ def _decoder_execute_openrouter_locked(
                     request,
                     response,
                     decoder_instance_id=instance_id,
-                    decoder_family_id=model,
-                    source_descriptor=(
-                        f"openrouter-chat:{model};"
-                        "first-party-origin=false"
+                    decoder_family_id=openrouter_decoder_family(model),
+                    source_descriptor=openrouter_decoder_source_descriptor(
+                        model
                     ),
                 )
             )
-        manifests.append(
-            {
-                **adapter.to_manifest(),
-                "source_index": index,
-                "decoder_instance_id": instance_id,
-            }
+        audits = tuple(adapter.used_audit_records)
+        source_summary = openrouter_source_execution_summary(
+            source_index=index,
+            config=adapter.provider.config,
+            decoder_instance_id=instance_id,
+            request_count=len(provider_requests),
+            transport_attempt_count=adapter.provider.budget.request_count,
+            total_tokens=adapter.provider.budget.total_tokens,
+            audits=audits,
         )
+        manifests.append(source_summary)
     judgment_path = output / "judgments.jsonl"
     _atomic_write_text(
         judgment_path,
@@ -1168,27 +1370,52 @@ def _decoder_execute_openrouter_locked(
             for judgment in judgments
         ),
     )
+    aggregate_audits = [
+        audit
+        for _, _, _, adapter, _ in prepared_runs
+        for audit in adapter.used_audit_records
+    ]
+    aggregate_attempts = [
+        attempt
+        for _, _, _, adapter, _ in prepared_runs
+        for attempt in adapter.used_attempt_records
+    ]
+    _atomic_write_text(
+        output / "provider-audit.jsonl",
+        "".join(
+            json.dumps(
+                dict(audit),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            + "\n"
+            for audit in aggregate_audits
+        ),
+    )
+    _atomic_write_text(
+        output / "transport-attempts.jsonl",
+        "".join(
+            json.dumps(
+                dict(attempt),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            + "\n"
+            for attempt in aggregate_attempts
+        ),
+    )
     design_audit = validate_external_decoder_import(requests, judgments)
+    execution_manifest = build_openrouter_decoder_execution_manifest(
+        root=output,
+        plan=plan,
+        source_runs=manifests,
+        source_design_audit=design_audit.to_dict(),
+    )
     _atomic_write_text(
         output / "execution-manifest.json",
-        _json(
-            {
-                "schema_version": 1,
-                "gateway": "openrouter",
-                "request_count": len(requests),
-                "judgment_count": len(judgments),
-                "models": list(_openrouter_decoder_models(args)),
-                "provider_runs": manifests,
-                "source_design_audit": design_audit.to_dict(),
-                "response_cache_enabled": False,
-                "router_metadata_requested": True,
-                "first_party_origin_claimed": False,
-                "strict_gate4_eligible": False,
-                "statistical_independence_claimed": False,
-                "credentials_retained": False,
-            }
-        )
-        + "\n",
+        _json(execution_manifest) + "\n",
     )
     print(
         _json(
@@ -1198,7 +1425,14 @@ def _decoder_execute_openrouter_locked(
                 "source_design_eligible": (
                     design_audit.source_design_eligible
                 ),
-                "strict_gate4_eligible": False,
+                "eligible_for_reviewed_shared_gateway_admission": (
+                    execution_manifest[
+                        "eligible_for_reviewed_shared_gateway_admission"
+                    ]
+                ),
+                "shared_gateway": True,
+                "first_party_origin_claimed": False,
+                "strict_first_party_gate4_eligible": False,
                 "statistical_independence_claimed": False,
             }
         )
@@ -1211,6 +1445,16 @@ def _external_decoder_configs(
     *,
     live_execution: bool,
 ) -> tuple[ExternalDecoderProviderConfig, ...]:
+    if (
+        args.max_requests_per_source > 900
+        or args.max_total_tokens_per_source > 6_000_000
+        or args.max_output_tokens > 1_024
+    ):
+        raise ValueError(
+            "strict Gate 4 decoder collection cannot exceed the approved "
+            "per-source ceilings: 900 physical attempts, 6000000 total "
+            "tokens, and 1024 output tokens"
+        )
     shared = {
         "timeout_seconds": args.timeout_seconds,
         "max_retries": args.max_retries,
@@ -1240,11 +1484,9 @@ def _external_decoder_configs(
 
 
 def _decoder_plan_distinct(args: argparse.Namespace) -> int:
+    configs = _external_decoder_configs(args, live_execution=False)
     requests = read_external_decoder_requests(args.requests)
-    plan = plan_external_decoder_collection(
-        requests,
-        _external_decoder_configs(args, live_execution=False),
-    )
+    plan = plan_external_decoder_collection(requests, configs)
     if args.output is not None:
         _reject_output_inside_input_run(args.requests, args.output)
         _atomic_write_text(args.output, _json(plan) + "\n")
@@ -1258,12 +1500,12 @@ def _decoder_execute_distinct(args: argparse.Namespace) -> int:
             "distinct decoder execution requires the explicit "
             "--execute-live flag"
         )
-    _reject_output_inside_input_run(args.requests, args.output_dir)
-    requests = read_external_decoder_requests(args.requests)
     planning_configs = _external_decoder_configs(
         args,
         live_execution=False,
     )
+    _reject_output_inside_input_run(args.requests, args.output_dir)
+    requests = read_external_decoder_requests(args.requests)
     plan = plan_external_decoder_collection(requests, planning_configs)
     output = Path(args.output_dir)
     with _ExclusiveCollectionLock(
@@ -1336,18 +1578,10 @@ def _decoder_execute_distinct_locked(
         "kind": "distinct-external-decoder-collection",
         "status": "complete",
         "claim_status": "not_claimed",
-        "collection_plan_sha256": sha256(
-            plan_path.read_bytes()
-        ).hexdigest(),
-        "judgments_sha256": sha256(
-            judgments_path.read_bytes()
-        ).hexdigest(),
-        "provider_audit_sha256": sha256(
-            audit_path.read_bytes()
-        ).hexdigest(),
-        "transport_attempts_sha256": sha256(
-            attempt_path.read_bytes()
-        ).hexdigest(),
+        "collection_plan_sha256": file_sha256(plan_path),
+        "judgments_sha256": file_sha256(judgments_path),
+        "provider_audit_sha256": file_sha256(audit_path),
+        "transport_attempts_sha256": file_sha256(attempt_path),
         "execution_summary": portable_summary,
         "source_design_audit": source_design.to_dict(),
         "distinct_provider_model_families": True,
@@ -1376,6 +1610,7 @@ def _decoder_execute_distinct_locked(
 
 
 def _native_action_plan_openai(args: argparse.Namespace) -> int:
+    _require_gate4_native_cli_caps(args)
     if args.output is not None:
         _reject_output_inside_input_run(args.run_dir, args.output)
     config = _openai_cli_config(
@@ -1395,6 +1630,7 @@ def _native_action_execute_openai(args: argparse.Namespace) -> int:
         raise ValueError(
             "native action execution requires the explicit --execute-live flag"
         )
+    _require_gate4_native_cli_caps(args)
     provider = OpenAINativeActionProvider(
         _openai_cli_config(
             args,
@@ -1409,6 +1645,19 @@ def _native_action_execute_openai(args: argparse.Namespace) -> int:
     )
     print(_json(result))
     return 0
+
+
+def _require_gate4_native_cli_caps(args: argparse.Namespace) -> None:
+    if (
+        args.max_requests > 900
+        or args.max_total_tokens > 6_000_000
+        or args.max_output_tokens > 4_096
+    ):
+        raise ValueError(
+            "strict Gate 4 native-action collection cannot exceed the "
+            "approved ceilings: 900 physical attempts, 6000000 total "
+            "tokens, and 4096 output tokens"
+        )
 
 
 def _load_assignment_codebooks(path: Path | bytes) -> dict[str, object]:
@@ -1925,6 +2174,9 @@ def _experiment_c_decoder_import(args: argparse.Namespace) -> int:
         judgments_path=args.judgments,
         output_dir=args.output_dir,
         external_collection_dir=args.external_collection_dir,
+        external_collection_provenance_mode=(
+            args.external_collection_provenance_mode
+        ),
         allow_reviewed_generic_decoders=(
             args.allow_reviewed_generic_decoders
         ),
@@ -2126,7 +2378,7 @@ def _human_study_generate(args: argparse.Namespace) -> int:
                 "assignment_id": args.assignment_id,
                 "assignment_protocol_id": args.assignment_protocol_id,
                 "files": {
-                    path.name: sha256(path.read_bytes()).hexdigest()
+                    path.name: file_sha256(path)
                     for path in retained
                 },
             }
@@ -2228,9 +2480,22 @@ def build_parser() -> argparse.ArgumentParser:
     external_provenance.add_argument(
         "--external-collection-dir",
         type=Path,
+        action=_ExternalCollectionDirAction,
+        provenance_mode=DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
         help=(
             "complete official Anthropic/Gemini distinct-decoder collection; "
             "its judgments must be byte-identical to JUDGMENTS"
+        ),
+    )
+    external_provenance.add_argument(
+        "--openrouter-collection-dir",
+        dest="external_collection_dir",
+        type=Path,
+        action=_ExternalCollectionDirAction,
+        provenance_mode=OPENROUTER_COLLECTION_PROVENANCE,
+        help=(
+            "complete audited Claude/Gemini OpenRouter collection; gateway "
+            "provenance is validated without claiming first-party origin"
         ),
     )
     external_provenance.add_argument(
@@ -2242,6 +2507,7 @@ def build_parser() -> argparse.ArgumentParser:
             "provider-collection provenance"
         ),
     )
+    import_native.set_defaults(external_collection_provenance_mode=None)
     import_native.set_defaults(handler=_gate_review_import_native)
     verify_review = gate_review_commands.add_parser(
         "verify",
@@ -2313,8 +2579,21 @@ def build_parser() -> argparse.ArgumentParser:
     c_decoder_provenance.add_argument(
         "--external-collection-dir",
         type=Path,
+        action=_ExternalCollectionDirAction,
+        provenance_mode=DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
         help=(
             "validate the complete locked first-party Anthropic/Gemini "
+            "collection that produced JUDGMENTS"
+        ),
+    )
+    c_decoder_provenance.add_argument(
+        "--openrouter-collection-dir",
+        dest="external_collection_dir",
+        type=Path,
+        action=_ExternalCollectionDirAction,
+        provenance_mode=OPENROUTER_COLLECTION_PROVENANCE,
+        help=(
+            "validate the complete audited Claude/Gemini OpenRouter "
             "collection that produced JUDGMENTS"
         ),
     )
@@ -2325,6 +2604,9 @@ def build_parser() -> argparse.ArgumentParser:
             "accept caller-declared family/source metadata without claiming "
             "provider-validated provenance"
         ),
+    )
+    import_c_decoder.set_defaults(
+        external_collection_provenance_mode=None
     )
     import_c_decoder.set_defaults(handler=_experiment_c_decoder_import)
     verify_c_decoder = experiment_c_decoder_commands.add_parser(
@@ -2692,8 +2974,23 @@ def build_parser() -> argparse.ArgumentParser:
             "decoder source; repeat as needed"
         ),
     )
+    plan_openrouter_decoder.add_argument(
+        "--model-reasoning-effort",
+        action="append",
+        default=[],
+        metavar="MODEL=EFFORT",
+        help=(
+            "override reasoning effort for one selected model; the default "
+            "pair uses Claude=low and Gemini=minimal"
+        ),
+    )
     plan_openrouter_decoder.set_defaults(
-        handler=_decoder_plan_openrouter
+        handler=_decoder_plan_openrouter,
+        model=None,
+        max_retries=OPENROUTER_DECODER_MAX_RETRIES,
+        max_output_tokens=OPENROUTER_DECODER_MAX_OUTPUT_TOKENS,
+        max_requests=OPENROUTER_DECODER_MAX_REQUESTS,
+        max_total_tokens=OPENROUTER_DECODER_MAX_TOTAL_TOKENS,
     )
 
     execute_openrouter_decoder = decoder_commands.add_parser(
@@ -2719,8 +3016,23 @@ def build_parser() -> argparse.ArgumentParser:
             "decoder source; repeat as needed"
         ),
     )
+    execute_openrouter_decoder.add_argument(
+        "--model-reasoning-effort",
+        action="append",
+        default=[],
+        metavar="MODEL=EFFORT",
+        help=(
+            "override reasoning effort for one selected model; the default "
+            "pair uses Claude=low and Gemini=minimal"
+        ),
+    )
     execute_openrouter_decoder.set_defaults(
-        handler=_decoder_execute_openrouter
+        handler=_decoder_execute_openrouter,
+        model=None,
+        max_retries=OPENROUTER_DECODER_MAX_RETRIES,
+        max_output_tokens=OPENROUTER_DECODER_MAX_OUTPUT_TOKENS,
+        max_requests=OPENROUTER_DECODER_MAX_REQUESTS,
+        max_total_tokens=OPENROUTER_DECODER_MAX_TOTAL_TOKENS,
     )
 
     def add_distinct_decoder_arguments(
@@ -2767,7 +3079,16 @@ def build_parser() -> argparse.ArgumentParser:
             ),
         )
         command.add_argument("--timeout-seconds", type=float, default=180.0)
-        command.add_argument("--max-retries", type=int, default=4)
+        command.add_argument(
+            "--max-retries",
+            type=int,
+            default=0,
+            help=(
+                "retry count per logical request; strict Gate 4 defaults to "
+                "zero so the complete corpus fits the approved physical-"
+                "attempt ceiling"
+            ),
+        )
         command.add_argument("--max-output-tokens", type=int, default=1024)
         command.add_argument(
             "--max-requests-per-source",
@@ -2839,6 +3160,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_native_action.set_defaults(
         handler=_native_action_plan_openai,
+        max_retries=0,
         max_requests=900,
         max_total_tokens=6_000_000,
     )
@@ -2865,6 +3187,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     execute_native_action.set_defaults(
         handler=_native_action_execute_openai,
+        max_retries=0,
         max_requests=900,
         max_total_tokens=6_000_000,
     )

@@ -278,6 +278,11 @@ def read_external_decoder_requests(
                 result.append(ExternalDecoderRequest.parse(decoded))
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 raise ValueError(f"{source}:{line_number}: {exc}") from exc
+    if not result:
+        raise ValueError(
+            f"{source}: external decoder request corpus must contain at "
+            "least one record"
+        )
     if len({item.request_id for item in result}) != len(result):
         raise ValueError(f"{source}: duplicate decoder request IDs")
     return tuple(result)
@@ -576,6 +581,10 @@ def validate_external_decoder_import(
         raise ValueError("minimum_sources_per_request must be positive")
     request_rows = tuple(requests)
     judgment_rows = tuple(judgments)
+    if not request_rows:
+        raise ValueError(
+            "external decoder import requires at least one request"
+        )
     if len({item.request_id for item in request_rows}) != len(request_rows):
         raise ValueError("decoder request IDs must be unique")
     request_by_id = {item.request_id: item for item in request_rows}

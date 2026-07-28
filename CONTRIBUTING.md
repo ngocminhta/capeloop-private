@@ -91,6 +91,79 @@ Never commit secrets, API keys, private user data, raw human-study data, or
 provider responses that cannot be redistributed. Use synthetic fixtures for
 tests. Review generated artifacts for sensitive content before adding them.
 
+## Extending CAPE-Loop
+
+Start every extension with a small deterministic fixture. Add a full experiment
+only after its information-access, pairing, and artifact invariants are tested.
+The canonical component boundaries are in
+[Architecture](docs/architecture.md#extension-points).
+
+For every new component:
+
+1. choose a stable identifier and version;
+2. document inputs, outputs, state, and latent-truth access;
+3. use schema-versioned JSON-compatible public records;
+4. derive paired randomness from semantic keys;
+5. add strict configuration validation and reject unknown values;
+6. retain component and configuration identity in the run manifest;
+7. cover invalid inputs and forbidden information access;
+8. add a deterministic unit fixture and end-to-end smoke;
+9. update [Architecture](docs/architecture.md), the relevant canonical guide,
+   and [Implementation status](docs/implementation-status.md); and
+10. avoid encoding an expected empirical conclusion in tests.
+
+Use these type-specific checks:
+
+| Extension | Minimum review and verification |
+| --- | --- |
+| Domain | Stable feature order; intrinsic/presentation separation; valid matched anchors; split-disjoint templates and terminal items; no unsupported preference language |
+| Response model | Finite normalized probabilities; unavailable options receive zero mass; semantic-key sampling; zero-presentation behavior; broad parameter edges |
+| Policy | No latent-truth access; exact public profile snapshot retained; separate valid context and provenance; fixed policies produce updater-independent histories |
+| Structured updater | One declared central view; normalized marginals; auditable before/after state; fitting uses training only and calibration uses development only |
+| Native memory | Versioned content-addressed state; source-linked delta; public persona projection; blinded decoder compatibility; retained evidence when memory changes a later action |
+| Metric/statistic | Stable name/formula version; turn/trajectory/user/pair/run level; truth requirement; missing/tie/boundary behavior; aggregation and resampling unit |
+| Experiment | Estimand and controls; complete expected-cell inventory; population/splits; policy/updater/model crossing; pairing; terminal battery; gates and claim boundary |
+| Schema | Version decision; compatibility or migration behavior; old-version tests; regenerated examples and consumers |
+
+An external LLM or provider adapter must reuse the content-addressed
+`LLMRequest`/response contract and the established attempt/audit boundary. It
+must retain request and prompt hashes, exact provider/model/routing metadata,
+strict parsed output, every physical failure/retry, hard budgets, and an
+offline-replay path. Credentials remain environment-only. A new gateway or
+custom origin must declare what its audit proves and does not prove; transport
+through a gateway is not direct first-party provenance. See
+[Live execution](docs/live-execution.md).
+
+A new domain generally requires coordinated changes to domain options,
+elicitation/policy construction, terminal-battery generation, and split
+metadata. A dimensionality change also requires
+[metric](docs/metrics.md), [data-model](docs/data-model.md), configuration, and
+schema review.
+
+Export public schemas after a compatible source change:
+
+```bash
+PYTHONPATH=src python -m cape_loop schema export schemas
+```
+
+For an incompatible schema change, increment the version, document
+migration/rejection behavior, update every exchange consumer, and add
+old-version tests. Never reuse a field name with different semantics under the
+same version.
+
+Before opening a pull request, also run a retained smoke outside tracked
+artifact directories:
+
+```bash
+make check
+PYTHONPATH=src python -m cape_loop config validate configs/smoke.toml
+PYTHONPATH=src python -m cape_loop run configs/smoke.toml \
+  --output-root /tmp/cape-loop-contribution-check
+```
+
+This smoke establishes executable structure, not a scientific result. Do not
+commit the ad hoc run.
+
 ## Pull requests
 
 Keep each pull request focused. Complete the pull request template and include:

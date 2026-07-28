@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "suite_id": "cape-loop-gate4-native-and-distinct-decoders-v1",
-  "resolved_on": "2026-07-26",
+  "suite_id": "cape-loop-gate4-native-and-distinct-decoders-v2",
+  "resolved_on": "2026-07-28",
   "status": "implementation_ready_not_executed",
   "project_generated": true,
   "license": "Apache-2.0",
@@ -15,6 +15,7 @@
     "api_key_env": "OPENAI_API_KEY",
     "max_requests": 900,
     "request_budget_unit": "physical_http_attempt",
+    "max_retries": 0,
     "max_output_tokens": 4096,
     "max_total_tokens": 6000000,
     "action_contract": "The model receives the exact retained native-memory state and exact held-out terminal suite and emits one schema-bound action per item; no local belief-to-action projection is accepted.",
@@ -24,7 +25,75 @@
       "https://developers.openai.com/api/docs/guides/structured-outputs"
     ]
   },
+  "external_decoder_transport": {
+    "gateway": "openrouter",
+    "api": "chat_completions",
+    "official_origin": "https://openrouter.ai",
+    "base_url": "https://openrouter.ai/api",
+    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "response_cache_enabled": false,
+    "router_metadata_requested": true,
+    "allow_fallbacks": false,
+    "require_parameters": true,
+    "data_collection": "deny",
+    "first_party_origin_claimed": false,
+    "selected_provenance_mode": "selected_openrouter_gateway_collection",
+    "official_references": [
+      "https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request",
+      "https://openrouter.ai/docs/guides/features/structured-outputs",
+      "https://openrouter.ai/docs/guides/routing/provider-selection",
+      "https://openrouter.ai/docs/guides/features/router-metadata",
+      "https://openrouter.ai/docs/guides/features/response-caching"
+    ]
+  },
   "external_decoders": [
+    {
+      "provider": "openrouter",
+      "gateway": "openrouter",
+      "model_developer": "anthropic",
+      "provider_family": "Claude",
+      "decoder_family_id": "anthropic-claude",
+      "model": "anthropic/claude-sonnet-5",
+      "reasoning_effort": "low",
+      "upstream_provider_constraint": null,
+      "api_key_env": "OPENROUTER_API_KEY",
+      "max_requests": 900,
+      "request_budget_unit": "physical_http_attempt",
+      "max_retries": 0,
+      "max_output_tokens": 1024,
+      "max_total_tokens": 6000000,
+      "first_party_origin_claimed": false,
+      "official_references": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5",
+        "https://openrouter.ai/anthropic/claude-sonnet-5"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "gateway": "openrouter",
+      "model_developer": "google",
+      "provider_family": "Gemini",
+      "decoder_family_id": "google-gemini",
+      "model": "google/gemini-3.6-flash",
+      "reasoning_effort": "minimal",
+      "upstream_provider_constraint": null,
+      "api_key_env": "OPENROUTER_API_KEY",
+      "max_requests": 900,
+      "request_budget_unit": "physical_http_attempt",
+      "max_retries": 0,
+      "max_output_tokens": 1024,
+      "max_total_tokens": 6000000,
+      "first_party_origin_claimed": false,
+      "official_references": [
+        "https://ai.google.dev/gemini-api/docs/latest-model",
+        "https://ai.google.dev/gemini-api/docs/models",
+        "https://openrouter.ai/google/gemini-3.6-flash"
+      ]
+    }
+  ],
+  "optional_direct_external_decoder_adapters": [
     {
       "provider": "anthropic",
       "provider_family": "Claude",
@@ -34,8 +103,10 @@
       "api_key_env": "ANTHROPIC_API_KEY",
       "max_requests": 900,
       "request_budget_unit": "physical_http_attempt",
+      "max_retries": 0,
       "max_output_tokens": 1024,
       "max_total_tokens": 6000000,
+      "selected_for_primary_collection": false,
       "official_references": [
         "https://platform.claude.com/docs/en/about-claude/models/overview",
         "https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5",
@@ -52,8 +123,10 @@
       "api_key_env": "GEMINI_API_KEY",
       "max_requests": 900,
       "request_budget_unit": "physical_http_attempt",
+      "max_retries": 0,
       "max_output_tokens": 1024,
       "max_total_tokens": 6000000,
+      "selected_for_primary_collection": false,
       "official_references": [
         "https://ai.google.dev/gemini-api/docs/latest-model",
         "https://ai.google.dev/gemini-api/docs/models",
@@ -63,16 +136,23 @@
     }
   ],
   "source_design": {
-    "distinct_provider_model_families": true,
+    "distinct_model_families": true,
+    "shared_gateway": true,
+    "shared_gateway_id": "openrouter",
+    "distinct_transport_origins": false,
+    "first_party_origin_claimed": false,
+    "strict_first_party_gate4_eligible": false,
+    "eligible_for_reviewed_shared_gateway_admission": true,
     "statistical_independence_claimed": false,
-    "responsible_researcher_review_required": true,
+    "responsible_researcher_source_review_required": true,
     "gate4_import_requires_responsible_researcher_review": true
   },
   "execution_invariants": {
     "live_execution_requires_explicit_flag": true,
     "planning_reads_credentials": false,
     "credentials_retained": false,
-    "official_origins_locked_by_default": true,
+    "selected_gateway_origin_locked_by_default": true,
+    "optional_direct_origins_locked_by_default": true,
     "physical_attempts_journaled_before_transport": true,
     "audit_written_before_reusable_result": true,
     "resumable_without_duplicate_accepted_calls": true

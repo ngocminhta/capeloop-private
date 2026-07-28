@@ -314,6 +314,7 @@ def _make_sensitivity_run(
         model=model,
     )
     point = sensitivity_grid(
+        design=config.sensitivity.design,
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=config.sensitivity.presentation_multipliers,
         rank_multipliers=config.sensitivity.rank_multipliers,

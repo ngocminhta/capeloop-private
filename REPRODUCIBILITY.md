@@ -1,8 +1,9 @@
 # Reproducing CAPE-Loop runs
 
-This document is the release-level reproducibility checklist. The conceptual
-reasoning behind each requirement is described in
-[the detailed reproducibility guide](docs/reproducibility.md).
+This is the canonical reproducibility contract for deterministic, replayed,
+live-model, human, statistical, and paper-facing CAPE-Loop evidence. It combines
+the former short checklist and detailed guide so one document defines both the
+commands and the admission rules.
 
 ## Supported environment
 
@@ -116,7 +117,8 @@ without reading a key:
 
 ```bash
 PYTHONPATH=src python -m cape_loop llm evaluation-suite \
-  configs/openai_primary.toml configs/openai_replication.toml \
+  configs/live/experiment_a_openai.toml \
+  configs/live/experiment_a_openai_replication.toml \
   --output-root runs
 ```
 
@@ -171,24 +173,32 @@ request hash and record decoder instance, family, source descriptor, and
 blinding attestation. The source audit checks complete per-request coverage and
 distinct metadata. It does not prove statistically independent errors.
 
-The selected distinct-family pair is Anthropic `claude-sonnet-5` and Google
-`gemini-3.6-flash`. Plan both provider bodies and per-source ceilings without
-reading either key:
+The repository-selected automated pair is
+`anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` through
+OpenRouter. They are distinct model families behind one shared gateway; the
+collection claims neither direct first-party origin, distinct transport
+origins, nor statistically independent errors. Plan both model bodies and
+per-model ceilings without reading the OpenRouter key:
 
 ```bash
-PYTHONPATH=src python -m cape_loop decoder-study plan-distinct \
-  runs/<experiment-b-run>/decoder/external-requests.jsonl \
-  --output artifacts/gate4-decoder-plan.json
+PYTHONPATH=src python -m cape_loop decoder-study plan-openrouter \
+  runs/<experiment-b-run>/decoder/external-requests.jsonl
 ```
 
-Live collection requires both environment-only keys and the explicit
-`--execute-live` flag. Retain `collection-plan.json`,
-`transport-attempts.jsonl`, `provider-audit.jsonl`, `judgments.jsonl`, and
-`execution-manifest.json` together. The attempt journal durably records a
-`started` event before every physical request and its settlement afterward.
-The accepted audit is written before the judgment and embeds it, so the
-collector can repair an interrupted judgment append without another accepted
-call.
+Live selected collection requires `OPENROUTER_API_KEY` and the explicit
+`--execute-live` flag. Retain the complete output directory: its combined
+plan, judgments, aggregate audit, execution manifest, and each model's
+response, provider-audit, and transport-attempt journals. The attempt journals
+durably record a `started` event before every physical request and its
+settlement afterward. Accepted audits are written before reusable responses
+or judgments, so the collector can repair an interrupted append without
+another accepted call.
+
+Direct `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` collection remains an optional
+stronger-origin replication through `plan-distinct`/`execute-distinct`; it is
+not silently merged with the selected OpenRouter corpus. Either automated mode
+still requires a hash-bound responsible-researcher determination that the
+sources are eligible and genuinely distinct for the claimed scope.
 
 Fit decoder temperature calibration on development labels only, then lock it
 before reporting raw/calibrated test Brier, NLL, accuracy, ECE/reliability, and
@@ -204,10 +214,13 @@ the retained native state and exact terminal suite to the declared OpenAI
 responsible researcher must still complete the exact hash-bound source review
 before Gate 4 import.
 
-The Gate 4 review directory does not copy its five external evidence inputs.
-An evidence release must therefore retain the exact request, judgment,
-truth-label, native-action, and source-review files named by the review hashes,
-as well as the verified source run.
+The Gate 4 review directory records digests rather than copying its source
+evidence. An evidence release must therefore retain the verified source run,
+the request and truth-label packet, the hash-bound source review, the complete
+selected OpenRouter collection (including both per-model journals and combined
+files), and the complete OpenAI native-action collection. If the optional
+direct or reviewed-generic mode was used, retain that complete, separately
+labeled evidence instead.
 
 ## Human evidence
 
@@ -249,6 +262,54 @@ user-random-slope/scenario-random-intercept generalized mixed-effects model.
 Any paper confirmatory analysis must retain the external model formula,
 software/version, optimizer, convergence diagnostics, variance components,
 contrast definitions, multiplicity family, and exact input row digest.
+
+## External evidence admission
+
+Artifact identity and scientific admissibility are separate. Use the following
+states consistently:
+
+| State | Meaning |
+| --- | --- |
+| `protocol_ready` | Requests, schemas, split rules, and analysis code exist |
+| `awaiting_external_input` | Credentials, judgments, participants, or an outside fit are still required |
+| `import_validated` | Input hashes, schemas, bindings, and declared eligibility metadata passed |
+| `analyzed_not_claimed` | The declared computation ran, but scientific review is still required |
+| `frozen_not_claimed` | A checksum-valid artifact is fixed without implying a finding |
+| `paper_evidence` | Authors reviewed prerequisites, exclusions, uncertainty, limitations, and frozen provenance for a named claim |
+
+The code deliberately stops at `claim_status = "not_claimed"`. A validator can
+establish coverage and identity; it cannot prove that a source is independent,
+that consent was valid, or that a hypothesis is true.
+
+Before admitting external evidence, retain and review:
+
+- the exact verified source run and request corpus;
+- raw and parsed responses or judgments, immutable request and response hashes,
+  provider/model/version identity, timestamps, usage, retries, refusals, and
+  partial failures;
+- the complete audit and transport-attempt journals, not only successful rows;
+- development-only calibration inputs and locked parameters, with test labels
+  excluded from fitting;
+- blinding and source-dependency declarations for decoder evidence;
+- a responsible-researcher source review for Gate 4 and Gate 6;
+- ethics determination, approved consent/protocol versions, exclusions, and
+  privacy/retention rules for human evidence;
+- exact formulas, software versions, diagnostics, contrasts, and input digests
+  for the confirmatory mixed-effects analysis; and
+- a claim-to-artifact map explaining which frozen evidence supports each paper
+  table, figure, or statement.
+
+Two model families routed through one OpenRouter gateway remain shared-gateway
+evidence: they do not acquire first-party origin, distinct transport origin, or
+statistical independence merely by passing the collection validator. The
+selected Gate 4 path additionally requires genuine native end-to-end actions;
+deterministic local persona or belief projections are ineligible.
+
+Operational provider and Gate 4 procedures are in
+[Live execution](docs/live-execution.md). Human and privacy limits are in
+[Ethics and limitations](docs/ethics-and-limitations.md). The exact optional R
+contract is in
+[analysis/confirmatory-mixed-effects/README.md](analysis/confirmatory-mixed-effects/README.md).
 
 ## Paper artifacts
 
@@ -316,6 +377,5 @@ Then manually confirm:
 Report discrepancies in the artifact documentation. Do not edit retained output
 until it matches an expected claim.
 
-See [External evidence boundaries](docs/external-evidence.md) for the
-admission checklist separating executable protocol support from evidence that
-must be collected or fitted outside the repository.
+For the current executable/evidence boundary, see
+[Implementation status](docs/implementation-status.md).

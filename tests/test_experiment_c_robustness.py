@@ -31,7 +31,7 @@ def _config(
     output_root: str,
     ranking_tie_tolerance: float = 1e-6,
 ) -> AppConfig:
-    raw = json.loads(load_config("configs/evaluation.toml").canonical_json())
+    raw = json.loads(load_config("configs/offline/experiment_c.toml").canonical_json())
     raw["run"].update(
         {
             "seed": seed,

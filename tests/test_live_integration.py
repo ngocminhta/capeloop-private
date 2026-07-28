@@ -141,6 +141,26 @@ class LiveConfigurationTests(unittest.TestCase):
                 llm=LLMSection(mode="openai"),
             ).validated()
 
+    def test_temperature_calibration_must_fit_development_population(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            ConfigError,
+            "calibration_users exceeds the generated development population",
+        ):
+            AppConfig(
+                run=RunSection(deterministic=False),
+                experiment=ExperimentSection(
+                    updaters=("llm_full_context",),
+                    users=1,
+                ),
+                llm=LLMSection(
+                    mode="openai",
+                    calibration="temperature",
+                    calibration_users=9,
+                ),
+            ).validated()
+
     def test_programmatic_adaptive_config_cannot_bypass_key_isolation(
         self,
     ) -> None:
@@ -192,7 +212,12 @@ class LiveConfigurationTests(unittest.TestCase):
                     l2=0.0,
                     calibration="none",
                 ),
-                llm=LLMSection(mode="openai"),
+                llm=LLMSection(
+                    mode="openai",
+                    max_retries=0,
+                    max_requests=900,
+                    max_total_tokens=6_000_000,
+                ),
             )
             with self.assertRaisesRegex(ValueError, "--execute-live"):
                 run_experiment(config)

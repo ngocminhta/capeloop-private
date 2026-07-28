@@ -95,6 +95,7 @@ class SensitivityPoint:
 
 def sensitivity_grid(
     *,
+    design: str = "cartesian",
     decision_noise_values: Iterable[float],
     presentation_multipliers: Iterable[float],
     profile_strength_values: Iterable[float],
@@ -106,21 +107,54 @@ def sensitivity_grid(
     response_model_families: Iterable[str] = ("random_utility",),
     rule_noise_values: Iterable[float] = (0.15,),
 ) -> tuple[SensitivityPoint, ...]:
-    bases = tuple(
-        product(
-            tuple(decision_noise_values),
-            tuple(presentation_multipliers),
-            tuple(rank_multipliers),
-            tuple(default_multipliers),
-            tuple(suggestion_multipliers),
-            tuple(profile_strength_values),
-            tuple(prior_uncertainty_values),
-            tuple(trajectory_lengths),
+    """Build a deterministic Cartesian or baseline-first OAT grid.
+
+    ``one_at_a_time`` treats the first value of every numeric axis and the
+    first response-model family as the baseline. Each remaining numeric value
+    is varied separately under that baseline family. Remaining response-model
+    families are evaluated at the numeric baseline; every declared rule-noise
+    value is evaluated when the alternate family is ``rule_based``. The design
+    measures broad marginal perturbations but does not identify interactions
+    among sensitivity axes.
+    """
+
+    if design not in {"cartesian", "one_at_a_time"}:
+        raise ValueError(
+            "sensitivity design must be 'cartesian' or 'one_at_a_time'"
         )
+    axes = (
+        tuple(decision_noise_values),
+        tuple(presentation_multipliers),
+        tuple(rank_multipliers),
+        tuple(default_multipliers),
+        tuple(suggestion_multipliers),
+        tuple(profile_strength_values),
+        tuple(prior_uncertainty_values),
+        tuple(trajectory_lengths),
     )
+    if any(not values for values in axes):
+        raise ValueError("sensitivity axes must be non-empty")
+    if design == "cartesian":
+        bases = tuple(product(*axes))
+    else:
+        baseline = tuple(values[0] for values in axes)
+        one_at_a_time = [baseline]
+        for axis_index, values in enumerate(axes):
+            for value in values[1:]:
+                point = list(baseline)
+                point[axis_index] = value
+                one_at_a_time.append(tuple(point))
+        bases = tuple(one_at_a_time)
     families = tuple(response_model_families)
     rule_noises = tuple(rule_noise_values)
+    if not families:
+        raise ValueError("response_model_families must be non-empty")
+    if "rule_based" in families and not rule_noises:
+        raise ValueError(
+            "rule_noise_values must be non-empty for rule_based points"
+        )
     points: list[SensitivityPoint] = []
+    baseline_family = families[0]
     for (
         noise,
         presentation,
@@ -131,10 +165,56 @@ def sensitivity_grid(
         prior_uncertainty,
         turns,
     ) in bases:
+        point_families = (
+            families if design == "cartesian" else (baseline_family,)
+        )
+        for family in point_families:
+            if family == "rule_based":
+                family_rule_noises: tuple[float | None, ...] = (
+                    rule_noises
+                    if design == "cartesian"
+                    else (rule_noises[0],)
+                )
+            else:
+                family_rule_noises = (None,)
+            for rule_noise in family_rule_noises:
+                points.append(
+                    SensitivityPoint(
+                        decision_noise=noise,
+                        presentation_multiplier=presentation,
+                        profile_strength=profile,
+                        trajectory_length=turns,
+                        rank_multiplier=rank,
+                        default_multiplier=default,
+                        suggestion_multiplier=suggestion,
+                        prior_uncertainty=prior_uncertainty,
+                        response_model_family=family,
+                        rule_noise=rule_noise,
+                    )
+                )
+    if design == "one_at_a_time":
+        baseline = bases[0]
+        (
+            noise,
+            presentation,
+            rank,
+            default,
+            suggestion,
+            profile,
+            prior_uncertainty,
+            turns,
+        ) = baseline
         for family in families:
-            family_rule_noises: tuple[float | None, ...] = (
-                rule_noises if family == "rule_based" else (None,)
-            )
+            if family == baseline_family:
+                family_rule_noises = (
+                    rule_noises[1:]
+                    if family == "rule_based"
+                    else ()
+                )
+            else:
+                family_rule_noises = (
+                    rule_noises if family == "rule_based" else (None,)
+                )
             for rule_noise in family_rule_noises:
                 points.append(
                     SensitivityPoint(
@@ -183,6 +263,68 @@ def response_model_at(
         decision_noise=float(point.rule_noise),
         **parameters,
     )
+
+
+def sensitivity_breadth_coverage(
+    points: Sequence[SensitivityPoint],
+    passing_rows: Sequence[Mapping[str, Any]],
+) -> tuple[
+    dict[str, list[float | int]],
+    dict[str, dict[str, bool]],
+    bool,
+]:
+    """Check meaningful-region survival at every declared sensitivity level.
+
+    Rule noise is a conditional axis: only rule-based points declare it, and
+    only passing rule-based rows can cover one of its levels. Keeping this
+    logic beside grid construction prevents the run-level Gate 6 report and
+    the immutable cross-run reviewer from drifting apart.
+    """
+
+    axes = (
+        "decision_noise",
+        "presentation_multiplier",
+        "rank_multiplier",
+        "default_multiplier",
+        "suggestion_multiplier",
+        "profile_strength",
+        "prior_uncertainty",
+        "trajectory_length",
+    )
+    levels: dict[str, list[float | int]] = {
+        axis: sorted({getattr(point, axis) for point in points})
+        for axis in axes
+    }
+    levels["rule_noise"] = sorted(
+        {
+            float(point.rule_noise)
+            for point in points
+            if point.response_model_family == "rule_based"
+            and point.rule_noise is not None
+        }
+    )
+    survival = {
+        axis: {
+            str(level): any(
+                row.get(axis) == level
+                and (
+                    axis != "rule_noise"
+                    or row.get("response_model_family") == "rule_based"
+                )
+                for row in passing_rows
+            )
+            for level in axis_levels
+        }
+        for axis, axis_levels in levels.items()
+    }
+    passed = (
+        all(len(axis_levels) >= 2 for axis_levels in levels.values())
+        and all(
+            all(axis_survival.values())
+            for axis_survival in survival.values()
+        )
+    )
+    return levels, survival, passed
 
 
 @dataclass(frozen=True, slots=True)

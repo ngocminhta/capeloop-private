@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+from hashlib import sha256
 import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from cape_loop.artifacts import RunArtifacts, source_tree_digest, verify_run
 from cape_loop.calibration import CalibrationExample, fit_temperature
@@ -427,6 +429,27 @@ class ReproducibilitySupportTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("checksum mismatch" in error for error in errors))
 
+    def test_artifact_checksum_and_verification_stream_file_content(self) -> None:
+        payload = b"streamed-artifact\n" * 131_073
+        expected = sha256(payload).hexdigest()
+        with TemporaryDirectory() as directory:
+            run = RunArtifacts.create(AppConfig(), root=directory)
+            run.write_bytes("events/large.bin", payload)
+            with patch.object(
+                Path,
+                "read_bytes",
+                side_effect=AssertionError(
+                    "artifact checksums must not load whole files"
+                ),
+            ):
+                run.finalize({"status": "streaming-check"})
+                ok, errors = verify_run(run.path)
+            self.assertTrue(ok, errors)
+            self.assertIn(
+                f"{expected}  events/large.bin",
+                (run.path / "SHA256SUMS").read_text(encoding="utf-8"),
+            )
+
     def test_artifact_checksum_rejects_escape_and_unlisted_files(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -450,6 +473,41 @@ class ReproducibilitySupportTests(unittest.TestCase):
             ok, errors = verify_run(run.path)
             self.assertFalse(ok)
             self.assertIn("unlisted artifact: unlisted.txt", errors)
+
+    def test_artifact_checksum_rejects_directory_symlinks(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside"
+            outside.mkdir()
+            run = RunArtifacts.create(AppConfig(), root=root / "artifacts")
+            run.finalize({"status": "smoke"})
+            link = run.path / "unlisted-directory-link"
+            link.symlink_to(outside, target_is_directory=True)
+
+            ok, errors = verify_run(run.path)
+            self.assertFalse(ok)
+            self.assertIn(
+                "symbolic link not allowed: unlisted-directory-link",
+                errors,
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "artifact tree contains symbolic link",
+            ):
+                run.write_checksums()
+
+    def test_artifact_verifier_reports_invalid_checksum_encoding(self) -> None:
+        with TemporaryDirectory() as directory:
+            run = RunArtifacts.create(AppConfig(), root=directory)
+            run.finalize({"status": "smoke"})
+            (run.path / "SHA256SUMS").write_bytes(b"\xff")
+
+            ok, errors = verify_run(run.path)
+            self.assertFalse(ok)
+            self.assertTrue(
+                any("SHA256SUMS is not UTF-8" in error for error in errors),
+                errors,
+            )
 
     def test_artifact_checksum_rejects_alias_and_duplicate_paths(self) -> None:
         with TemporaryDirectory() as directory:

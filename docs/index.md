@@ -1,68 +1,68 @@
 # CAPE-Loop documentation
 
-CAPE-Loop is a causal audit for persistent profile updating in agents. It tests
-whether a profile writer interprets a response conditional on the options and
-agent actions that caused that response to be observed.
+CAPE-Loop audits whether a persistent profile writer interprets a response in
+light of the options, presentation, and agent policy that caused it to be
+observed. The documentation is intentionally organized around a small set of
+canonical guides; protocol details should be added to these files instead of
+creating one-off pages.
 
-The shortest path through the documentation is:
+## Choose a path
 
-1. [Getting started](getting-started.md) — run the offline checks and a smoke
-   configuration.
-2. [Scientific design](scientific-design.md) — understand the claim and the
-   experimental controls.
-3. [Architecture](architecture.md) — follow information through the simulator,
-   updater, and evaluator.
-4. [Experiments](experiments.md) and [Metrics](metrics.md) — understand each
-   evaluation and its outputs.
-5. [Reproducibility](reproducibility.md) — preserve and audit a run.
+- **Run the code:** [Getting started](getting-started.md), then
+  [Configuration](configuration.md).
+- **Understand the paper:** [Proposal](proposal.md), then
+  [Scientific design](scientific-design.md).
+- **Understand an experiment or gate:** [Experiments](experiments.md), then
+  [Metrics and estimands](metrics.md).
+- **Understand records and generated data:**
+  [Data model](data-model.md).
+- **Use OpenAI, OpenRouter, replay, external decoders, or native actions:**
+  [Live execution](live-execution.md).
+- **Audit what is actually ready:** [Implementation status](implementation-status.md)
+  and the root [reproducibility contract](../REPRODUCIBILITY.md).
 
-## Reference
+## Canonical guides
 
-| Document | What it answers |
+| Guide | Scope |
 | --- | --- |
-| [Repository map](repository-map.md) | Where does each component live? |
-| [Component reference](components.md) | What does each runtime component do? |
-| [Dataset card](dataset-card.md) | What data is generated, how is it split, and what external evidence is absent? |
-| [Data model](data-model.md) | What records connect policy to memory update? |
-| [Data splits](data-splits.md) | How are train, development, and test surfaces made disjoint and audited? |
-| [Configuration](configuration.md) | How is a run declared in TOML? |
-| [LLM exchange](llm-exchange.md) | How are external model requests represented and supplied response corpora replayed? |
-| [Experiment A controls](experiment-a-controls.md) | How are the six positive/negative controls executed, exchanged, and evidence-labeled? |
-| [H7 volunteered controls](h7-volunteered-controls.md) | How are direct statements collected with OpenAI/OpenRouter, bound to provider audits, converted to paired updates, and reviewed without mutating a run? |
-| [Experiment C external decoder rescore](experiment-c-external-decoder.md) | How are two blinded decoder families calibrated and used to rerun native rankings, ESR, and Gate 5 without mutating the source run? |
-| [Experiment C multi-seed robustness](experiment-c-robustness.md) | How are verified clustered-bootstrap rankings compared across compatible random seeds? |
-| [Gate 6 cross-run review](gate6-cross-run-review.md) | How are matched live-LLM sensitivity/Experiment A pairs combined without inferring family identity or making a claim? |
-| [Native memory](native-memory.md) | How are non-probabilistic memory systems evaluated? |
-| [Gate 4 live collection](gate4-live-collection.md) | How are distinct-family decoder judgments and real native terminal actions collected safely? |
-| [Mixed-effects analysis](mixed-effects-analysis.md) | How are the proposal's confirmatory models fit and audited in R? |
-| [H1, H2, and H7 estimands](hypothesis-estimands.md) | Which directional, proximity, mitigation, and valid-learning criteria are frozen? |
-| [Outputs](outputs.md) | Which files does a run produce? |
-| [Extending](extending.md) | How do I add a domain, policy, updater, or metric? |
-| [Ethics and limitations](ethics-and-limitations.md) | What should not be inferred or released? |
-| [Implementation status](implementation-status.md) | Which planned capabilities are present? |
+| [Getting started](getting-started.md) | Install, validate, generate the synthetic dataset, run experiments, and approach live pilots safely |
+| [Configuration](configuration.md) | Complete TOML and strict-validation reference |
+| [Architecture](architecture.md) | End-to-end flow, component contracts, information boundaries, native memory, repository layout, and extension points |
+| [Scientific design](scientific-design.md) | Causal question, evaluation tracks, controls, and claim boundaries |
+| [Experiments](experiments.md) | Experiments A–C, sensitivity, human-study support, correction debt, controls, external rescoring, and Gates 1–6 |
+| [Metrics and estimands](metrics.md) | Metric formulas, inference units, uncertainty, H1/H2/H7, and confirmatory-analysis relationship |
+| [Data model](data-model.md) | Dataset production, splits, schemas, record joins, run outputs, and artifact lifecycle |
+| [Live execution](live-execution.md) | Replay and provider workflows, model selection, budgets, journals, collection, admission, and recovery |
+| [Ethics and limitations](ethics-and-limitations.md) | Interpretation, privacy, human-study, provider, and release limits |
+| [Implementation status](implementation-status.md) | Tested capabilities, external dependencies, local diagnostic boundary, gates, and completion criteria |
+| [Paper proposal](proposal.md) | Frozen scientific intent and planned claims; result placeholders remain unfilled until eligible evidence exists |
 
-## Project documents
+The optional confirmatory R/lme4 operator and statistical contract lives beside
+its code in
+[analysis/confirmatory-mixed-effects/README.md](../analysis/confirmatory-mixed-effects/README.md).
 
-- [Paper proposal](proposal.md): scientific source of truth and planned claims.
-- [Implementation plan](implementation-plan.md): engineering contract and frozen
-  reference defaults.
-- [Root reproducibility checklist](../REPRODUCIBILITY.md): release checklist.
-- [Data policy](../data/README.md): tracked and untracked data.
-- [Artifact policy](../artifacts/README.md): evidence packaging.
-- [Paper directory policy](../paper/README.md): figure, table, and manuscript
-  provenance.
+## Repository policies
 
-## Status convention
+- [Reproducibility](../REPRODUCIBILITY.md)
+- [Data directory and release policy](../data/README.md)
+- [Artifact policy](../artifacts/README.md)
+- [Paper directory policy](../paper/README.md)
+- [Schema directory](../schemas/README.md)
+- [Contributing](../CONTRIBUTING.md)
+- [Security](../SECURITY.md)
 
-Documentation uses these labels:
+## Status language
 
-- **Implemented:** exercised by source code and an offline automated test.
-- **Exchange-supported:** CAPE-Loop can generate or consume the required records,
-  but an external provider or human study is needed.
-- **Stage-gated:** code may exist, but the corresponding scientific analysis must
-  not be promoted unless its prerequisite gate passes.
-- **Planned:** described by the proposal but not part of the current executable
-  surface.
+- **Implemented:** executable and covered by an offline automated test.
+- **Implemented diagnostic:** executable, but intentionally
+  `claim_status = "not_claimed"`.
+- **Provider-capable:** live request construction and execution exist, but no
+  eligible response corpus is checked in.
+- **External-evidence-dependent:** completion requires credentials, reviewed
+  external sources, human participants, or another outside input.
+- **Planned:** described by the proposal but not executable in the current
+  source tree.
 
-“Implemented” never means that a hypothesis is true. Scientific results require
-retained runs and statistical analysis.
+An implemented component is not an empirical result. Smoke runs validate
+plumbing, frozen archives validate identity, and gate reports validate declared
+computations; none of those facts alone establishes a paper claim.

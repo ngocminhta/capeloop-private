@@ -1,160 +1,103 @@
-# Data
+# Data directory policy
 
-This directory is for small, reviewable, redistributable inputs and manifests.
-It is not the default destination for generated runs, external-model raw data, or
-human participant records.
+This directory contains only small, reviewable, redistributable inputs and
+model-suite declarations. It is not the default destination for generated
+runs, provider responses, or participant data.
 
-## Suitable tracked contents
+The canonical description of dataset generation, storage, formats, splits,
+records, and artifacts is [the data model](../docs/data-model.md).
+
+## What belongs here
+
+Suitable tracked content includes:
 
 - tiny synthetic fixtures used by offline tests;
-- versioned train/development/test split manifests;
-- option, scenario, dialogue, and paraphrase template manifests;
-- terminal diagnostic battery manifests;
-- schema examples;
-- data-generation metadata and checksums.
+- versioned option, scenario, dialogue, paraphrase, split, or terminal-battery
+  manifests;
+- public schema examples;
+- data-generation metadata and checksums; and
+- reviewed provider/model declarations that contain no credentials or model
+  outputs.
 
-All tracked data must have a documented source, schema version, and license or
-project-generated status.
+Every tracked data file must identify its source or project-generated status,
+format/schema version, applicable license, and expected consumer.
 
-## Generated synthetic data
+Generated populations, trajectories, events, models, and metrics belong in the
+ignored, content-addressed `runs/<run-id>/` tree. Curated evidence may be copied
+or frozen under `artifacts/` only with a manifest, checksums, and provenance
+statement.
 
-Latent populations and trajectories are deterministically generated from a
-configuration, semantic IDs, and seed. Large generated outputs belong under the
-ignored `runs/` tree. A curated subset may move to `artifacts/` only with a
-manifest and checksums.
+## Checked-in model declarations
 
-Synthetic does not automatically mean harmless: natural-language templates can
-still contain third-party text or encode stereotypes. Review new fixtures before
-release.
-
-## External LLM records
-
-Request and response JSONL normally live in the corresponding run’s `llm/`
-directory. Live adaptive recovery journals deliberately live outside the
-checksummed run, by default under
-`<output-root>/.llm-journals/<run-id>/<model-role>/`, so a failed attempt can
-reuse completed provider calls. Do not move those journals into `data/` merely
-to make them visible.
-
-The checked-in provider declarations are:
+The two current metadata files are:
 
 - [`model-suites/openai-gpt-5.6.json`](model-suites/openai-gpt-5.6.json):
-  GPT-5.6 Sol/medium for the primary writer, GPT-5.6 Terra/medium for
-  replication, and GPT-5.6 Luna/low for decoder/pilot work; and
+  OpenAI Sol/medium as primary, Terra/medium as model-variant replication, and
+  Luna/low for generic decoder/pilot work; and
 - [`model-suites/gate4-native-and-distinct-decoders.json`](model-suites/gate4-native-and-distinct-decoders.json):
-  OpenAI Sol/medium for native end-to-end actions plus Anthropic Sonnet 5 and
-  Google Gemini 3.6 Flash for the two blinded cross-provider Gate 4 decoders.
+  OpenAI Sol/medium for native actions and OpenRouter
+  `anthropic/claude-sonnet-5` at low effort plus
+  `google/gemini-3.6-flash` at minimal effort for the selected decoder pair.
 
-These files are configuration/provenance metadata, not live-result datasets.
-The Gate 4 declaration explicitly does not claim statistical independence and
-requires a responsible-researcher source review. Development-time transport
-smokes are not retained here as evidence.
+These files are protocol and provenance metadata, not observations. The
+selected decoder families share OpenRouter, so the declaration denies
+first-party origin, distinct transport origins, and statistical independence.
+Direct Anthropic and Gemini adapters remain optional origin replications.
 
-Credentials must remain environment-only. [`.env.example`](../.env.example)
-contains empty `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
-`ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` placeholders; never commit a
-populated `.env`, Authorization header, or API key. Live commands retain
-redacted provider audit metadata and reusable beliefs, judgments, or
-actions—not the credential.
+## External provider records
 
-Each executor permits only its first-party official origin by default:
-`https://api.openai.com`, `https://api.anthropic.com`, or
-`https://generativelanguage.googleapis.com`. A custom HTTPS endpoint requires
-the provider's separate custom-origin opt-in and a dedicated non-default
-credential variable, which means that credential will be sent to the reviewed
-endpoint during live execution. Record the exact endpoint and security review
-in release provenance; do not mistake HTTPS alone for provider identity.
-
-Temperature-calibrated A/B/C runs retain a deliberate raw/derived boundary in
-their run artifact:
+Provider request/response JSONL belongs inside a completed run's `llm/`
+directory or in a separate checksum-bound collection. Adaptive recovery
+journals stay outside the immutable run, normally under:
 
 ```text
-models/llm-calibration.json
-llm/development-raw-responses.jsonl
-metrics/llm-development-calibration.jsonl
-llm/test-raw-responses.jsonl
-llm/responses.jsonl
+<output-root>/.llm-journals/<run-id>/<role>/
+<output-root>/.llm-journals/<run-id>/openrouter/<role>/
 ```
 
-The fitted temperature is view-specific and uses declared development users
-only. Development metrics contain raw and calibrated Brier scores;
-`llm/test-raw-responses.jsonl` preserves uncalibrated provider values, and
-`llm/responses.jsonl` contains the calibrated values used at test/runtime. Keep
-these files together when publishing derived results so reviewers can verify
-that no test labels entered fitting. They belong in a verified run or curated
-artifact, not as loose files under `data/`.
+Do not move recovery journals into `data/`. Keep raw/active calibration
+records, provider audits, attempt journals, and collection manifests together
+so the development/test and retry boundaries remain auditable.
 
-Before releasing any provider-derived record, check:
+Credentials are environment-only. [`.env.example`](../.env.example) contains
+empty variable names; a populated `.env`, authorization header, API key,
+billing identifier, or unrelated account metadata must never be committed.
+See [Live execution](../docs/live-execution.md) for provider and release rules.
 
-- provider redistribution terms;
-- removal of credentials and account metadata;
-- direct/indirect personal data;
-- exact model and prompt identity;
-- exact provider endpoint and whether custom-endpoint opt-in was enabled;
-- declared request/token ceilings and execution dates;
-- retry, refusal, parse, and partial-run outcomes;
-- failure and missing-response records.
-
-Parsed beliefs alone may be releasable when raw provider output is not; document
-that limitation. Two decoder variants from one provider may count as distinct
-model labels in a mechanical source audit, but they do not prove statistically
-independent judgment.
-
-## Human participant data
+## Human data
 
 Do not commit participant responses, platform identifiers, contact details,
-free-text comments, or researcher codebooks by default.
+free-text comments, or researcher codebooks by default. A human-data release
+requires:
 
-A human-data release requires:
+- an appropriate ethics approval, exemption, or determination;
+- consent compatible with the intended release;
+- data minimization, de-identification, and re-identification review;
+- privacy, access, deletion, and retention rules;
+- a codebook and transformation/exclusion record; and
+- explicit license and release authorization.
 
-- appropriate ethics review or documented determination;
-- consent compatible with release;
-- de-identification and re-identification review;
-- data minimization and retention plan;
-- access/license terms;
-- a data statement and codebook;
-- documentation of exclusions and transformations.
+`human-study generate` creates blinded study materials only. It does not
+recruit, host, compensate, collect, approve, or authorize participant data.
+See [Ethics and limitations](../docs/ethics-and-limitations.md).
 
-The `human-study generate` command creates study materials only:
+## Formats and review
 
-```bash
-PYTHONPATH=src python -m cape_loop human-study generate OUTPUT_DIR
-```
+Prefer canonical JSON/JSONL and include SHA-256 checksums for frozen manifests.
+CSV may be supplied as a derived readable projection, not as the sole
+scientific record. Avoid opaque executable or binary serialization.
 
-Its output is not approval to collect or publish responses.
+When adding tracked data, document:
 
-## Proposed layout
-
-When manifests are added, use:
-
-```text
-data/
-├── README.md
-├── fixtures/
-├── manifests/
-│   ├── splits/
-│   ├── templates/
-│   └── terminal-batteries/
-└── licenses/
-```
-
-Avoid opaque binary or executable serialization. Prefer canonical JSON/JSONL and
-include SHA-256 checksums for frozen manifests.
-
-## Adding data
-
-In a pull request, state:
-
-- who or what created the data;
+- who or what created it;
 - whether it is synthetic, external-model, or human;
-- collection/generation configuration;
+- the generation/collection configuration;
 - schema and semantic meaning;
-- applicable license/terms;
-- privacy review;
-- expected consumers;
+- license or provider terms;
+- privacy and security review;
+- expected consumers; and
 - reproducibility and checksum information.
 
-See the [Dataset card](../docs/dataset-card.md),
-[Data model](../docs/data-model.md),
-[Ethics and limitations](../docs/ethics-and-limitations.md), and
-[Reproducibility](../REPRODUCIBILITY.md).
+Released runs and provider-derived artifacts must follow
+[REPRODUCIBILITY.md](../REPRODUCIBILITY.md) and the
+[artifact policy](../artifacts/README.md).

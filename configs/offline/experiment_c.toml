@@ -1,0 +1,59 @@
+schema_version = 1
+
+# Canonical offline Experiment C reference design.
+
+[run]
+name = "experiment-c-evaluation-validity"
+seed = 1729
+output_root = "runs"
+deterministic = true
+
+[experiment]
+kind = "evaluation_validity"
+domains = ["travel", "writing"]
+mechanisms = ["ranking", "default", "suggestion"]
+response_modes = ["naturally_sampled"]
+prior_strengths = [0.0]
+policies = ["balanced", "fixed_bias", "soft_profile_conditioned"]
+updaters = [
+  "response_only",
+  "full_context_blind",
+  "provenance_aware",
+  "conservative",
+  "episodic_memory",
+  "semantic_memory",
+  "provenance_linked_memory",
+]
+users = 32
+trajectories_per_cell = 8
+turns = 16
+bootstrap_replicates = 2000
+
+[response_model]
+beta = 1.0
+decision_noise = 1.0
+rank_scale = 0.35
+default_scale = 0.80
+suggestion_scale = 0.65
+susceptibility_levels = [0.15, 0.45, 0.85]
+minimum_matched_probability = 0.05
+
+[inference]
+training_interactions = 8192
+fit_steps = 1600
+learning_rate = 0.02
+l2 = 0.001
+calibration = "temperature"
+
+[thresholds]
+materially_wrong_mass = 0.50
+laundered_confidence_gain = 0.25
+shadow_equivalence_tolerance = 0.05
+false_stability_tolerance = 0.02
+direction_tolerance = 1e-9
+ranking_tie_tolerance = 1e-6
+
+[artifacts]
+retain_events = true
+retain_prompts = true
+checksum_manifest = true

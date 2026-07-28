@@ -112,8 +112,18 @@ filter inputs, retain content, or restrict output redistribution. Record
 available version metadata and timestamps, retain replay records where allowed,
 and disclose missing raw data.
 
-The core intentionally has no live-provider integration. An external harness is
-responsible for credentials, rate limits, provider terms, and data processing.
+The repository supports strict replay and explicitly authorized live execution
+through the OpenAI API and the OpenRouter gateway. Direct Anthropic and Gemini
+adapters are retained as optional origin replications for the blinded-decoder
+protocol. Live commands use environment credentials, hard request/token
+ceilings, provider audits, and durable attempt journals; they do not make a
+provider call without an explicit execution flag.
+
+Those safeguards do not settle provider terms, data-processing obligations,
+retention, model-version drift, or the ethics of sending a particular record
+to an external service. The responsible researcher must review those questions
+before collection. No credential, paper-intended provider corpus, or live-model
+finding is checked into this repository.
 
 ## Bias and representativeness
 

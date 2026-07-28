@@ -23,7 +23,7 @@ import re
 import shutil
 import tempfile
 
-from .artifacts import canonical_json, verify_run
+from .artifacts import canonical_json, file_sha256, verify_run
 from .beliefs import MarginalPreferenceBelief, PreferenceBelief
 from .config import AppConfig
 from .gates import GateCriterion, GateReport
@@ -36,7 +36,10 @@ from .heldout import (
 from .llm_exchange import ATTRIBUTES, VALUES, LLMResponse, ReplayProvider, read_responses
 from .openai_provider import read_requests
 from .provider_attempts import DurableProviderAttemptLedger
-from .sensitivity import sensitivity_grid
+from .sensitivity import (
+    sensitivity_breadth_coverage,
+    sensitivity_grid,
+)
 
 
 DECLARATION_KIND = "gate6-cross-run-declaration"
@@ -95,7 +98,7 @@ def _digest(value: Any) -> str:
 
 
 def _file_digest(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
+    return file_sha256(path)
 
 
 def _require_text(value: object, name: str) -> str:
@@ -827,6 +830,7 @@ def _tri_conjunction(values: Iterable[bool | None]) -> bool | None:
 
 def _expected_sensitivity_points(config: AppConfig) -> tuple[Any, ...]:
     return sensitivity_grid(
+        design=config.sensitivity.design,
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=config.sensitivity.presentation_multipliers,
         rank_multipliers=config.sensitivity.rank_multipliers,
@@ -907,28 +911,9 @@ def _recompute_sensitivity_clauses(
     another = (
         required_response_families <= passing_response_families
     )
-    axes = (
-        "decision_noise",
-        "rank_multiplier",
-        "default_multiplier",
-        "suggestion_multiplier",
-        "profile_strength",
-        "prior_uncertainty",
-        "trajectory_length",
-    )
-    levels = {
-        axis: sorted({getattr(point, axis) for point in points})
-        for axis in axes
-    }
-    survival = {
-        axis: {
-            str(level): any(row.get(axis) == level for row in passing)
-            for level in values
-        }
-        for axis, values in levels.items()
-    }
-    broad = all(len(values) >= 2 for values in levels.values()) and all(
-        all(axis_survival.values()) for axis_survival in survival.values()
+    levels, survival, broad = sensitivity_breadth_coverage(
+        points,
+        passing,
     )
     passing_domains = {
         row.get("domain_id")

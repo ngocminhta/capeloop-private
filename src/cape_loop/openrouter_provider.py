@@ -205,15 +205,31 @@ _SELECTED_UPSTREAM_IDENTITY_SEMANTICS = (
 )
 
 
-def belief_json_schema() -> dict[str, Any]:
-    """Return the strict profile-belief schema sent to OpenRouter."""
+def belief_json_schema(
+    *,
+    include_numeric_bounds: bool = True,
+) -> dict[str, Any]:
+    """Return the strict profile-belief schema sent to OpenRouter.
 
+    Some OpenRouter routes for Anthropic models use Amazon Bedrock, whose
+    structured-output schema subset rejects the JSON Schema ``minimum`` and
+    ``maximum`` number keywords.  The description retains the provider-facing
+    range requirement when those keywords are omitted, and ``LLMResponse``
+    always enforces both the range and vector normalization locally.
+    """
+
+    probability: dict[str, Any] = {"type": "number"}
+    if include_numeric_bounds:
+        probability.update({"minimum": 0, "maximum": 1})
+    else:
+        probability["description"] = (
+            "Probability in the inclusive range [0, 1]."
+        )
     probability_vector = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            value: {"type": "number", "minimum": 0, "maximum": 1}
-            for value in VALUES
+            value: probability for value in VALUES
         },
         "required": list(VALUES),
     }
@@ -535,7 +551,11 @@ def prepare_openrouter_request(
             "json_schema": {
                 "name": _RESPONSE_SCHEMA_NAME,
                 "strict": True,
-                "schema": belief_json_schema(),
+                "schema": belief_json_schema(
+                    include_numeric_bounds=not config.model.startswith(
+                        "anthropic/"
+                    )
+                ),
             },
         },
         "max_tokens": config.max_output_tokens,
@@ -706,6 +726,37 @@ class ExecutionBudget:
             )
         self.request_count = request_count
         self.total_tokens = total_tokens
+
+    def ensure_capacity(
+        self,
+        *,
+        request_count: int,
+        total_tokens: int,
+    ) -> None:
+        """Check a retry-expanded corpus without changing the ledger."""
+
+        if (
+            not isinstance(request_count, int)
+            or isinstance(request_count, bool)
+            or request_count < 0
+        ):
+            raise ValueError("request_count must be a non-negative integer")
+        if (
+            not isinstance(total_tokens, int)
+            or isinstance(total_tokens, bool)
+            or total_tokens < 0
+        ):
+            raise ValueError("total_tokens must be a non-negative integer")
+        if self.request_count + request_count > self.max_requests:
+            raise OpenRouterBudgetExceeded(
+                "remaining retry-expanded corpus would exceed "
+                f"max_requests={self.max_requests}"
+            )
+        if self.total_tokens + total_tokens > self.max_total_tokens:
+            raise OpenRouterBudgetExceeded(
+                "remaining retry-expanded corpus's conservative token "
+                f"allocation would exceed max_total_tokens={self.max_total_tokens}"
+            )
 
     def reserve(self, estimated_max_tokens: int) -> None:
         if self._reservation is not None:

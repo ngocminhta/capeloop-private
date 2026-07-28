@@ -1,7 +1,9 @@
 schema_version = 1
 
+# Canonical bounded direct-OpenAI Gate 6 sensitivity pilot.
+
 [run]
-name = "sensitivity-llm-openrouter-smoke"
+name = "gate6-sensitivity-openai-oat-pilot"
 seed = 1729
 output_root = "runs"
 deterministic = false
@@ -18,7 +20,7 @@ updaters = [
   "fitted_action_unaware",
   "llm_full_context",
 ]
-users = 1
+users = 4
 trajectories_per_cell = 1
 turns = 1
 bootstrap_replicates = 0
@@ -33,8 +35,8 @@ susceptibility_levels = [0.15, 0.45, 0.85]
 minimum_matched_probability = 0.05
 
 [inference]
-training_interactions = 128
-fit_steps = 100
+training_interactions = 512
+fit_steps = 600
 learning_rate = 0.03
 l2 = 0.001
 calibration = "none"
@@ -48,16 +50,17 @@ direction_tolerance = 1e-9
 ranking_tie_tolerance = 1e-6
 
 [sensitivity]
-decision_noise_values = [1.0]
-presentation_multipliers = [1.0]
-rank_multipliers = [1.0]
-default_multipliers = [1.0]
-suggestion_multipliers = [1.0]
-profile_strength_values = [0.80]
-prior_uncertainty_values = [0.0]
-trajectory_lengths = [3]
-response_model_families = ["random_utility"]
-rule_noise_values = [0.15]
+design = "one_at_a_time"
+decision_noise_values = [1.0, 0.6]
+presentation_multipliers = [1.0, 0.5]
+rank_multipliers = [1.0, 0.5]
+default_multipliers = [1.0, 0.5]
+suggestion_multipliers = [1.0, 0.5]
+profile_strength_values = [0.80, 0.65]
+prior_uncertainty_values = [0.0, 0.35]
+trajectory_lengths = [3, 6]
+response_model_families = ["random_utility", "rule_based"]
+rule_noise_values = [0.15, 0.30]
 phase_min_selection_cost = 0.0
 phase_max_aware_ece = 0.10
 phase_min_attribution_cost = 0.0
@@ -65,27 +68,24 @@ phase_min_self_confirming_rate = 0.0
 phase_min_suggestion_rejection_rate = 0.20
 
 [llm]
-mode = "openrouter"
+mode = "openai"
 calibration = "none"
+calibration_users = 1
 model_role = "primary"
-model = "google/gemini-3.6-flash"
-reasoning_effort = "minimal"
-api_key_env = "OPENROUTER_API_KEY"
-base_url = "https://openrouter.ai/api"
+model = "gpt-5.6-sol"
+reasoning_effort = "medium"
+api_key_env = "OPENAI_API_KEY"
+base_url = "https://api.openai.com"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-max_retries = 2
-max_output_tokens = 1024
-# 12 logical updates × (2 retries + the initial attempt).
-max_requests = 36
-max_total_tokens = 250000
-openrouter_upstream_provider = "google-vertex/global"
-openrouter_allow_fallbacks = false
-openrouter_require_parameters = true
-openrouter_data_collection = "deny"
-openrouter_zdr = false
-openrouter_http_referer = ""
-openrouter_app_title = "CAPE-Loop"
+# Eleven OAT grid points sum to 36 turns, yielding a 576-attempt upper bound. The
+# adaptive smoke observed valid responses above 1,024 output tokens, so this
+# pilot retains the tested 2,048-token allowance.
+max_retries = 0
+max_output_tokens = 2048
+max_requests = 900
+max_total_tokens = 6000000
+journal_dir = ""
 
 [artifacts]
 retain_events = true

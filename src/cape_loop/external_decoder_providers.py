@@ -77,8 +77,13 @@ GEMINI_THINKING_DOC_URL = (
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PROVIDERS = ("anthropic", "google_gemini")
 _TRANSIENT_STATUSES = frozenset({408, 409, 425, 429})
-_FIRST_PARTY_DEFAULT_KEY_ENVS = frozenset(
-    {"ANTHROPIC_API_KEY", "GEMINI_API_KEY"}
+_RESERVED_PROVIDER_KEY_ENVS = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+    }
 )
 _SAFE_PROVIDER_IDENTIFIER = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._:/@_-]{0,255}$"
@@ -339,13 +344,22 @@ class ExternalDecoderProviderConfig:
                 "allow_custom_base_url=True"
             )
         if (
+            is_official
+            and key_env in _RESERVED_PROVIDER_KEY_ENVS
+            and key_env != source.default_api_key_env
+        ):
+            raise ValueError(
+                f"{key_env} is reserved for a different provider and cannot "
+                f"be used with {self.provider}"
+            )
+        if (
             self.allow_custom_base_url
             and not is_official
-            and key_env in _FIRST_PARTY_DEFAULT_KEY_ENVS
+            and key_env in _RESERVED_PROVIDER_KEY_ENVS
         ):
             raise ValueError(
                 "a custom base_url requires a dedicated credential "
-                "environment variable instead of either first-party "
+                "environment variable instead of a reserved provider "
                 "default key variable"
             )
         if not isinstance(self.allow_custom_base_url, bool):
@@ -421,6 +435,7 @@ class ExternalDecoderProviderConfig:
 def default_external_decoder_configs(
     *,
     live_execution: bool = False,
+    max_retries: int = 0,
     max_requests: int = 900,
     max_total_tokens: int = 6_000_000,
 ) -> tuple[ExternalDecoderProviderConfig, ...]:
@@ -430,12 +445,14 @@ def default_external_decoder_configs(
         ExternalDecoderProviderConfig(
             provider="anthropic",
             live_execution=live_execution,
+            max_retries=max_retries,
             max_requests=max_requests,
             max_total_tokens=max_total_tokens,
         ),
         ExternalDecoderProviderConfig(
             provider="google_gemini",
             live_execution=live_execution,
+            max_retries=max_retries,
             max_requests=max_requests,
             max_total_tokens=max_total_tokens,
         ),
@@ -655,6 +672,42 @@ def prepare_external_decoder_request(
     )
 
 
+def _require_retry_expanded_collection_budget(
+    requests: Sequence[ExternalDecoderRequest],
+    configs: Sequence[ExternalDecoderProviderConfig],
+) -> dict[str, tuple[PreparedExternalDecoderRequest, ...]]:
+    """Prepare a corpus and reject any source's all-retries upper bound."""
+
+    prepared_by_provider: dict[
+        str,
+        tuple[PreparedExternalDecoderRequest, ...],
+    ] = {}
+    for config in configs:
+        prepared = tuple(
+            prepare_external_decoder_request(request, config)
+            for request in requests
+        )
+        estimated_tokens = sum(
+            item.estimated_max_tokens for item in prepared
+        )
+        theoretical_attempts = len(prepared) * (config.max_retries + 1)
+        theoretical_tokens = estimated_tokens * (config.max_retries + 1)
+        if theoretical_attempts > config.max_requests:
+            raise ExternalDecoderBudgetExceeded(
+                f"{config.provider} plan can require "
+                f"{theoretical_attempts} physical transport attempts after "
+                f"retry expansion, above max_requests={config.max_requests}"
+            )
+        if theoretical_tokens > config.max_total_tokens:
+            raise ExternalDecoderBudgetExceeded(
+                f"{config.provider} plan can reserve "
+                f"{theoretical_tokens} tokens after retry expansion, above "
+                f"max_total_tokens={config.max_total_tokens}"
+            )
+        prepared_by_provider[config.provider] = prepared
+    return prepared_by_provider
+
+
 def plan_external_decoder_collection(
     requests: Iterable[ExternalDecoderRequest],
     configs: Sequence[ExternalDecoderProviderConfig] | None = None,
@@ -672,27 +725,18 @@ def plan_external_decoder_collection(
         else tuple(configs)
     )
     _validate_distinct_config_set(configured)
+    prepared_by_provider = _require_retry_expanded_collection_budget(
+        request_rows,
+        configured,
+    )
     source_records: list[dict[str, Any]] = []
     for config in sorted(configured, key=lambda item: item.provider):
-        prepared = tuple(
-            prepare_external_decoder_request(request, config)
-            for request in request_rows
-        )
+        prepared = prepared_by_provider[config.provider]
         estimated_tokens = sum(
             item.estimated_max_tokens for item in prepared
         )
         theoretical_attempts = len(prepared) * (config.max_retries + 1)
         theoretical_tokens = estimated_tokens * (config.max_retries + 1)
-        if len(prepared) > config.max_requests:
-            raise ExternalDecoderBudgetExceeded(
-                f"{config.provider} plan requires {len(prepared)} requests, "
-                f"above max_requests={config.max_requests}"
-            )
-        if estimated_tokens > config.max_total_tokens:
-            raise ExternalDecoderBudgetExceeded(
-                f"{config.provider} plan reserves {estimated_tokens} tokens, "
-                f"above max_total_tokens={config.max_total_tokens}"
-            )
         source_records.append(
             {
                 "provider": config.provider,
@@ -720,6 +764,10 @@ def plan_external_decoder_collection(
                 "jitter_fraction": config.jitter_fraction,
                 "request_count": len(prepared),
                 "estimated_max_tokens": estimated_tokens,
+                "initial_workload_within_declared_budget": (
+                    len(prepared) <= config.max_requests
+                    and estimated_tokens <= config.max_total_tokens
+                ),
                 "initial_transport_attempt_count": len(prepared),
                 "maximum_attempts_per_request": config.max_retries + 1,
                 "theoretical_max_transport_attempts": theoretical_attempts,
@@ -727,6 +775,10 @@ def plan_external_decoder_collection(
                     theoretical_tokens
                 ),
                 "all_retry_attempts_within_declared_budget": (
+                    theoretical_attempts <= config.max_requests
+                    and theoretical_tokens <= config.max_total_tokens
+                ),
+                "within_declared_budget": (
                     theoretical_attempts <= config.max_requests
                     and theoretical_tokens <= config.max_total_tokens
                 ),
@@ -1373,15 +1425,23 @@ class ExternalDecoderProvider:
         """Execute one live, blinded decoder request after explicit opt-in."""
 
         prepared = self.prepare(request)
-        key = self._load_live_key()
-        headers = dict(prepared.headers)
-        if self.config.provider == "anthropic":
-            headers["x-api-key"] = key
-        else:
-            headers["x-goog-api-key"] = key
+        key: str | None = None
+        headers: dict[str, str] | None = None
         started_at = _utc_timestamp(self._epoch_time())
         for attempt in range(1, self.config.max_retries + 2):
             self.budget.reserve(prepared.estimated_max_tokens)
+            if key is None:
+                try:
+                    key = self._load_live_key()
+                except Exception:
+                    self.budget.rollback()
+                    raise
+                headers = dict(prepared.headers)
+                if self.config.provider == "anthropic":
+                    headers["x-api-key"] = key
+                else:
+                    headers["x-goog-api-key"] = key
+            assert headers is not None
             attempt_started_at = _utc_timestamp(self._epoch_time())
             try:
                 attempt_id = (
@@ -2573,6 +2633,21 @@ def execute_external_decoder_collection(
     earlier line is never hidden.
     """
 
+    configured = tuple(providers)
+    _validate_distinct_config_set(
+        tuple(provider.config for provider in configured),
+        require_pair=False,
+    )
+    requests_tuple = tuple(sorted(requests, key=lambda row: row.request_id))
+    if not requests_tuple:
+        raise ValueError("at least one external decoder request is required")
+    if len({row.request_id for row in requests_tuple}) != len(requests_tuple):
+        raise ValueError("external decoder requests contain duplicate IDs")
+    _require_retry_expanded_collection_budget(
+        requests_tuple,
+        tuple(provider.config for provider in configured),
+    )
+
     judgment_file = Path(judgments_path)
     audit_file = Path(audit_path)
     attempt_file = (
@@ -2594,8 +2669,8 @@ def execute_external_decoder_collection(
     )
     with _ExclusiveCollectionLock(lock_file):
         return _execute_external_decoder_collection_locked(
-            providers,
-            requests,
+            configured,
+            requests_tuple,
             judgment_file=judgment_file,
             audit_file=audit_file,
             attempt_file=attempt_file,

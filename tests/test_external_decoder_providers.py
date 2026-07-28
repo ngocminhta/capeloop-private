@@ -192,11 +192,11 @@ class ExternalDecoderPlanningTests(unittest.TestCase):
             )
             self.assertEqual(
                 source["maximum_attempts_per_request"],
-                5,
+                1,
             )
             self.assertEqual(
                 source["theoretical_max_transport_attempts"],
-                source["request_count"] * 5,
+                source["request_count"],
             )
 
     def test_plan_fails_before_execution_when_ceiling_is_too_low(self) -> None:
@@ -206,6 +206,59 @@ class ExternalDecoderPlanningTests(unittest.TestCase):
                 (decoder_request("one"), decoder_request("two")),
                 configs,
             )
+
+    def test_plan_requires_capacity_for_all_retry_attempts(self) -> None:
+        configs = tuple(
+            ExternalDecoderProviderConfig(
+                provider=provider,
+                max_retries=1,
+                max_requests=2,
+                max_total_tokens=6_000_000,
+            )
+            for provider in ("anthropic", "google_gemini")
+        )
+        with self.assertRaisesRegex(
+            ExternalDecoderBudgetExceeded,
+            "4 physical transport attempts after retry expansion",
+        ):
+            plan_external_decoder_collection(
+                (decoder_request("one"), decoder_request("two")),
+                configs,
+            )
+
+    def test_plan_rejects_retry_expanded_tokens_when_initial_fits(
+        self,
+    ) -> None:
+        request = decoder_request()
+        baseline = ExternalDecoderProviderConfig(
+            provider="anthropic",
+            max_retries=1,
+            max_requests=10,
+            max_total_tokens=6_000_000,
+        )
+        initial_tokens = prepare_external_decoder_request(
+            request,
+            baseline,
+        ).estimated_max_tokens
+        configs = (
+            ExternalDecoderProviderConfig(
+                provider="anthropic",
+                max_retries=1,
+                max_requests=10,
+                max_total_tokens=initial_tokens,
+            ),
+            ExternalDecoderProviderConfig(
+                provider="google_gemini",
+                max_retries=0,
+                max_requests=10,
+                max_total_tokens=6_000_000,
+            ),
+        )
+        with self.assertRaisesRegex(
+            ExternalDecoderBudgetExceeded,
+            "tokens after retry expansion",
+        ):
+            plan_external_decoder_collection((request,), configs)
 
     def test_custom_origins_require_two_explicit_safety_controls(self) -> None:
         with self.assertRaisesRegex(ValueError, "official"):
@@ -237,11 +290,13 @@ class ExternalDecoderPlanningTests(unittest.TestCase):
         for provider, default_env in (
             ("anthropic", "GEMINI_API_KEY"),
             ("google_gemini", "ANTHROPIC_API_KEY"),
+            ("anthropic", "OPENAI_API_KEY"),
+            ("google_gemini", "OPENROUTER_API_KEY"),
         ):
             with self.subTest(provider=provider, default_env=default_env):
                 with self.assertRaisesRegex(
                     ValueError,
-                    "either first-party default",
+                    "reserved provider default",
                 ):
                     ExternalDecoderProviderConfig(
                         provider=provider,
@@ -249,6 +304,41 @@ class ExternalDecoderPlanningTests(unittest.TestCase):
                         allow_custom_base_url=True,
                         api_key_env=default_env,
                     )
+
+    def test_official_origins_reject_other_provider_key_variables(
+        self,
+    ) -> None:
+        for provider, reserved_envs in (
+            (
+                "anthropic",
+                (
+                    "OPENAI_API_KEY",
+                    "OPENROUTER_API_KEY",
+                    "GEMINI_API_KEY",
+                ),
+            ),
+            (
+                "google_gemini",
+                (
+                    "OPENAI_API_KEY",
+                    "OPENROUTER_API_KEY",
+                    "ANTHROPIC_API_KEY",
+                ),
+            ),
+        ):
+            for reserved_env in reserved_envs:
+                with self.subTest(
+                    provider=provider,
+                    reserved_env=reserved_env,
+                ):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "reserved for a different provider",
+                    ):
+                        ExternalDecoderProviderConfig(
+                            provider=provider,
+                            api_key_env=reserved_env,
+                        )
 
     def test_two_sources_cannot_share_a_credential_environment(self) -> None:
         configs = (
@@ -844,8 +934,60 @@ class ExternalDecoderTransportTests(unittest.TestCase):
                 provider.complete(decoder_request("second"))
         self.assertEqual(calls, [1])
 
+    def test_exhausted_budget_is_checked_before_credential_access(
+        self,
+    ) -> None:
+        provider = ExternalDecoderProvider(
+            ExternalDecoderProviderConfig(
+                provider="anthropic",
+                live_execution=True,
+                api_key_env="ABSENT_CAPE_LOOP_DECODER_KEY",
+                max_requests=1,
+                max_total_tokens=100_000,
+            ),
+            transport=lambda **_: self.fail(
+                "budget exhaustion must precede transport"
+            ),
+        )
+        provider.restore_budget(request_count=1, total_tokens=0)
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(ExternalDecoderBudgetExceeded):
+                provider.complete(decoder_request())
+
 
 class ExternalDecoderResumeTests(unittest.TestCase):
+    def test_corpus_preflight_rejects_before_output_or_key_access(
+        self,
+    ) -> None:
+        request = decoder_request()
+        provider = ExternalDecoderProvider(
+            ExternalDecoderProviderConfig(
+                provider="anthropic",
+                live_execution=True,
+                api_key_env="ABSENT_CAPE_LOOP_DECODER_KEY",
+                max_retries=1,
+                max_requests=1,
+                max_total_tokens=6_000_000,
+            ),
+            transport=lambda **_: self.fail(
+                "corpus preflight must precede transport"
+            ),
+        )
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "must-not-exist"
+            with patch.dict("os.environ", {}, clear=True):
+                with self.assertRaisesRegex(
+                    ExternalDecoderBudgetExceeded,
+                    "retry expansion",
+                ):
+                    execute_external_decoder_collection(
+                        (provider,),
+                        (request,),
+                        judgments_path=output / "judgments.jsonl",
+                        audit_path=output / "audit.jsonl",
+                    )
+            self.assertFalse(output.exists())
+
     def test_audit_precedes_judgment_and_repairs_interrupted_append(
         self,
     ) -> None:

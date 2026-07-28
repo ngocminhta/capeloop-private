@@ -131,8 +131,7 @@ diagnostics. The paper hypotheses use additional frozen contrasts: H1 compares
 anchor-directional log-odds and its absolute strength with fitted-aware
 updates; H2 compares update-vector distance to fitted-aware and fitted-unaware
 references; H7 combines mitigation superiority with positive-control
-noninferiority. Their formulas and decision rules are in
-[H1, H2, and H7 estimands](hypothesis-estimands.md).
+noninferiority. The exact formulas and decision rules follow below.
 
 ### Evidence-strength ordering
 
@@ -141,13 +140,260 @@ balanced choice, default/suggestion acceptance, and restricted choice. The
 fitted response model and human validation determine the expected middle
 ordering; the software does not hard-code a universal ordering as truth.
 
+## Frozen H1, H2, and H7 estimands
+
+The implementation in
+`src/cape_loop/experiments/hypothesis_estimands.py` freezes the executable
+decision quantities for H1, H2, and H7. Experiment A writes
+`metrics/experiment-a-hypothesis-estimands.json`; Experiment B writes
+`metrics/experiment-b-h7-mitigation.json`.
+
+Every artifact retains `claim_status = "not_claimed"`. A computed criterion is
+not a paper claim and does not replace sample-adequacy, preregistration,
+multiplicity, robustness, or author review.
+
+### Shared pairing, uncertainty, and incomplete evidence
+
+The primary response mode is `controlled_anchor`. Within each mechanism, the
+visible context, anchor, prior, user, domain, target attribute, direction, and
+prior-strength stratum are held fixed across updaters.
+
+The independent unit is the complete latent user. Each contrast:
+
+1. forms a paired difference within a matched trial;
+2. averages all eligible rows within user; and
+3. applies a deterministic percentile bootstrap over complete users.
+
+The interval is 95%. The run's configured bootstrap count is used; a smoke
+configuration declaring zero uses the runner's recorded 200-replicate fallback.
+At least two independent user clusters are required. With fewer clusters or
+missing required cells, `criterion_met = null` and
+`computed_status = "incomplete"`; absence is never converted into failure,
+success, or a zero effect.
+
+The policy-conditioned mechanisms are exactly:
+
+```text
+restricted
+default
+suggested
+```
+
+### H1 — Directional over-update
+
+ACUE cannot establish H1 by itself: distance from the fitted-aware update may
+reflect over-update, under-update, or a wrong-direction update.
+
+For controlled anchor direction \(s\) on attribute \(j\), define:
+
+\[
+\Delta\ell_s(q)
+=
+\operatorname{logit}q_{t+1,j}(s)
+-
+\operatorname{logit}q_{t,j}(s),
+\]
+
+where \(q_j(s)\) is total marginal mass on the two latent values with sign
+\(s\). Clipping at \(10^{-6}\) is only a numerical log-odds diagnostic; it does
+not change the retained belief.
+
+For mechanism \(m\), H1 compares the ordinary full-context writer with the
+fitted-aware reference:
+
+\[
+\delta^{\mathrm{dir}}_m
+=
+\mathbb E_{\mathrm{user}}
+\left[
+\Delta\ell_s(q^{\mathrm{full}}_m)
+-
+\Delta\ell_s(p^A_m)
+\right],
+\]
+
+\[
+\delta^{\mathrm{strength}}_m
+=
+\mathbb E_{\mathrm{user}}
+\left[
+\left|\Delta\ell_s(q^{\mathrm{full}}_m)\right|
+-
+\left|\Delta\ell_s(p^A_m)\right|
+\right].
+\]
+
+A mechanism meets the executable H1 criterion only when both complete-user
+bootstrap lower bounds are strictly above zero. The joint H1 artifact is
+complete only when restricted, default, and suggested mechanisms all have
+adequate evidence, and it passes only when all three mechanism criteria pass.
+Individual mechanism rows remain reportable when the joint result is
+incomplete.
+
+### H2 — Closer to action-unaware inference
+
+H2 compares update vectors, not terminal posteriors or response-model training
+losses. Let \(\Delta q\) be the 12-component vector of marginal probability
+increments over three attributes and four values. For one matched trial:
+
+\[
+d_A
+=
+\left\|\Delta q^{\mathrm{full}}-\Delta p^A\right\|_1,
+\qquad
+d_U
+=
+\left\|\Delta q^{\mathrm{full}}-\Delta p^U\right\|_1.
+\]
+
+The mechanism-wise proximity advantage is:
+
+\[
+\gamma_m=\mathbb E_{\mathrm{user}}[d_A-d_U].
+\]
+
+A positive value means the full-context writer is closer to fitted
+action-unaware inference. A mechanism qualifies only when the 95%
+complete-user bootstrap lower bound for \(\gamma_m\) is strictly above zero.
+H2 requires at least two qualifying mechanisms. Separate clustered intervals
+for \(d_A\) and \(d_U\), qualifying mechanisms, missing mechanisms, and
+inadequate-cluster mechanisms are retained. Both fitted-aware and
+fitted-unaware rows are mandatory for an evaluable mechanism.
+
+### H7 — Mitigation without loss of valid learning
+
+H7 has three non-substitutable components:
+
+1. Experiment A update-error superiority under policy-conditioned evidence;
+2. retention of valid learning under both balanced and volunteered evidence;
+3. Experiment B reduction of closed-loop attribution error and
+   self-confirming-profile rate.
+
+#### Update-error superiority
+
+For each policy-conditioned mechanism:
+
+\[
+\rho_m
+=
+\mathbb E_{\mathrm{user}}
+\left[
+\operatorname{ACUE}(q^{\mathrm{full}}_m)
+-
+\operatorname{ACUE}(q^{\mathrm{provenance}}_m)
+\right].
+\]
+
+Positive values favor the provenance-aware writer. A mechanism qualifies when
+its 95% complete-user bootstrap lower bound is strictly above zero. At least two
+policy-conditioned mechanisms must qualify.
+
+#### Balanced and volunteered noninferiority
+
+Let \(u_F\) be the ordinary full-context directional log-odds update and \(u_P\)
+the provenance-aware update. The frozen retention fraction is 0.80:
+
+\[
+\eta_c
+=
+\mathbb E_{\mathrm{user}}
+\left[
+u_{P,c}-0.80u_{F,c}
+\right],
+\qquad
+c\in\{\mathrm{balanced},\mathrm{volunteered}\}.
+\]
+
+A condition qualifies only when:
+
+- the ordinary full-context positive-control update has a 95% lower bound
+  strictly above zero; and
+- the 95% lower bound for \(\eta_c\) is at least zero.
+
+Balanced values come from matched Experiment A rows. Volunteered preferences
+are direct user-originated statements with no option set, default, ranking, or
+suggestion. They cannot be synthesized from a choice row. The external review
+converts each exactly bound provider response into:
+
+```text
+case_id
+user_id
+updater_id
+directional_log_odds_update
+```
+
+Ordinary and provenance-aware records are paired by `case_id` and must share
+`user_id`. Missing direct statements are never imputed from balanced choices,
+the six-control diagnostic battery, an average, or zero.
+
+#### Closed-loop self-confirmation mitigation
+
+Experiment B pairs ordinary full-context and provenance-aware trajectories
+using their common-random-number key under:
+
+```text
+policy_id = "soft_profile_conditioned"
+initial_profile_condition = "incorrect"
+```
+
+It emits:
+
+\[
+\kappa_{\mathrm{attr}}
+=
+\mathbb E_{\mathrm{user}}
+\left[
+(\operatorname{Err}_F-\operatorname{Err}^{\mathrm{shadow}}_F)
+-
+(\operatorname{Err}_P-\operatorname{Err}^{\mathrm{shadow}}_P)
+\right],
+\]
+
+\[
+\kappa_{\mathrm{profile}}
+=
+\Pr_F(\text{at least one reportable self-confirming attribute})
+-
+\Pr_P(\text{at least one reportable self-confirming attribute}).
+\]
+
+Both 95% lower bounds must be strictly above zero. The profile indicator uses
+the existing five-clause definition and is not reconstructed from terminal
+error. Experiment A and B artifacts explicitly name their still-required
+counterparts; a full H7 claim must join compatible frozen paper runs and
+satisfy every component.
+
+### Estimand artifact interpretation
+
+The Experiment A artifact retains the analysis identity, independent unit,
+bootstrap count, confidence level, frozen constants, and H1/H2/H7 results. The
+Experiment B artifact retains the two closed-loop contrasts, pairing condition,
+missing reason, and computation status.
+
+An externally collected volunteered control is stored in a separate immutable
+review. It binds the verified source run, regenerated plan, response and
+provider-audit files, every converted update, and the recomputed H7 component.
+It always records:
+
+```text
+claim_status = "not_claimed"
+source_run_modified = false
+missing_values_imputed = false
+```
+
+A formula, pairing unit, noninferiority margin, mechanism set, or decision-rule
+change requires a new schema version. Existing artifacts must not be silently
+reinterpreted.
+
 ## Calibration and information
 
 ### Calibration
 
 Report raw and development-calibrated scores separately. Reliability summaries
-group predicted probability assigned to the realized class, with binning or
-isotonic/temperature parameters declared in the configuration.
+group predicted probability assigned to the realized class using the retained
+binning rule. The implemented calibration choices are per-view temperature
+scaling and the explicitly labeled `none` ablation; retain the selected mode
+and fitted temperature parameters.
 
 No calibration summary may use test labels to select parameters or bins.
 
@@ -436,6 +682,22 @@ development intervals leave multiple systems in either top tier, retain the
 full set. A substantial-ESR gate check requires both the worst descriptive
 pairing and the conservative paired-test interval envelope to exceed the
 declared practical threshold.
+
+## Confirmatory mixed-effects interpretation
+
+The optional R harness fits the proposal's exact maximal models, but its
+contrasts remain narrower than the paper hypotheses. Experiment A's ACUE
+contrasts do not test the direction or magnitude of the target's belief update.
+Experiment B's terminal-error interaction does not alone establish all five
+self-confirmation clauses.
+
+Reported mixed-effects intervals use the explicit
+`pointwise_unadjusted_confidence_lower` and
+`pointwise_unadjusted_confidence_upper` fields, including their standardized
+counterparts. They are pointwise 95% intervals; Holm adjustment applies to
+p-values, not confidence limits. The complete formulas, planned contrast
+families, diagnostics, failure semantics, and output contract are in the
+[confirmatory mixed-effects README](../analysis/confirmatory-mixed-effects/README.md).
 
 ## Human evidence-strength metrics
 

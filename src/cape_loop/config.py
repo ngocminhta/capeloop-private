@@ -409,6 +409,7 @@ class ThresholdSection:
 
 @dataclass(frozen=True, slots=True)
 class SensitivitySection:
+    design: str = "cartesian"
     decision_noise_values: tuple[float, ...] = (0.6, 1.0, 1.6)
     presentation_multipliers: tuple[float, ...] = (0.5, 1.0, 1.5)
     rank_multipliers: tuple[float, ...] = (1.0,)
@@ -428,6 +429,7 @@ class SensitivitySection:
     @classmethod
     def parse(cls, raw: Mapping[str, Any]) -> "SensitivitySection":
         allowed = {
+            "design",
             "decision_noise_values",
             "presentation_multipliers",
             "rank_multipliers",
@@ -487,6 +489,14 @@ class SensitivitySection:
                 for value in lengths
             )
         result = cls(**prepared)
+        if not isinstance(result.design, str) or result.design not in {
+            "cartesian",
+            "one_at_a_time",
+        }:
+            raise ConfigError(
+                "sensitivity.design must be 'cartesian' or "
+                "'one_at_a_time'"
+            )
         if any(value <= 0 for value in result.decision_noise_values):
             raise ConfigError("decision noise values must be positive")
         if any(value < 0 for value in result.presentation_multipliers):
@@ -941,6 +951,16 @@ class AppConfig:
                 "live-provider LLM runs require run.deterministic = false; "
                 "semantic-key simulation is reproducible, but external model "
                 "generation is not declared deterministic"
+            )
+        development_users = max(8, result.experiment.users)
+        if (
+            uses_llm
+            and result.llm.calibration == "temperature"
+            and result.llm.calibration_users > development_users
+        ):
+            raise ConfigError(
+                "llm.calibration_users exceeds the generated development "
+                f"population ({development_users})"
             )
         result.validate_experiment_contract()
         return result

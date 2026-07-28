@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import json
 import unittest
 
@@ -17,6 +18,81 @@ from cape_loop.runner import run_experiment
 
 
 class EndToEndRunnerTests(unittest.TestCase):
+    def test_source_config_must_match_before_provider_or_artifact(self) -> None:
+        config = AppConfig(
+            run=RunSection(name="config-a", seed=31),
+            experiment=ExperimentSection(
+                kind="provenance_audit",
+                domains=("travel",),
+                mechanisms=("balanced",),
+                response_modes=("controlled_anchor",),
+                policies=("balanced",),
+                updaters=("exact_action_aware",),
+                users=1,
+                trajectories_per_cell=1,
+                turns=1,
+                bootstrap_replicates=0,
+            ),
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "mismatched.toml"
+            source.write_text(
+                "\n".join(
+                    (
+                        "schema_version = 1",
+                        "",
+                        "[run]",
+                        'name = "config-b"',
+                        "seed = 31",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = root / "runs"
+            with patch(
+                "cape_loop.runner._live_completion_provider",
+                side_effect=AssertionError(
+                    "provider construction preceded source validation"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "does not resolve to the supplied AppConfig",
+                ):
+                    run_experiment(
+                        config,
+                        output_root=output,
+                        source_config=source,
+                        execute_live=True,
+                    )
+            self.assertFalse(output.exists())
+
+    def test_source_config_size_limit_matches_run_verifier(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "oversized.toml"
+            source.write_text(
+                "schema_version = 1\n#" + ("x" * 128) + "\n",
+                encoding="utf-8",
+            )
+            output = root / "runs"
+            with patch(
+                "cape_loop.artifacts._MAX_CONTROL_FILE_BYTES",
+                64,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "source_config exceeds 64 bytes",
+                ):
+                    run_experiment(
+                        AppConfig(),
+                        output_root=output,
+                        source_config=source,
+                    )
+            self.assertFalse(output.exists())
+
     def test_small_experiment_a_artifact_is_complete_and_reusable(self) -> None:
         config = AppConfig(
             run=RunSection(name="runner-test", seed=31),

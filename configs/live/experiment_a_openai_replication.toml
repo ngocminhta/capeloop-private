@@ -1,7 +1,9 @@
 schema_version = 1
 
+# Matched GPT-5.6 model-variant replication of experiment_a_openai.toml.
+
 [run]
-name = "experiment-a-openai-primary-pilot"
+name = "experiment-a-openai-mixed-effects-replication-pilot"
 seed = 1729
 output_root = "runs"
 deterministic = false
@@ -11,19 +13,17 @@ kind = "provenance_audit"
 domains = ["travel", "writing"]
 mechanisms = ["balanced", "restricted", "default", "suggested"]
 response_modes = ["controlled_anchor", "naturally_sampled"]
-prior_strengths = [0.0]
+prior_strengths = [0.0, 0.7]
 policies = ["balanced"]
 updaters = [
   "no_update",
   "exact_action_aware",
   "fitted_action_aware",
   "fitted_action_unaware",
-  "llm_response_only",
   "llm_full_context",
-  "llm_provenance_aware",
   "provenance_discount",
 ]
-users = 2
+users = 4
 trajectories_per_cell = 1
 turns = 1
 bootstrap_replicates = 0
@@ -56,14 +56,15 @@ ranking_tie_tolerance = 1e-6
 mode = "openai"
 calibration = "temperature"
 calibration_users = 1
-model_role = "primary"
-model = ""
-reasoning_effort = ""
+model_role = "replication"
+model = "gpt-5.6-terra"
+reasoning_effort = "medium"
 api_key_env = "OPENAI_API_KEY"
 base_url = "https://api.openai.com"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-max_retries = 4
+# 848 logical calls × one physical attempt; 52 attempts remain as headroom.
+max_retries = 0
 max_output_tokens = 2048
 max_requests = 900
 max_total_tokens = 6000000

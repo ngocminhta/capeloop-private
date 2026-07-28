@@ -89,5 +89,5 @@ The [paper directory](../paper/README.md) refers to bundle and run IDs; it does
 not own independent copies of numerical results. Regenerated tables and figures
 should match the artifact checksums or be labeled as a new reanalysis.
 
-See [Outputs](../docs/outputs.md) and
-[Reproducibility](../docs/reproducibility.md).
+See [Run outputs and artifacts](../docs/data-model.md#run-directory-and-output-lifecycle)
+and [Reproducibility](../REPRODUCIBILITY.md).

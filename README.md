@@ -35,16 +35,23 @@ Anthropic, and Google API execution.
 It does **not** contain fabricated paper results or imply that any scientific
 stage gate has passed. Consult
 [implementation status](docs/implementation-status.md) before interpreting an
-available component or artifact.
+available component or artifact. The exact bounded pilot matrix, credential
+requirements, provider contracts, and recommended order are in
+[live execution](docs/live-execution.md).
 
-No API key or live provider response is checked in. Development-time transport
-smokes are not study data and are not retained as results. Full live-model and
-external-decoder collection remains a separate, budgeted task, and the human
-study is explicitly deferred; implemented code paths do not make those results
-exist or establish a scientific claim.
+No API key or live provider response is checked in. Local direct-OpenAI and
+OpenRouter profile-writer smokes validated the transport paths, but they are
+not study data. One strict selected-Claude request and one strict
+selected-Gemini request have also completed through OpenRouter and passed local
+replay validation after the Anthropic schema was adapted to the selected
+route's supported subset. These one-request diagnostics are not an eligible
+decoder corpus; the full paper collection remains a separate, reviewed task.
+The human study is deferred, and every diagnostic report remains
+`claim_status = "not_claimed"`.
 
 The paper design is in [the proposal](docs/proposal.md). The engineering
-contract is in [the implementation plan](docs/implementation-plan.md).
+completion boundary is in
+[implementation status](docs/implementation-status.md).
 
 ## What CAPE-Loop provides
 
@@ -65,7 +72,7 @@ contract is in [the implementation plan](docs/implementation-plan.md).
 - Exhaustive H7 volunteered direct-statement planning plus strict
   OpenAI/OpenRouter audit binding, paired update conversion, and immutable
   source-safe recomputation; see
-  [H7 volunteered controls](docs/h7-volunteered-controls.md).
+  [the experiment protocols](docs/experiments.md#h7-volunteered-preference-control).
 - Endogenous profile–policy–response loops with a same-history action-aware
   shadow posterior.
 - Fixed-history versus closed-loop evaluation using a common exogenous terminal
@@ -78,6 +85,10 @@ contract is in [the implementation plan](docs/implementation-plan.md).
   opt-in direct OpenAI Responses API execution, and first-class OpenRouter Chat
   Completions execution with hard request/token budgets and resumable
   audit-first journals.
+- One credential-free, fail-closed adaptive request preflight shared by
+  Experiments A, B, C, and sensitivity. It counts calibration, held-out
+  paraphrases, trajectory turns, and retry expansion before a live provider is
+  constructed, and records the result in `llm/request-preflight.json`.
 - Development-only temperature calibration for LLM probability vectors, fitted
   separately for each information view with raw and calibrated records retained.
   B/C additionally score cached raw/calibrated terminal vectors on the same
@@ -86,17 +97,21 @@ contract is in [the implementation plan](docs/implementation-plan.md).
 - Deterministic human evidence-strength material packets, strict de-identified
   imports, and analysis helpers; no recruitment, hosting, or ethics approval.
 - A selected Gate 4 collection stack: OpenAI `gpt-5.6-sol` acting directly
-  from retained native memory, plus Anthropic `claude-sonnet-5` and Google
-  `gemini-3.6-flash` as blinded cross-provider decoder sources.
+  from retained native memory, plus the exact
+  `anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` OpenRouter slugs as
+  two blinded, distinct-model-family decoder sources, using Claude `low` and
+  Gemini `minimal` reasoning.
 - An optional, contract-validated R confirmatory pipeline for the proposal's
   mixed-effects models, while the dependency-free Python CR1 analysis remains
   available as a marginal robustness check.
 - Versioned JSON artifacts, semantic-keyed random streams, checksums, and
   result-free gate reports.
 - Executed, feature-matched train/development/test surface families with a
-  retained concrete [leakage audit](docs/data-splits.md).
-- A checked-in simulator-sensitivity grid over decision noise, presentation
-  strength, profile strength, and trajectory length.
+  retained concrete
+  [leakage audit](docs/data-model.md#splits-and-leakage-controls).
+- A checked-in simulator-sensitivity design over decision noise, shared and
+  mechanism-specific presentation strength, profile strength, prior
+  uncertainty, trajectory length, response-model family, and rule noise.
 
 The standard-library-only core requires Python 3.11 or newer. Offline commands
 never require credentials. A provider call is possible only through a live
@@ -120,6 +135,24 @@ Validate and run a checked-in TOML configuration:
 PYTHONPATH=src python -m cape_loop config validate configs/smoke.toml
 PYTHONPATH=src python -m cape_loop run configs/smoke.toml
 ```
+
+Use the live workflow in increasing-cost tiers:
+
+```text
+offline validate/plan
+  -> six-request static transport smoke
+  -> six-update adaptive smoke
+  -> reviewed bounded A/B/C or Gate 6 pilot
+  -> paper collection only after preregistration and evidence review
+```
+
+The repository never implicitly starts a paid run. Live commands require
+`--execute-live`; the paper pilots keep the approved per-provider ceiling at
+900 physical HTTP attempts and 6,000,000 conservatively accounted tokens.
+Their `max_retries = 0` setting is intentional: it ensures the entire design,
+not only its first attempts, fits those ceilings. Do not raise the approved
+ceilings to make a design pass; reduce the design, retry count, or output
+allowance.
 
 The run command prints the output directory. Verify it before analysis:
 
@@ -192,9 +225,9 @@ Experiments are organized around:
   evidence selection from evidential attribution;
 - **Experiment C:** fixed-history versus endogenous closed-loop system
   evaluation, plus a separate
-  [two-family external-decoder rescore](docs/experiment-c-external-decoder.md)
+  [two-family external-decoder rescore](docs/experiments.md#experiment-c-external-decoder-rescore)
   and
-  [multi-seed robustness review](docs/experiment-c-robustness.md);
+  [multi-seed robustness review](docs/experiments.md#experiment-c-multi-seed-robustness);
 - **Experiment D support:** human pragmatic evidence-strength study materials.
 
 Correction-debt, held-out paraphrase-transfer, and broader alternative-model
@@ -218,8 +251,8 @@ External LLM responses, external decoder judgments, and human ratings are not
 part of the checked-in dataset. The repository generates content-addressed
 requests and strict import contracts for them; real provider outputs must be
 collected under explicit budgets, and human data collection remains deferred.
-See the [Dataset card](docs/dataset-card.md),
-[Data splits](docs/data-splits.md), and [Data policy](data/README.md).
+See [Data model and dataset production](docs/data-model.md) and the
+[data directory policy](data/README.md).
 
 ## External LLM evaluation
 
@@ -235,35 +268,39 @@ PYTHONPATH=src python -m cape_loop llm execute-openai \
   requests.jsonl responses.jsonl provider-audit.jsonl \
   --role primary --execute-live
 PYTHONPATH=src python -m cape_loop run \
-  configs/openai_primary.toml --execute-live
+  configs/live/experiment_a_openai.toml --execute-live
 PYTHONPATH=src python -m cape_loop llm plan-openrouter \
   requests.jsonl --model google/gemini-3.6-flash
 PYTHONPATH=src python -m cape_loop llm execute-openrouter \
   requests.jsonl responses.jsonl openrouter-audit.jsonl \
   --model google/gemini-3.6-flash --execute-live
 PYTHONPATH=src python -m cape_loop run \
-  configs/openrouter_gemini.toml --execute-live
+  configs/live/experiment_a_openrouter.toml --execute-live
 PYTHONPATH=src python -m cape_loop llm evaluation-suite \
-  configs/openai_primary.toml configs/openai_replication.toml \
+  configs/live/experiment_a_openai.toml \
+  configs/live/experiment_a_openai_replication.toml \
   --output-root runs
 PYTHONPATH=src python -m cape_loop decoder-study plan-openai \
   decoder-requests.jsonl
-PYTHONPATH=src python -m cape_loop decoder-study plan-distinct \
+PYTHONPATH=src python -m cape_loop decoder-study plan-openrouter \
   runs/EXPERIMENT-B/decoder/external-requests.jsonl
+PYTHONPATH=src python -m cape_loop decoder-study execute-openrouter \
+  runs/EXPERIMENT-B/decoder/external-requests.jsonl \
+  artifacts/gate4-openrouter-decoders --execute-live
 PYTHONPATH=src python -m cape_loop native-action plan-openai \
   runs/EXPERIMENT-B
 PYTHONPATH=src python -m cape_loop gate-review import-native \
   runs/EXPERIMENT-B requests.jsonl \
-  artifacts/gate4-decoder-collection/judgments.jsonl truth.jsonl \
+  artifacts/gate4-openrouter-decoders/judgments.jsonl truth.jsonl \
   artifacts/gate4-native-actions source-review.json artifacts/GATE4-REVIEW \
-  --external-collection-dir artifacts/gate4-decoder-collection
+  --openrouter-collection-dir artifacts/gate4-openrouter-decoders
 PYTHONPATH=src python -m cape_loop gate-review verify \
   artifacts/GATE4-REVIEW
 PYTHONPATH=src python -m cape_loop experiment-c-decoder import \
   runs/EXPERIMENT-C \
-  artifacts/experiment-c-decoder-collection/judgments.jsonl \
+  artifacts/experiment-c-openrouter-decoders/judgments.jsonl \
   artifacts/EXPERIMENT-C-RESCORE \
-  --external-collection-dir artifacts/experiment-c-decoder-collection
+  --openrouter-collection-dir artifacts/experiment-c-openrouter-decoders
 PYTHONPATH=src python -m cape_loop experiment-c-decoder verify \
   artifacts/EXPERIMENT-C-RESCORE --source-run runs/EXPERIMENT-C
 PYTHONPATH=src python -m cape_loop experiment-c-robustness review \
@@ -277,8 +314,21 @@ PYTHONPATH=src python -m cape_loop gate6-review verify \
 PYTHONPATH=src python -m cape_loop llm validate responses.jsonl
 ```
 
+The CLI does not load `.env` automatically. If credentials are stored in a
+local ignored `.env`, load them into the current shell explicitly before a live
+command, for example:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Never commit `.env`, print its values, or copy a key into TOML, JSON, a command
+argument, a log, or a paper artifact.
+
 The Gate 6 declaration and evidence rules are documented in
-[`docs/gate6-cross-run-review.md`](docs/gate6-cross-run-review.md).
+[Experiments](docs/experiments.md#gate-6-cross-run-review).
 
 The checked-in roles are GPT-5.6 Sol at medium reasoning for the primary writer,
 GPT-5.6 Terra at medium reasoning for a GPT-5.6 model-variant/tier replication,
@@ -305,20 +355,27 @@ credential access or duplicate dispatch.
 
 OpenRouter is configured as a gateway, not as an OpenAI-compatible custom URL.
 Set `OPENROUTER_API_KEY` in the invoking shell and pass one
-`--model author/model` to switch the routed model. In
-[`configs/openrouter_gemini.toml`](configs/openrouter_gemini.toml), change the
-`model` line; if the replacement is not served by the pinned Google Vertex
-global route, also change or clear `openrouter_upstream_provider`. Aliases, route
-variants, `openrouter/auto`, and `-latest` labels are rejected for reproducible
-evaluation. The adapter sends strict JSON Schema, disables gateway response
-caching, requests router metadata, retains the selected upstream provider and
-model, and rejects model changes, unexpected fallback, cache hits, or material
-router transformations. Its artifacts always record
+`--model author/model` to switch a static routed model. For adaptive runs, copy
+[`configs/live/experiment_a_openrouter.toml`](configs/live/experiment_a_openrouter.toml)
+into the ignored `configs/local/` directory, then change its `model` line. If
+the replacement is not served by the pinned Google Vertex global route, also
+change or clear `openrouter_upstream_provider`. Aliases, route variants,
+`openrouter/auto`, and `-latest` labels are rejected for reproducible
+evaluation. The adapter sends provider-compatible strict JSON Schema, disables
+gateway response caching, requests router metadata, retains the selected
+upstream provider and model, and rejects model changes, unexpected fallback,
+cache hits, or material router transformations. Anthropic/OpenRouter requests
+omit numeric-bound schema keywords rejected by the observed Amazon Bedrock
+route; the local parser still enforces finite `[0,1]` probabilities and
+sum-to-one vectors. Its artifacts always record
 `first_party_origin_claimed = false`. Even when OpenRouter reports an upstream
 Anthropic, Google, or OpenAI route, that shared-gateway record is not a direct
-first-party record, does not establish independent errors, and cannot satisfy
-strict Gate 4. See [LLM exchange](docs/llm-exchange.md) for the exact audit and
-routing contract.
+first-party record and does not establish independent errors. The selected
+Gate 4 workflow admits only the complete validated gateway collection under
+`selected_openrouter_gateway_collection`, followed by responsible-researcher
+source review; loose OpenRouter outputs do not qualify. See
+[Live execution](docs/live-execution.md) for the exact audit and routing
+contract.
 
 Completed live runs copy the used provider evidence into
 `llm/provider-audit.jsonl` and `llm/transport-attempts.jsonl`; both digests and
@@ -335,8 +392,26 @@ of 900 requests and 6,000,000 conservative tokens. Their default
 probe on one declared development user, fits one temperature per LLM updater
 view using development labels only, and applies those calibrators to test/run
 outputs. If an adaptive live run fails, rerunning the same configuration with
-`--execute-live --resume-failed-live` archives the failed artifact under `.failed-runs/` and
-resumes its external journal into a fresh deterministic run path.
+`--execute-live --resume-failed-live` archives the failed artifact under
+`.failed-runs/` and resumes its external journal into a fresh deterministic
+run path.
+
+Additional bounded configurations cover the remaining live and external
+evidence workflows:
+
+| Purpose | Configurations | Exact bounded workload |
+| --- | --- | ---: |
+| A live profile writing | `configs/live/experiment_a_{openai,openrouter}.toml` | 848 physical attempts per provider |
+| B live closed loop | `configs/live/experiment_b_{openai,openrouter}.toml` | 768 trajectory + 96 calibration = 864 attempts per provider |
+| C live evaluation validity | `configs/live/experiment_c_{openai,openrouter}.toml` | 768 evaluation + 48 calibration = 816 attempts per provider |
+| Gate 4 source generation | `configs/offline/gate4_source.toml` | Offline; 640 decoder requests per source and 80 native actions |
+| C external rescore source | `configs/offline/experiment_c_rescore_source.toml` | Offline; 360 decoder requests per source |
+| Gate 6 live OAT | `configs/live/sensitivity_{openai,openrouter}.toml` | 576-attempt upper bound per provider |
+
+These are ceiling-safe pilots, not power commitments or completed paper
+experiments. Configuration validation and live startup both recompute the
+whole-design preflight and fail before credential access when a workload no
+longer fits.
 
 The runner retains the fitted parameters in
 `models/llm-calibration.json`, development raw responses in
@@ -350,23 +425,37 @@ boundary auditable.
 `--execute-live` it reads no credential, validates the immutable matched
 primary/replication configs, and writes a combined index containing both config
 hashes, distinct run IDs, isolated journal locations, and each role's own hard
-ceilings. The checked pilot design has a conservative upper bound of 752 calls
-per role, leaving 148 calls of headroom under the 900-request ceiling. Adding
+ceilings. The checked pilot design has a conservative upper bound of 848 calls
+per role, leaving 52 calls of headroom under the 900-request ceiling. Adding
 `--execute-live` runs both configs under separate provider ledgers and updates
 that index; it never merges their response or audit files.
 
 Two OpenAI decoder variants remain useful operational checks, but the selected
-Gate 4 pair instead uses Anthropic Sonnet 5 and Google Gemini 3.6 Flash through
-their first-party APIs. Separate providers and model families make the sources
-distinct at the declared implementation boundary; they still do not
-automatically prove statistically independent errors. Gate 4 therefore requires
-a named responsible researcher to review and attest the source design before
-import. The native-action path sends exact retained native memory and the exact
-terminal suite to OpenAI Sol and accepts only model-produced, schema-bound
-actions—not a local persona or belief projection. See
-[Gate 4 live collection](docs/gate4-live-collection.md),
-[LLM exchange](docs/llm-exchange.md), and
+Gate 4 pair uses `anthropic/claude-sonnet-5` and
+`google/gemini-3.6-flash` through OpenRouter. These are distinct model
+families behind one shared gateway, not two independently authenticated
+first-party transports, and their errors are not claimed to be statistically
+independent. Gate 4 therefore requires a named responsible researcher to
+review the shared gateway, model lineage, prompt, training-data, and
+adjudication dependencies before import. The native-action path sends exact
+retained native memory and the exact terminal suite to OpenAI Sol and accepts
+only model-produced, schema-bound actions—not a local persona or belief
+projection. See
+[Live execution](docs/live-execution.md) and
 [Configuration](docs/configuration.md).
+
+The repository-selected automated decoder collection requires
+`OPENROUTER_API_KEY`; the native action collection separately requires
+`OPENAI_API_KEY`. Direct
+`ANTHROPIC_API_KEY` and `GEMINI_API_KEY` collectors remain available as
+optional first-party-origin replications, not prerequisites for the selected
+OpenRouter workflow.
+
+The broader simulator robustness configuration is now a baseline-first,
+19-point one-at-a-time design. It varies every declared axis while explicitly
+recording that interactions among axes are not estimable. The two live Gate 6
+pilots use smaller 11-point one-at-a-time grids and remain separate from the
+simulator-only robustness run.
 
 ## Run artifacts
 
@@ -413,7 +502,9 @@ See [Reproducibility](REPRODUCIBILITY.md), [Data model](docs/data-model.md), and
 | --- | --- |
 | `src/cape_loop/` | Library and command-line implementation |
 | `analysis/` | Optional external statistical pipelines with frozen contracts |
-| `configs/` | Reviewable experiment and smoke configurations |
+| `configs/smoke.toml` | Fast offline quickstart |
+| `configs/offline/` | Deterministic study and source-packet designs |
+| `configs/live/` | Budget-bounded OpenAI/OpenRouter pilots |
 | `schemas/` | Exported interchange schemas |
 | `tests/` | Unit, integration, statistical-contract, and regression tests |
 | `examples/` | Small public API and workflow examples |
@@ -422,8 +513,8 @@ See [Reproducibility](REPRODUCIBILITY.md), [Data model](docs/data-model.md), and
 | `artifacts/` | Curated, checksum-verified release artifacts |
 | `paper/` | Paper-facing figure/table guidance and, when released, sources |
 
-The detailed component inventory is in
-[Repository map](docs/repository-map.md).
+The stable component and directory map is in
+[Architecture](docs/architecture.md#repository-layout).
 
 ## Scope and interpretation
 
@@ -447,7 +538,8 @@ before adapting the benchmark to real user data.
 Contributions are welcome, especially new domain fixtures, response-model
 robustness checks, updater adapters, and validation tests. Scientific invariants
 and latent-information boundaries must remain explicit. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md) and [Extending CAPE-Loop](docs/extending.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) and the
+[architecture extension points](docs/architecture.md#extension-points).
 
 Security and private-data concerns should follow [SECURITY.md](SECURITY.md), not
 public issue reports.
