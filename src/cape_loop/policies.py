@@ -26,6 +26,7 @@ class PolicyAction:
             self.context.default_option_id,
             self.context.suggested_option_id,
             self.context.wording_template,
+            self.context.prompt,
         )
 
 

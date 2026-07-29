@@ -1,0 +1,439 @@
+{
+  "schema_version": 1,
+  "bank_id": "cape-loop-conversation-templates-v1",
+  "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed",
+  "templates": [
+    {
+      "scenario_id": "travel-scenario-atlas-itinerary-planning-01",
+      "display_names": {
+        "travel-atlas-itinerary-planning-01-negative": "Itinerary A",
+        "travel-atlas-itinerary-planning-01-positive": "Itinerary B",
+        "travel-atlas-itinerary-planning-01-negative-peer": "Itinerary C",
+        "travel-atlas-itinerary-planning-01-positive-peer": "Itinerary D"
+      },
+      "presentation_templates": {
+        "balanced": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
+        "restricted": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
+        "default": "For this request — {prompt} {default_name} is preselected as the default. — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
+        "suggested": "For this request — {prompt} I suggest {suggested_name}. — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
+        "ranking": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-atlas-lodging-price-01",
+      "display_names": {
+        "travel-atlas-lodging-price-01-negative": "Lodging A",
+        "travel-atlas-lodging-price-01-positive": "Lodging B",
+        "travel-atlas-lodging-price-01-negative-peer": "Lodging C",
+        "travel-atlas-lodging-price-01-positive-peer": "Lodging D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "restricted": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "default": "{prompt} {default_name} is preselected as the default. I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "suggested": "{prompt} I suggest {suggested_name}. I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "ranking": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-atlas-meeting-setting-01",
+      "display_names": {
+        "travel-atlas-meeting-setting-01-negative": "Room A",
+        "travel-atlas-meeting-setting-01-positive": "Room B",
+        "travel-atlas-meeting-setting-01-negative-peer": "Room C",
+        "travel-atlas-meeting-setting-01-positive-peer": "Room D"
+      },
+      "presentation_templates": {
+        "balanced": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
+        "restricted": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
+        "default": "Regarding this request — {prompt} {default_name} is preselected as the default. — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
+        "suggested": "Regarding this request — {prompt} I suggest {suggested_name}. — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
+        "ranking": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-booking-planning-01",
+      "display_names": {
+        "travel-beacon-booking-planning-01-negative": "Itinerary A",
+        "travel-beacon-booking-planning-01-positive": "Itinerary B",
+        "travel-beacon-booking-planning-01-negative-peer": "Itinerary C",
+        "travel-beacon-booking-planning-01-positive-peer": "Itinerary D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
+        "restricted": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
+        "ranking": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-dining-setting-01",
+      "display_names": {
+        "travel-beacon-dining-setting-01-negative": "Dining Room A",
+        "travel-beacon-dining-setting-01-positive": "Dining Room B",
+        "travel-beacon-dining-setting-01-negative-peer": "Dining Room C",
+        "travel-beacon-dining-setting-01-positive-peer": "Dining Room D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
+        "restricted": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
+        "default": "{prompt} {default_name} is preselected as the default. I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
+        "suggested": "{prompt} I suggest {suggested_name}. I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
+        "ranking": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-rail-price-01",
+      "display_names": {
+        "travel-beacon-rail-price-01-negative": "Rail Seat A",
+        "travel-beacon-rail-price-01-positive": "Rail Seat B",
+        "travel-beacon-rail-price-01-negative-peer": "Rail Seat C",
+        "travel-beacon-rail-price-01-positive-peer": "Rail Seat D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "restricted": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "ranking": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-activity-price-02",
+      "display_names": {
+        "travel-cedar-activity-price-02-negative": "Session A",
+        "travel-cedar-activity-price-02-positive": "Session B",
+        "travel-cedar-activity-price-02-negative-peer": "Session C",
+        "travel-cedar-activity-price-02-positive-peer": "Session D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "restricted": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "default": "{prompt} {default_name} is preselected as the default. We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "suggested": "{prompt} I suggest {suggested_name}. We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
+        "ranking": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-airfare-price-01",
+      "display_names": {
+        "travel-cedar-airfare-price-01-negative": "Fare Package A",
+        "travel-cedar-airfare-price-01-positive": "Fare Package B",
+        "travel-cedar-airfare-price-01-negative-peer": "Fare Package C",
+        "travel-cedar-airfare-price-01-positive-peer": "Fare Package D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
+        "restricted": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
+        "ranking": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-schedule-planning-02",
+      "display_names": {
+        "travel-cedar-schedule-planning-02-negative": "Itinerary A",
+        "travel-cedar-schedule-planning-02-positive": "Itinerary B",
+        "travel-cedar-schedule-planning-02-negative-peer": "Itinerary C",
+        "travel-cedar-schedule-planning-02-positive-peer": "Itinerary D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "restricted": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "default": "{prompt} {default_name} is preselected as the default. I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "suggested": "{prompt} I suggest {suggested_name}. I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "ranking": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-seating-setting-02",
+      "display_names": {
+        "travel-cedar-seating-setting-02-negative": "Seat A",
+        "travel-cedar-seating-setting-02-positive": "Seat B",
+        "travel-cedar-seating-setting-02-negative-peer": "Seat C",
+        "travel-cedar-seating-setting-02-positive-peer": "Seat D"
+      },
+      "presentation_templates": {
+        "balanced": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "restricted": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "default": "Given this request: {prompt} {default_name} is preselected as the default., would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "suggested": "Given this request: {prompt} I suggest {suggested_name}., would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "ranking": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-transfer-planning-01",
+      "display_names": {
+        "travel-cedar-transfer-planning-01-negative": "Shuttle A",
+        "travel-cedar-transfer-planning-01-positive": "Shuttle B",
+        "travel-cedar-transfer-planning-01-negative-peer": "Shuttle C",
+        "travel-cedar-transfer-planning-01-positive-peer": "Shuttle D"
+      },
+      "presentation_templates": {
+        "balanced": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
+        "restricted": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
+        "default": "Regarding your request to {prompt} {default_name} is preselected as the default., here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
+        "suggested": "Regarding your request to {prompt} I suggest {suggested_name}., here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
+        "ranking": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-workspace-setting-01",
+      "display_names": {
+        "travel-cedar-workspace-setting-01-negative": "Lounge A",
+        "travel-cedar-workspace-setting-01-positive": "Lounge B",
+        "travel-cedar-workspace-setting-01-negative-peer": "Lounge C",
+        "travel-cedar-workspace-setting-01-positive-peer": "Lounge D"
+      },
+      "presentation_templates": {
+        "balanced": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
+        "restricted": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
+        "default": "Given this context: {prompt} {default_name} is preselected as the default., one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
+        "suggested": "Given this context: {prompt} I suggest {suggested_name}., one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
+        "ranking": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-description-spelling-01",
+      "display_names": {
+        "writing-atlas-description-spelling-01-negative": "Description A",
+        "writing-atlas-description-spelling-01-positive": "Description B",
+        "writing-atlas-description-spelling-01-negative-peer": "Description C",
+        "writing-atlas-description-spelling-01-positive-peer": "Description D"
+      },
+      "presentation_templates": {
+        "balanced": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "restricted": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "default": "Given this task: {prompt} {default_name} is preselected as the default., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "suggested": "Given this task: {prompt} I suggest {suggested_name}., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "ranking": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-status-length-01",
+      "display_names": {
+        "writing-atlas-status-length-01-negative": "Update A",
+        "writing-atlas-status-length-01-positive": "Update B",
+        "writing-atlas-status-length-01-negative-peer": "Update C",
+        "writing-atlas-status-length-01-positive-peer": "Update D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "restricted": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "default": "For this task — {prompt} {default_name} is preselected as the default. — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "suggested": "For this task — {prompt} I suggest {suggested_name}. — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
+        "ranking": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-workplace-tone-01",
+      "display_names": {
+        "writing-atlas-workplace-tone-01-negative": "Draft A",
+        "writing-atlas-workplace-tone-01-positive": "Draft B",
+        "writing-atlas-workplace-tone-01-negative-peer": "Draft C",
+        "writing-atlas-workplace-tone-01-positive-peer": "Draft D"
+      },
+      "presentation_templates": {
+        "balanced": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
+        "restricted": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
+        "default": "For this request: {prompt} {default_name} is preselected as the default., here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
+        "suggested": "For this request: {prompt} I suggest {suggested_name}., here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
+        "ranking": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-documentation-spelling-01",
+      "display_names": {
+        "writing-beacon-documentation-spelling-01-negative": "Passage A",
+        "writing-beacon-documentation-spelling-01-positive": "Passage B",
+        "writing-beacon-documentation-spelling-01-negative-peer": "Passage C",
+        "writing-beacon-documentation-spelling-01-positive-peer": "Passage D"
+      },
+      "presentation_templates": {
+        "balanced": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
+        "restricted": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
+        "default": "Here's the task: {prompt} {default_name} is preselected as the default. With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
+        "suggested": "Here's the task: {prompt} I suggest {suggested_name}. With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
+        "ranking": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-explainer-length-01",
+      "display_names": {
+        "writing-beacon-explainer-length-01-negative": "Explainer A",
+        "writing-beacon-explainer-length-01-positive": "Explainer B",
+        "writing-beacon-explainer-length-01-negative-peer": "Explainer C",
+        "writing-beacon-explainer-length-01-positive-peer": "Explainer D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
+        "restricted": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
+        "default": "For this task—{prompt} {default_name} is preselected as the default.—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
+        "suggested": "For this task—{prompt} I suggest {suggested_name}.—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
+        "ranking": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-support-tone-01",
+      "display_names": {
+        "writing-beacon-support-tone-01-negative": "Reply A",
+        "writing-beacon-support-tone-01-positive": "Reply B",
+        "writing-beacon-support-tone-01-negative-peer": "Reply C",
+        "writing-beacon-support-tone-01-positive-peer": "Reply D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
+        "restricted": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
+        "default": "For this task — {prompt} {default_name} is preselected as the default. — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
+        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
+        "ranking": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-announcement-tone-01",
+      "display_names": {
+        "writing-cedar-announcement-tone-01-negative": "Memo A",
+        "writing-cedar-announcement-tone-01-positive": "Memo B",
+        "writing-cedar-announcement-tone-01-negative-peer": "Memo C",
+        "writing-cedar-announcement-tone-01-positive-peer": "Memo D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
+        "restricted": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
+        "default": "For this task — {prompt} {default_name} is preselected as the default. — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
+        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
+        "ranking": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-customer-length-01",
+      "display_names": {
+        "writing-cedar-customer-length-01-negative": "Draft A",
+        "writing-cedar-customer-length-01-positive": "Draft B",
+        "writing-cedar-customer-length-01-negative-peer": "Draft C",
+        "writing-cedar-customer-length-01-positive-peer": "Draft D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
+        "restricted": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
+        "ranking": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-feedback-tone-02",
+      "display_names": {
+        "writing-cedar-feedback-tone-02-negative": "Note A",
+        "writing-cedar-feedback-tone-02-positive": "Note B",
+        "writing-cedar-feedback-tone-02-negative-peer": "Note C",
+        "writing-cedar-feedback-tone-02-positive-peer": "Note D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
+        "restricted": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
+        "default": "For this task—{prompt} {default_name} is preselected as the default.—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
+        "suggested": "For this task—{prompt} I suggest {suggested_name}.—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
+        "ranking": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-guide-spelling-02",
+      "display_names": {
+        "writing-cedar-guide-spelling-02-negative": "Passage A",
+        "writing-cedar-guide-spelling-02-positive": "Passage B",
+        "writing-cedar-guide-spelling-02-negative-peer": "Passage C",
+        "writing-cedar-guide-spelling-02-positive-peer": "Passage D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
+        "restricted": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
+        "default": "For this task — {prompt} {default_name} is preselected as the default. — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
+        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
+        "ranking": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-newsletter-spelling-01",
+      "display_names": {
+        "writing-cedar-newsletter-spelling-01-negative": "Draft A",
+        "writing-cedar-newsletter-spelling-01-positive": "Draft B",
+        "writing-cedar-newsletter-spelling-01-negative-peer": "Draft C",
+        "writing-cedar-newsletter-spelling-01-positive-peer": "Draft D"
+      },
+      "presentation_templates": {
+        "balanced": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "restricted": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "default": "Given this task, {prompt} {default_name} is preselected as the default., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "suggested": "Given this task, {prompt} I suggest {suggested_name}., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
+        "ranking": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-summary-length-02",
+      "display_names": {
+        "writing-cedar-summary-length-02-negative": "Summary A",
+        "writing-cedar-summary-length-02-positive": "Summary B",
+        "writing-cedar-summary-length-02-negative-peer": "Summary C",
+        "writing-cedar-summary-length-02-positive-peer": "Summary D"
+      },
+      "presentation_templates": {
+        "balanced": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
+        "restricted": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
+        "default": "For this task — {prompt} {default_name} is preselected as the default. — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
+        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
+        "ranking": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+    }
+  ]
+}

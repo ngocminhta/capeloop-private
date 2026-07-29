@@ -399,8 +399,7 @@ class LiveConfigurationTests(unittest.TestCase):
         self.assertTrue(contexts)
         self.assertTrue(
             all(
-                context["wording_template"]
-                == "travel-dialogue-beacon-v1"
+                "wording_template" not in context
                 for context in contexts
             )
         )

@@ -85,9 +85,10 @@ the bundle manifest and stage-gate evidence separately.
 
 ## Paper linkage
 
-The [paper directory](../paper/README.md) refers to bundle and run IDs; it does
-not own independent copies of numerical results. Regenerated tables and figures
-should match the artifact checksums or be labeled as a new reanalysis.
+Future manuscript outputs must refer to bundle and run IDs; they must not own
+independent copies of numerical results. Regenerated tables and figures should
+match the artifact checksums or be labeled as a new reanalysis. The current
+scientific intent remains in the [paper proposal](../docs/proposal.md).
 
 See [Run outputs and artifacts](../docs/data-model.md#run-directory-and-output-lifecycle)
 and [Reproducibility](../REPRODUCIBILITY.md).

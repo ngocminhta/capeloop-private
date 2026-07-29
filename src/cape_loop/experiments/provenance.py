@@ -11,6 +11,7 @@ from statistics import mean
 from typing import Any, Mapping, Sequence
 
 from ..beliefs import JointThetaPsiBelief, PreferenceBelief
+from ..conversation_surfaces import ConversationTemplateBank
 from ..domains import (
     DATA_SPLITS,
     DOMAINS,
@@ -28,6 +29,7 @@ from ..metrics import (
     update_direction_accuracy_details,
 )
 from ..response import RandomUtilityModel
+from ..scenarios import ScenarioCatalog, materialize_matched_anchor_set
 from ..rng import weighted_index
 from ..schemas import (
     InteractionContext,
@@ -584,6 +586,8 @@ def run_provenance_audit(
     direction_tolerance: float = 1e-9,
     seed: int = 1729,
     data_split: str = "test",
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
 ) -> ExperimentAResult:
     """Run both estimands while retaining one row per declared updater.
 
@@ -663,7 +667,7 @@ def run_provenance_audit(
     rows: list[ExperimentARow] = []
     excluded: list[ExcludedMatchedSet] = []
     for domain in domain_specs:
-        for user in population:
+        for user_index, user in enumerate(population):
             for target_attribute, anchor_direction in product(
                 range(3),
                 (-1, 1),
@@ -683,6 +687,21 @@ def run_provenance_audit(
                         data_split,
                     ),
                 )
+                if scenario_catalog is not None:
+                    scenario = scenario_catalog.select(
+                        domain=domain.domain_id,
+                        split=data_split,
+                        target_attribute=target_attribute,
+                        seed=seed,
+                        selection_key=(
+                            "experiment-a",
+                            user_index,
+                            target_attribute,
+                            anchor_direction,
+                        ),
+                    )
+                    matched = materialize_matched_anchor_set(matched, scenario)
+                    scenario_id = matched.scenario_id
                 probabilities = matched.choice_probabilities(
                     user,
                     declared_response,
@@ -764,7 +783,9 @@ def run_provenance_audit(
                     )
                     for response_mode in requested_modes:
                         event_id = (
-                            f"{scenario_id}:user-{user.user_id}:"
+                            f"{scenario_id}:"
+                            f"anchor-direction-{anchor_direction:+d}:"
+                            f"user-{user.user_id}:"
                             f"prior-{prior_stratum}:"
                             f"{mechanism}:{response_mode}"
                         )
@@ -772,7 +793,9 @@ def run_provenance_audit(
                             observation = Observation(
                                 matched.anchor_option_id,
                                 choice_noise_key=(
-                                    f"{scenario_id}:controlled-anchor"
+                                    f"{scenario_id}:"
+                                    f"anchor-direction-{anchor_direction:+d}:"
+                                    "controlled-anchor"
                                 ),
                             )
                         else:
@@ -789,6 +812,25 @@ def run_provenance_audit(
                                     anchor_direction,
                                     mechanism,
                                 ),
+                            )
+                        if conversation_bank is not None:
+                            rendered = conversation_bank.render(
+                                context,
+                                provenance,
+                                observation.selected_option_id,
+                            )
+                            observation = Observation(
+                                selected_option_id=(
+                                    observation.selected_option_id
+                                ),
+                                surface_response=rendered.user_message,
+                                choice_noise_key=(
+                                    observation.choice_noise_key
+                                ),
+                                assistant_message=(
+                                    rendered.assistant_message
+                                ),
+                                surface_id=rendered.surface_id,
                             )
 
                         aware_state = aware_reference.initial_state(prior_belief)

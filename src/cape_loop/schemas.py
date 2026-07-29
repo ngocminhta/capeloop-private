@@ -153,6 +153,7 @@ class InteractionContext:
     wording_template: str = "neutral_choice"
     question_type: str = "choice"
     target_attribute: int | None = None
+    prompt: str | None = None
 
     def __post_init__(self) -> None:
         _require_nonempty_string(self.context_id, "context_id")
@@ -177,6 +178,14 @@ class InteractionContext:
                 raise TypeError(f"{field_name} must be a string")
         for field_name in ("wording_template", "question_type"):
             _require_nonempty_string(getattr(self, field_name), field_name)
+        if self.prompt is not None:
+            _require_nonempty_string(self.prompt, "prompt")
+            if len(self.prompt) > 500:
+                raise ValueError("prompt must contain at most 500 characters")
+            if any(character in self.prompt for character in ("\x00", "\r", "\n")):
+                raise ValueError(
+                    "prompt must be one line without control characters"
+                )
 
         for field_name in ("default_option_id", "suggested_option_id"):
             value = getattr(self, field_name)
@@ -218,7 +227,7 @@ class InteractionContext:
             raise KeyError(option_id) from exc
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "context_id": self.context_id,
             "domain": self.domain,
             "scenario_id": self.scenario_id,
@@ -231,6 +240,9 @@ class InteractionContext:
             "question_type": self.question_type,
             "target_attribute": self.target_attribute,
         }
+        if self.prompt is not None:
+            result["prompt"] = self.prompt
+        return result
 
 
 def _canonical_snapshot(
@@ -309,6 +321,8 @@ class Observation:
     selected_option_id: str
     surface_response: str | None = None
     choice_noise_key: str = ""
+    assistant_message: str | None = None
+    surface_id: str = ""
 
     def __post_init__(self) -> None:
         _require_nonempty_string(self.selected_option_id, "selected_option_id")
@@ -318,12 +332,39 @@ class Observation:
             raise TypeError("surface_response must be a string or None")
         if not isinstance(self.choice_noise_key, str):
             raise TypeError("choice_noise_key must be a string")
+        if self.assistant_message is not None:
+            _require_nonempty_string(
+                self.assistant_message,
+                "assistant_message",
+            )
+            if self.surface_response is None or not self.surface_response.strip():
+                raise ValueError(
+                    "assistant_message requires a non-empty surface_response"
+                )
+            if not self.surface_id:
+                raise ValueError("assistant_message requires surface_id")
+        if not isinstance(self.surface_id, str):
+            raise TypeError("surface_id must be a string")
+        if self.surface_id and self.assistant_message is None:
+            raise ValueError("surface_id requires assistant_message")
+        for field_name in ("assistant_message", "surface_response"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                len(value) > 4000
+                or any(character in value for character in ("\x00", "\r"))
+            ):
+                raise ValueError(
+                    f"{field_name} must contain at most 4000 characters "
+                    "without NUL or carriage returns"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "selected_option": self.selected_option_id,
             "surface_response": self.surface_response,
             "choice_noise_key": self.choice_noise_key,
+            "assistant_message": self.assistant_message,
+            "surface_id": self.surface_id,
         }
 
 

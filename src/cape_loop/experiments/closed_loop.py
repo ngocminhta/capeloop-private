@@ -11,6 +11,7 @@ from ..beliefs import (
     MarginalPreferenceBelief,
     PreferenceBelief,
 )
+from ..conversation_surfaces import ConversationTemplateBank
 from ..domains import DOMAINS, DomainSpec
 from ..metrics import (
     SelfConfirmationEvidence,
@@ -27,6 +28,7 @@ from ..policies import (
     BalancedPolicy,
     ExploratoryPolicy,
     InteractionPolicy,
+    PolicyAction,
     SoftProfileConditionedPolicy,
 )
 from ..population import (
@@ -35,9 +37,11 @@ from ..population import (
     initial_profile_belief as _population_initial_profile_belief,
 )
 from ..response import RandomUtilityModel, regret
+from ..scenarios import ScenarioCatalog, materialize_context
 from ..schemas import (
     InteractionRecord,
     LatentUser,
+    Observation,
     Susceptibility,
     Theta,
     TrajectoryRecord,
@@ -302,11 +306,12 @@ class ClosedLoopTrajectory:
         """Fraction of the domain's six isolated options ever displayed."""
 
         displayed = {
-            option.option_id
+            option.features
             for interaction in self.audit_record.interactions
             for option in interaction.context.options
+            if sum(value != 0.0 for value in option.features) == 1
         }
-        return len(displayed) / 6.0
+        return min(1.0, len(displayed) / 6.0)
 
     @property
     def selected_option_count(self) -> int:
@@ -456,6 +461,9 @@ def run_trajectory(
     shadow_updater: ExactActionAwareUpdater | None = None,
     trajectory_id: str | None = None,
     crn_key: str | None = None,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
+    data_split: str = "test",
 ) -> ClosedLoopTrajectory:
     """Run an endogenous loop with an exact aware same-history shadow.
 
@@ -491,14 +499,35 @@ def run_trajectory(
     traces: list[ClosedLoopTurn] = []
     interactions: list[InteractionRecord] = []
 
+    def with_catalog(action: PolicyAction, turn: int) -> PolicyAction:
+        if scenario_catalog is None:
+            return action
+        target = action.context.target_attribute
+        if target is None:
+            raise ValueError("catalog-backed policy action requires a target attribute")
+        scenario = scenario_catalog.select(
+            domain=domain.domain_id,
+            split=data_split,
+            target_attribute=target,
+            seed=seed,
+            selection_key=("closed-loop", common_key, turn),
+        )
+        return PolicyAction(
+            context=materialize_context(action.context, scenario),
+            provenance=action.provenance,
+        )
+
     for turn in range(turns):
         # The actual action uses only the updater's current public profile.
-        action = policy.action(
-            domain,
-            evaluated_state.belief,
-            turn=turn,
-            master_seed=seed,
-            trajectory_id=common_key,
+        action = with_catalog(
+            policy.action(
+                domain,
+                evaluated_state.belief,
+                turn=turn,
+                master_seed=seed,
+                trajectory_id=common_key,
+            ),
+            turn,
         )
         # Evaluator-only, per-attribute counterfactuals remove the accumulated
         # update to one profile dimension while preserving all other
@@ -506,16 +535,19 @@ def run_trajectory(
         # whether strengthening that attribute—not merely seeding it wrong—
         # changed the subsequent action.
         counterfactual_actions = tuple(
-            policy.action(
-                domain,
-                _reset_attribute_to_initial(
-                    evaluated_state.belief,
-                    initial,
-                    attribute,
+            with_catalog(
+                policy.action(
+                    domain,
+                    _reset_attribute_to_initial(
+                        evaluated_state.belief,
+                        initial,
+                        attribute,
+                    ),
+                    turn=turn,
+                    master_seed=seed,
+                    trajectory_id=common_key,
                 ),
-                turn=turn,
-                master_seed=seed,
-                trajectory_id=common_key,
+                turn,
             )
             for attribute in range(3)
         )
@@ -536,6 +568,19 @@ def run_trajectory(
             seed,
             noise_key=noise_key,
         )
+        if conversation_bank is not None:
+            rendered = conversation_bank.render(
+                action.context,
+                action.provenance,
+                observation.selected_option_id,
+            )
+            observation = Observation(
+                selected_option_id=observation.selected_option_id,
+                surface_response=rendered.user_message,
+                choice_noise_key=observation.choice_noise_key,
+                assistant_message=rendered.assistant_message,
+                surface_id=rendered.surface_id,
+            )
         event_id = f"{identifier}:turn-{turn}"
 
         before = evaluated_state.belief
@@ -976,6 +1021,9 @@ def run_experiment_b(
     shadow_equivalence_tolerance: float = 0.05,
     false_stability_tolerance: float = 0.02,
     direction_tolerance: float = 1e-9,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
+    data_split: str = "test",
 ) -> ExperimentBResult:
     """Run the complete declared initial-profile × policy × updater crossing."""
 
@@ -1048,6 +1096,9 @@ def run_experiment_b(
                                 shadow_updater=shadow_updater,
                                 trajectory_id=trajectory_id,
                                 crn_key=paired_key,
+                                scenario_catalog=scenario_catalog,
+                                conversation_bank=conversation_bank,
+                                data_split=data_split,
                             )
                             trajectories.append(trajectory)
                             indexed[

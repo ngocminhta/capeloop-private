@@ -65,10 +65,16 @@ FACTOR_CODING = {
 EXPERIMENT_SEMANTICS = {
     "A": {
         "run_kind": "provenance_audit",
-        "input_file": "events/experiment-a.jsonl",
-        "exclusion_file": "events/experiment-a-exclusions.jsonl",
+        "input_file": "analysis/experiment-a-rows.jsonl",
+        "exclusion_file": "analysis/experiment-a-exclusions.jsonl",
+        "legacy_input_file": "events/experiment-a.jsonl",
+        "legacy_exclusion_file": "events/experiment-a-exclusions.jsonl",
+        "bundle_analysis_unit": "updater_trial",
+        "bundle_outcome_derivation": "retained Experiment A metrics.acue",
         "response_mode": "naturally_sampled",
-        "outcome_source": "metrics.acue",
+        "outcome_source": (
+            "runner-native compact update_error derived from metrics.acue"
+        ),
         "outcome_name": "update_error",
         "required_mechanisms": [
             "balanced",
@@ -81,15 +87,22 @@ EXPERIMENT_SEMANTICS = {
     },
     "B": {
         "run_kind": "closed_loop",
-        "input_file": "events/experiment-b-trajectories.jsonl",
+        "input_file": "analysis/experiment-b-turns.jsonl",
+        "legacy_input_file": "events/experiment-b-trajectories.jsonl",
+        "bundle_analysis_unit": "retained_trajectory_turn",
+        "bundle_outcome_derivation": (
+            "per-turn marginal Brier from retained belief_after "
+            "against immutable trajectory theta"
+        ),
         "analysis_unit": "retained_turn",
         "outcome_source": (
+            "runner-native compact terminal_error derived from "
             "turns[].belief_after marginal Brier against top-level theta"
         ),
         "outcome_name": "terminal_error",
-        "turn_source": "turns[].turn + 1",
+        "turn_source": "compact turn equals source_turn_index + 1",
         "terminal_consistency_check": (
-            "final reconstructed turn error equals retained terminal_error"
+            "final compact turn error equals retained_terminal_error"
         ),
         "required_policies": ["balanced", "soft_profile_conditioned"],
         "required_initial_profiles": ["incorrect"],
@@ -418,6 +431,9 @@ def validate() -> None:
         "base::package_version(expected)",
         "if (!isTRUE(observed_version == expected_version))",
         "verify_source_run",
+        "verify_compact_bundle",
+        "--compact-bundle",
+        "exactly one per --run in the same order",
         "validate_analysis_rows",
         "fit_confirmatory_model",
         "write_output_checksums",
@@ -432,7 +448,7 @@ def validate() -> None:
     )
     source_check_index = safe_output.find("for (source in source_paths)")
     rejection_index = safe_output.find(
-        'abort_analysis("analysis output cannot be inside a source run")'
+        "analysis output cannot be inside a source run or compact bundle"
     )
     parent_creation_index = safe_output.find("dir.create(parent")
     if not (
@@ -461,19 +477,28 @@ def validate() -> None:
         "length(unique(source_digests)) != 1L",
         "pooled source runs must have identical manifest.source_sha256 values",
         "the same Experiment B horizon",
-        "marginal_brier_from_retained_belief <- function(",
-        "turn$belief_after",
-        "theta <- validate_theta_values(row$theta",
-        "sum((numeric_probabilities - expected)^2)",
-        "sum(attribute_scores) / 3",
-        "source_turn_index = observed",
-        "turn = observed + 1L",
-        "source_turn_index = turn_values$source_turn_index",
-        "terminal_error = turn_values$terminal_error",
-        "retained turn count differs from config.experiment.turns",
-        "reconstructed_terminal_error <- tail(",
-        "abs(reconstructed_terminal_error - retained_terminal_error)",
-        "final turn Brier error differs from retained terminal_error",
+        "assert_exact_fields <- function(value, expected, label)",
+        "compact Experiment A source_record_index values must cover",
+        "compact Experiment B source_record_index values must cover",
+        "source summary compact exclusion declaration differs",
+        "source$summary$analysis_row_count",
+        "row$retained_terminal_error",
+        "row$same_history_shadow",
+        "compact Experiment B rows are not in canonical source/turn order",
+        "compact turn indexes are not contiguous from zero",
+        "compact turn must equal source_turn_index + 1",
+        "final compact turn error differs from retained_terminal_error",
+        "verify_compact_bundle <- function(",
+        "compact bundle inventory must be exactly",
+        "compact bundle source manifest digest mismatch",
+        "compact bundle source SHA256SUMS digest mismatch",
+        "compact bundle source config file digest mismatch",
+        "compact bundle source summary file digest mismatch",
+        "compact bundle source input binding mismatch",
+        "compact bundle source exclusion binding mismatch",
+        "compact bundle analysis row digest mismatch",
+        "source$analysis_input_path",
+        "source$analysis_input_sha256",
     ))
     if re.search(
         r"experiment_config\s*\$turns\s*<-\s*NULL",

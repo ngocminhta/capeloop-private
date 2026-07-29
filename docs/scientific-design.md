@@ -118,9 +118,103 @@ Consequently, a strong default may increase selection probability without
 increasing user welfare. Regret compares intrinsic utility with the complete
 feasible option pool, not only the displayed set.
 
-The structured choice is sampled before any natural-language verbalization.
-Verbalizers may paraphrase the chosen action but may not add unsupported general
-preference statements.
+The primary runtime is hybrid:
+
+```text
+fixed latent user
+  -> mathematical response model selects an option
+  -> frozen neutral base renders the assistant turn
+  -> code states "I choose {selected_name}."
+  -> evaluated profile writer updates its profile
+```
+
+The structured choice is therefore sampled before natural-language
+verbalization. The authoring model never receives latent truth and never chooses
+for the user. It authors only one neutral base presentation and display names
+per scenario. Balanced, restricted, and ranking share that wording. Code adds
+only the fixed default/suggestion sentence and fixes the user reply. Runtime
+does not call the author independently for each trial.
+
+For example, a restricted lodging context can be rendered as:
+
+> **Assistant:** Here are two lower-cost hotel options for your trip. Hotel A
+> is a standard room in a mixed-use neighborhood. Hotel B is a standard room
+> in a quiet outer neighborhood. Which would you like?
+>
+> **User:** I choose Hotel A.
+
+Full-context and provenance-aware evaluated models see this dialogue and a
+semantic codebook for the domain attributes. They do not see numeric feature
+vectors or the target index. Response-only deliberately omits the assistant
+turn and unselected option as an ablation.
+
+## Scenario catalog and quality policy
+
+Official configurations bind the versioned
+[`cape-loop-scenarios-v1`](../data/scenarios/scenario-catalog-v1.json)
+catalog before constructing a run. A scenario is an experimental stimulus:
+it supplies a plausible low-stakes task, controlled option surfaces, declared
+feature vectors, and matched same-direction alternatives. It does not supply a
+latent user, response, preferred answer, policy treatment, or result.
+
+A scenario is acceptable only when all of the following hold:
+
+- every visible distinction is represented by a declared feature or is held
+  constant, the target direction and three-coordinate feature order are
+  correct, and the same anchor is unchanged across matched mechanisms;
+- the balanced pair opposes the target direction, each restricted peer keeps
+  that direction while varying only the declared nuisance coordinate, and no
+  option is objectively dominant or implausible;
+- the prompt and labels are grammatical, choice-neutral, similarly specific,
+  and contain no profile, hypothesis, split, mechanism, popularity,
+  recommendation, moral, prestige, or expected-answer cue;
+- the stimulus contains no real-person data, real brand dependency,
+  time-sensitive factual claim, or copied third-party text;
+- the complete scenario family, including revisions, translations, and
+  paraphrases, belongs to one split, with no exact or near-duplicate visible
+  surface in another split; and
+- it passes structural, feature, identifier, split, surface-overlap,
+  probability-eligibility, and planned-coverage checks.
+
+Reject a candidate when a feature mapping is ambiguous, a salient difference
+is unmodeled, one option is a generally better version of the other, treatment
+is encoded in the wording, cross-split reuse is plausible, or content was
+chosen or edited after inspecting test outcomes. Rejection must not be hidden
+by silently drawing a replacement that produced a more favorable result.
+
+LLMs may draft candidate scenario wording and one neutral conversation base
+from a locked semantic specification. The conversation author supplies only
+neutral display names and a base presentation containing the declared
+placeholders. Code supplies all default/suggestion text and the exact
+`I choose {selected_name}.` reply after the mathematical simulator chooses.
+The author may not assign the split, generate latent users, choose an option,
+write treatment-specific language, explain a choice, evaluate itself, or
+approve its own stimulus. Authoring uses the separate OpenRouter command and
+produces a frozen bank plus a readable `.generation.jsonl`; it is never rerun
+per experimental row. Record the interface/provider, exact model when exposed,
+edits, and unavailable provenance explicitly. Never record credentials.
+
+The review sequence is:
+
+1. assign the whole semantic family to a split and lock its feature contract;
+2. draft the candidate independently of experiment outcomes;
+3. run automated schema, invariant, overlap, probability, and coverage checks;
+4. obtain a surface review for naturalness and neutrality;
+5. obtain a scientific review for feature alignment, tradeoff validity, and
+   non-dominance; and
+6. freeze the reviewed bytes and checksum before confirmatory or
+   paper-evidence collection.
+
+A scientific-content change requires a new scenario revision and catalog
+version, a new freeze, and a new checksum-bound run. Paper eligibility requires
+the automated and human reviews; machine validation alone is insufficient.
+The current 1.0.0 catalog and companion conversation bank are intentionally
+development inputs containing provisional model-assisted drafts. They are
+eligible for simulation and bounded pilots only. Their independent human
+surface and scientific reviews are incomplete, `paper_eligible` remains false,
+and they support no paper claim.
+Exact fields and the run binding are documented in
+[Data model](data-model.md#scenario-catalog-input).
 
 ## Inference references
 

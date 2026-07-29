@@ -4,6 +4,11 @@ schema_version = 1
 # This configuration exercises the complete artifact and analysis contracts;
 # it is not a paper run and its generated values are not scientific evidence.
 
+[scenarios]
+catalog_file = "data/scenarios/scenario-catalog-v1.json"
+catalog_sha256 = "67ad79b911a94811638ed320f7ddd1d4e8e8c1767f15419b9499c691badb6b3a"
+selection_policy = "deterministic-stratified-v1"
+
 [run]
 name = "confirmatory-ci-synthetic-smoke"
 seed = 271828
@@ -51,6 +56,6 @@ direction_tolerance = 1e-9
 ranking_tie_tolerance = 1e-6
 
 [artifacts]
-retain_events = true
+retain_events = false
 retain_prompts = false
 checksum_manifest = true

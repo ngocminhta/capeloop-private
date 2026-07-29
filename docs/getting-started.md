@@ -37,13 +37,92 @@ is the reproducibility baseline.
 | Goal | Start here | Provider call |
 | --- | --- | ---: |
 | Understand the study | [Scientific design](scientific-design.md) and [Experiments](experiments.md) | No |
+| Inspect one natural conversation, real model update, and its metrics | [Run one understandable live scenario](#run-one-understandable-live-scenario) | Exactly one |
 | Inspect components and information boundaries | [Architecture](architecture.md) | No |
 | Validate or edit TOML | [Configuration](configuration.md) | No |
+| Author the frozen natural-language scenario bank | [Inspect and validate the scenario catalog](#inspect-and-validate-the-scenario-catalog) | Only with `--execute-live` |
 | Generate the synthetic dataset | [Produce an offline dataset](#produce-an-offline-dataset) | No |
 | Understand records, storage, and formats | [Data model](data-model.md) | No |
 | Replay retained model responses | [Live execution](live-execution.md#request-response-and-replay-contract) | No |
 | Plan or call OpenAI/OpenRouter | [Live execution](live-execution.md) | Only with `--execute-live` |
 | Check what is actually complete | [Implementation status](implementation-status.md) | No |
+
+## Run one understandable live scenario
+
+Use this workflow when you want to see one complete hybrid-simulator example
+before reading or launching a factorial experiment. It requires an OpenRouter
+credential and always makes exactly one paid model request:
+
+```bash
+set -a
+source .env
+set +a
+PYTHONPATH=src python -m cape_loop demo one-scenario \
+  artifacts/one-scenario-demo --execute-live
+```
+
+The CLI never loads `.env` itself. Omitting `--execute-live` fails before the
+command reads `OPENROUTER_API_KEY`, and the output directory must not already
+exist. The one-request guard has zero retries, uses only the official
+OpenRouter endpoint, permits no endpoint or model fallback, limits model
+output to 2,048 tokens, and caps conservative total-token accounting at
+10,000.
+
+The defaults are:
+
+| Control | Default |
+| --- | --- |
+| Model | `google/gemini-3.6-flash` |
+| Scenario | `travel-scenario-atlas-lodging-price-01` |
+| Mechanism | `balanced` |
+| Seed | `1729` |
+
+You may select another frozen scenario or supported OpenRouter model:
+
+```bash
+PYTHONPATH=src python -m cape_loop demo one-scenario \
+  artifacts/one-scenario-claude \
+  --model anthropic/claude-sonnet-5 \
+  --scenario-id travel-scenario-atlas-lodging-price-01 \
+  --mechanism suggested \
+  --seed 1729 \
+  --execute-live
+```
+
+`--mechanism` accepts `balanced`, `restricted`, `default`, or `suggested`.
+The mathematical response model selects an option first. The frozen
+conversation bank then renders the assistant presentation and the constrained
+user reply. Finally, the selected OpenRouter model receives the full-context
+view and returns one structured profile update. A local exact action-aware
+reference requires no provider call.
+
+The output directory contains:
+
+```text
+conversation.md
+conversation.jsonl
+result.json
+llm/
+├── requests.jsonl
+├── responses.jsonl
+├── provider-audit.jsonl
+├── provider-attempts.jsonl
+└── provider-manifest.json
+```
+
+Read `conversation.md` first. It identifies each role, shows the natural
+exchange, names the evaluated model and its information view, and places
+readable metrics beside the result. `conversation.jsonl` contains one
+canonical conversation-trace record. `result.json` is the complete compact
+machine-readable walkthrough; the `llm/` files preserve the one request,
+response, transport audit, and provider execution manifest. Standard output
+is a compact JSON receipt with status, provider-call count, selected
+model/scenario/choice, key metrics, and the readable-log path.
+
+This command intentionally does not run matched treatments, multiple users,
+multiple updaters, calibration, or inference. Its artifacts are marked
+demonstration/debugging only, not paper-eligible, and not claim-eligible. Use a
+reviewed configuration for an actual experiment.
 
 ## Validate a configuration
 
@@ -69,6 +148,58 @@ The exact inventory, defaults, and per-experiment contracts are kept in one
 place: [Configuration](configuration.md). Checked-in settings are software
 references or explicitly labeled pilots, not preregistrations or final power
 decisions.
+
+## Inspect and validate the scenario catalog
+
+The checked-in configurations bind
+[`data/scenarios/scenario-catalog-v1.json`](../data/scenarios/scenario-catalog-v1.json)
+by SHA-256. First check that it is valid JSON:
+
+```bash
+python -m json.tool data/scenarios/scenario-catalog-v1.json > /dev/null
+```
+
+Then run the same strict parser and digest check used before experiment
+execution:
+
+```bash
+PYTHONPATH=src python -c 'from cape_loop import load_config; from cape_loop.scenarios import load_scenario_catalog; c = load_config("configs/smoke.toml"); x = load_scenario_catalog(c.scenarios.catalog_file, expected_sha256=c.scenarios.catalog_sha256); print(x.catalog.coverage_report())'
+```
+
+The current report has 24 scenarios and 24 families: one train, one
+development, and two test scenarios for each domain×attribute cell. It also
+reports 24 provisional scenarios, zero approved scenarios, and
+`paper_eligible = false`. This is deliberate: the catalog is usable for
+simulation and bounded pilots, but its independent surface and scientific
+human reviews are incomplete. The acceptance policy is in
+[Scientific design](scientific-design.md#scenario-catalog-and-quality-policy).
+
+`config validate` checks the `[scenarios]` field syntax; the strict loader above
+also reads, hashes, and validates the external catalog. A hash mismatch aborts
+before provider or run-artifact construction.
+
+The companion
+[`data/scenarios/conversation-templates-v1.json`](../data/scenarios/conversation-templates-v1.json)
+contains one frozen template family per scenario. OpenRouter authors only its
+neutral base wording and display names; code supplies the fixed treatment
+sentence and `I choose {selected_name}.` To generate a candidate bank:
+
+```bash
+cape-loop conversations generate-openrouter \
+  data/scenarios/scenario-catalog-v1.json \
+  data/scenarios/conversation-templates-v1.json \
+  --model anthropic/claude-sonnet-5 --execute-live
+```
+
+This is a separate authoring task, not an experiment run. It also writes
+`data/scenarios/conversation-templates-v1.generation.jsonl` for readable
+request/output provenance. Review the resulting language before using
+`[scenarios] conversation_file` to select it. Do not rerun the authoring model
+independently for every simulated user or trial.
+
+The current catalog and bank remain simulation-and-pilot-only. Their
+independent human surface and scientific reviews are pending, so
+`paper_eligible` remains false.
 
 ## Run and verify the smoke configuration
 
@@ -106,8 +237,11 @@ identity matches the current request.
 
 ## Produce an offline dataset
 
-The core dataset is synthesized by CAPE-Loop's deterministic generator. It is
-not downloaded and is not written by Codex or an external model.
+The latent users, contexts, choices, updates, and reference metrics are
+synthesized deterministically by CAPE-Loop rather than downloaded. OpenRouter
+supplies only frozen neutral base wording and display names; code adds the
+fixed treatment sentence and user reply. The author never sees the latent user
+and never chooses an option.
 
 Generate the A/B/C release-candidate set:
 
@@ -126,14 +260,56 @@ The default storage and primary formats are:
 
 ```text
 runs/<run-id>/             # ignored local run
+  inputs/scenario-catalog.json
+  inputs/scenario-catalog-manifest.json
+  inputs/conversation-templates.json
+  inputs/conversation-templates-manifest.json
   population/*.jsonl       # synthetic latent-user rows
-  events/*.jsonl           # interactions and trajectories
-  models/*.json             # fitted/calibrated model records
-  metrics/*.json[l]         # canonical metric evidence
-  tables/*.csv              # derived readable projections
+  events/*.jsonl           # complete interactions/state; large audit records
+  analysis/*.jsonl         # compact A/B/C rows for ordinary analysis
+  models/*.json            # fitted/calibrated model records
+  metrics/*.json[l]        # canonical metric evidence
+  metrics/scenario-coverage.json
+  metrics/scenario-consumption.json
+  tables/*.csv             # derived readable projections
   manifest.json
   SHA256SUMS
 ```
+
+In a hybrid event, inspect the observation fields together:
+
+```text
+selected_option    mathematical simulator output
+assistant_message  frozen natural presentation of the visible options
+surface_response   constrained local reply, such as "I choose Hotel A."
+surface_id         exact scenario/presentation/ranking/choice surface
+```
+
+Full event JSONL retains those fields. If an evaluated LLM updater is active,
+its separate requests and responses are under `llm/`. The authoring
+`.generation.jsonl` remains beside the source bank in `data/scenarios/`; it is
+not repeated once per event.
+
+The three runner-native compact files are:
+
+| Experiment | File | One row means |
+| --- | --- | --- |
+| A | `analysis/experiment-a-rows.jsonl` | One evaluated updater×trial pair, including controlled and naturally sampled response modes |
+| B | `analysis/experiment-b-turns.jsonl` | One retained turn from one closed-loop trajectory |
+| C | `analysis/experiment-c-rows.jsonl` | One fixed-history or endogenous evaluation/ranking row |
+
+Experiment A also always writes
+`analysis/experiment-a-exclusions.jsonl`, one row per excluded matched set, so
+the confirmatory loader can audit exclusions even when raw events are not
+retained.
+
+These rows are projections of records the runner already produced. They do not
+create another user, interaction, LLM request, or observation, and therefore
+do not increase the sample size. Their purpose is to leave the large posterior,
+shadow-state, and native-memory payloads in `events/` while exposing the scalar
+identifiers and outcomes used by ordinary analysis. Sensitivity already writes
+compact aggregate records under `metrics/` and `tables/`, so it has no
+additional `analysis/` file.
 
 `data/` contains only small tracked inputs and declarations.
 `artifacts/` is for curated, checksum-bound release evidence. See
@@ -158,13 +334,40 @@ Start with:
 manifest.json
 config.resolved.json
 splits.json
+inputs/scenario-catalog-manifest.json
+metrics/scenario-coverage.json
+metrics/scenario-consumption.json
 metrics/summary.json
 metrics/gate-report.json
+conversations/<experiment>.md
+conversations/<experiment>.jsonl
 SHA256SUMS
 ```
 
-Then inspect experiment-specific JSON/JSONL and any derived CSV. Important
-interpretation rules are:
+Here `<experiment>` is `experiment-a`, `experiment-b`, `experiment-c`, or
+`sensitivity`. Read the Markdown conversation preview first when you want to
+understand what happened in ordinary language. It shows Assistant/User turns,
+conditions, and metrics for a deterministic, diverse sample of at most 100
+trace records by default. Its header states the exact total number of
+conversation records, turns, and outcomes/evaluations in the run and defines
+the metric names.
+
+Use the matching JSONL when you need every conversation. It is exhaustive and
+deduplicated: shared Experiment A trials and Experiment C fixed histories are
+stored once with their updater evaluations grouped beside them. The Markdown
+file is intentionally only a preview, so never use its displayed-record count
+as the experiment sample size.
+
+The same values are available programmatically in `metrics/summary.json` as
+`conversation_log_artifact`, `conversation_log_markdown_artifact`,
+`conversation_record_count`, `conversation_turn_count`,
+`conversation_outcome_count`, and `conversation_markdown_preview_count`.
+
+For A, B, or C, inspect the matching `analysis/*.jsonl` for exploratory tables
+and scripts; sensitivity already has compact `metrics/*.jsonl` and
+`tables/sensitivity.csv`. Opening a multi-gigabyte `events/*.jsonl` audit is
+unnecessary for routine analysis. Then inspect experiment-specific metrics and
+any derived CSV. Important interpretation rules are:
 
 - `claim_status` or `scientific_claim_status` remains `not_claimed`;
 - controlled identical-response and naturally sampled rows are different
@@ -176,6 +379,25 @@ interpretation rules are:
 
 The exact record contracts and output locations are in
 [Data model](data-model.md). Metric definitions are in [Metrics](metrics.md).
+
+New runs write their compact rows before finalization, so `SHA256SUMS` and the
+ordinary `verify` command cover them. Do not copy a new file into an already
+completed run: that would invalidate its exact inventory. Instead, derive and
+verify a separate compact directory from an immutable historical run:
+
+```bash
+PYTHONPATH=src python -m cape_loop artifact compact \
+  runs/<run-id> artifacts/<compact-id>
+PYTHONPATH=src python -m cape_loop artifact verify-compact \
+  artifacts/<compact-id>
+```
+
+The output contains `analysis-rows.jsonl`, `manifest.json`, and `SHA256SUMS`.
+Its manifest binds the verified source run, checksums, and exact exporter-source
+digest. This is a derived analysis convenience, not a new dataset and not a
+paper-evidence promotion. The optional R harness accepts one such directory per
+historical `--run` through `--compact-bundle`; see its
+[operator guide](../analysis/confirmatory-mixed-effects/README.md).
 
 ## Export public schemas
 
@@ -195,6 +417,7 @@ Use increasing-cost tiers:
 
 ```text
 offline validate and keyless plan
+  -> one-time conversation-bank authoring and review, when changing surfaces
   -> small static transport smoke
   -> six-update adaptive smoke
   -> reviewed bounded A/B/C or Gate 6 pilot
@@ -204,6 +427,7 @@ offline validate and keyless plan
 | Tier | Purpose | Typical upper bound |
 | --- | --- | ---: |
 | Offline | Generate synthetic data, validate, plan, replay | 0 calls |
+| Conversation authoring | Create a candidate frozen bank; separate from experiments | Explicit OpenRouter calls |
 | Static smoke | Endpoint, schema, identity, audit, replay conversion | 6 attempts |
 | Adaptive smoke | Provider/runner integration | 6 logical updates |
 | Bounded pilot | Reviewed A/B/C or Gate 6 design | 576–864 attempts/provider |
@@ -234,7 +458,7 @@ Never print or commit the values. The main variables are:
 
 ```text
 OPENAI_API_KEY       direct OpenAI writers and native actions
-OPENROUTER_API_KEY   OpenRouter writers and selected Claude/Gemini decoders
+OPENROUTER_API_KEY   conversation authoring, OpenRouter writers, and selected Claude/Gemini decoders
 ANTHROPIC_API_KEY    optional direct decoder replication
 GEMINI_API_KEY       optional direct decoder replication
 ```
@@ -242,6 +466,20 @@ GEMINI_API_KEY       optional direct decoder replication
 Planning remains keyless even when no variable is set.
 
 ## Run a bounded provider workflow
+
+Conversation authoring and profile writing are two distinct roles:
+
+```text
+OpenRouter conversation author
+  -> neutral base wording + display names
+  -> code-expanded frozen template bank
+  -> mathematical choice + offline rendering
+  -> evaluated profile writer configured under [llm]
+```
+
+Changing the authoring model changes the stimulus bank and therefore requires
+new review. Changing `[llm].model` changes the evaluated system but does not
+rewrite the conversation bank.
 
 Inspect the declared OpenAI roles:
 
@@ -337,6 +575,9 @@ PYTHONPATH=src python -m cape_loop artifact verify \
 
 Freezing normalizes and hash-binds the archive; it does not turn a smoke,
 pilot, incomplete gate, or synthetic diagnostic into paper evidence.
+`artifact freeze` preserves the complete run, including raw audit events. Use
+`artifact compact` only for the smaller derived analysis directory; it does not
+replace the full archive required for forensic reproduction.
 
 ## Human-study materials
 

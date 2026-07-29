@@ -1318,16 +1318,28 @@ class OpenRouterChatProvider:
                 )
             except json.JSONDecodeError:
                 raw_payload = None
+            canonical_raw_beliefs: Mapping[str, Any] | None = None
+            if isinstance(raw_payload, Mapping):
+                try:
+                    canonical_raw_beliefs = LLMResponse.parse(
+                        {
+                            "schema_version": 1,
+                            "request_id": request.request_id,
+                            "prompt_sha256": request.prompt_sha256,
+                            "model_id": audit.get("model_returned"),
+                            "beliefs": raw_payload.get("beliefs"),
+                        }
+                    ).beliefs
+                except (TypeError, ValueError):
+                    canonical_raw_beliefs = None
             if (
-                not isinstance(raw_payload, Mapping)
-                or raw_payload.get("beliefs") != replay.get("beliefs")
+                canonical_raw_beliefs is None
+                or canonical_raw_beliefs != replay.get("beliefs")
             ):
                 mismatches["replay_response.beliefs"] = {
                     "retained": replay.get("beliefs"),
                     "expected": (
-                        raw_payload.get("beliefs")
-                        if isinstance(raw_payload, Mapping)
-                        else None
+                        canonical_raw_beliefs
                     ),
                 }
             if replay.get("request_id") != request.request_id:

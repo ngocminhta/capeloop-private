@@ -25,6 +25,31 @@ set is more diagnostic than accepting the same hotel when it was preselected,
 recommended, or shown only beside other budget options. CAPE-Loop preserves that
 elicitation history and measures whether profile writers use it appropriately.
 
+The primary simulator is hybrid. A mathematical response model selects the
+option from a fixed latent user and visible choice context. OpenRouter authors
+only one neutral base presentation and four neutral display names per scenario.
+Repository code then renders the already-fixed choice. The evaluated profile
+writer receives meaningful language, while the authoring LLM never chooses for
+the simulated user or writes treatment-specific behavior.
+
+For example, a restricted lodging scenario can appear to the evaluated model as:
+
+> **Assistant:** Here are two lower-cost hotel options for your trip. Hotel A
+> is a standard room in a mixed-use neighborhood. Hotel B is a standard room
+> in a quiet outer neighborhood. Which would you like?
+>
+> **User:** I choose Hotel A.
+
+Internally, the simulator selected Hotel A before those sentences were
+rendered. Balanced, restricted, and ranking conditions share the same neutral
+base wording; their displayed options or order provide the intended context.
+For default and suggestion conditions, code inserts only the fixed treatment
+sentence. Code also fixes every reply to `I choose {selected_name}.` Numeric
+feature vectors and the experiment's target-attribute index remain
+evaluator-only. Full-context and provenance-aware LLMs instead receive the
+dialogue plus a semantic attribute codebook. Response-only is retained as an
+intentional ablation.
+
 ## Repository status
 
 This repository contains research infrastructure, not completed empirical
@@ -59,6 +84,17 @@ completion boundary is in
   susceptibility to ranking, defaults, and agent suggestions.
 - Travel-planning and writing-assistance domains with controlled option
   attributes.
+- A checksum-bound
+  [24-scenario catalog](data/scenarios/scenario-catalog-v1.json) with
+  split-disjoint train/development/test families and deterministic selection.
+  The current catalog is provisional and usable only for simulation and
+  bounded pilots; see the
+  [scenario quality policy](docs/scientific-design.md#scenario-catalog-and-quality-policy).
+- A frozen
+  [conversation-template bank](data/scenarios/conversation-templates-v1.json)
+  built from one OpenRouter-authored neutral base and display-name set per
+  scenario. Code expands the fixed treatments and choice reply, then renders
+  deterministically after the mathematical choice.
 - Explicit separation between the user-visible interaction context and the
   internal policy provenance that generated it.
 - Exact action-aware Bayesian inference under the declared response model, with
@@ -106,6 +142,9 @@ completion boundary is in
   available as a marginal robustness check.
 - Versioned JSON artifacts, semantic-keyed random streams, checksums, and
   result-free gate reports.
+- Small runner-native analysis projections for Experiments A–C. These flatten
+  the relevant values from the full audit records without creating new users,
+  interactions, model calls, or observations.
 - Executed, feature-matched train/development/test surface families with a
   retained concrete
   [leakage audit](docs/data-model.md#splits-and-leakage-controls).
@@ -128,6 +167,27 @@ PYTHONPATH=src python -m unittest discover -s tests
 PYTHONPATH=src python -m cape_loop --help
 PYTHONPATH=src python -m cape_loop llm models
 ```
+
+For the smallest end-to-end live walkthrough, load the ignored local
+credential explicitly and choose an output directory that does not yet exist:
+
+```bash
+set -a
+source .env
+set +a
+PYTHONPATH=src python -m cape_loop demo one-scenario \
+  artifacts/one-scenario-demo --execute-live
+```
+
+This makes exactly one OpenRouter request, with no retry or endpoint/model
+fallback. By default it evaluates `google/gemini-3.6-flash` on the frozen
+`travel-scenario-atlas-lodging-price-01` balanced scenario. Read
+`artifacts/one-scenario-demo/conversation.md` first: it labels the frozen
+assistant presentation, mathematical simulated-user choice, evaluated model,
+and adjacent metrics in ordinary language. The command is a paid
+demonstration/debugging aid, not an experiment sample or paper evidence. See
+[Getting started](docs/getting-started.md#run-one-understandable-live-scenario)
+for its controls and retained files.
 
 Validate and run a checked-in TOML configuration:
 
@@ -181,8 +241,8 @@ The implementation therefore keeps these records separate:
    suggestion, and question visible to the user.
 3. **Policy provenance** — the policy, profile snapshot, version, and seed that
    caused the context.
-4. **Observation** — selected option and semantically constrained surface
-   response.
+4. **Observation** — mathematically selected option, exact assistant
+   presentation, constrained user reply, and frozen surface identifier.
 5. **Profile update** — before/after beliefs or native memory and a complete
    audit record.
 
@@ -190,11 +250,12 @@ Updaters receive an explicit information view:
 
 | View | Information supplied |
 | --- | --- |
-| Response-only | Selected option and its attributes |
-| Full-context | Response plus the complete visible elicitation context |
+| Response-only | Semantic attribute codebook, local user reply, and selected readable option |
+| Full-context | Natural assistant/user dialogue and semantic attribute codebook |
 | Provenance-aware | Full context plus structured policy provenance |
 
-Only evaluators may access latent truth. See
+No evaluated model view receives numeric option features, the target index, or
+latent truth. See
 [Scientific design](docs/scientific-design.md) and
 [Architecture](docs/architecture.md) for the full trust boundary.
 
@@ -238,19 +299,19 @@ contracts.
 
 ## Dataset
 
-CAPE-Loop does not download or repackage an existing benchmark. Its core
-dataset is a procedurally generated, fully synthetic population of fixed latent
-users interacting with controlled travel-planning and writing-assistance
-choice environments. A configuration and semantic random keys determine latent
-preferences, presentation susceptibility, option sets, policies, responses,
-profile updates, and train/development/test membership. Runs retain the
-generated population, causal interaction records, split manifest, exact
-held-out surface families, and held-out terminal suites.
+CAPE-Loop does not download or repackage an existing benchmark. Repository code
+generates the latent users, mathematical choices, profile updates, and
+train/development/test membership. OpenRouter supplies only neutral base wording
+and display names. Repository code supplies the default/suggestion sentence and
+the exact local choice reply, so language cannot change the selected option or
+hidden state. Runs retain both the structured interaction and its exact
+rendered assistant/user exchange.
 
-External LLM responses, external decoder judgments, and human ratings are not
-part of the checked-in dataset. The repository generates content-addressed
-requests and strict import contracts for them; real provider outputs must be
-collected under explicit budgets, and human data collection remains deferred.
+The small scenario catalog and frozen conversation templates are checked-in
+inputs. Generated populations and interactions are stored below
+`runs/<run-id>/`, normally as JSON/JSONL. Evaluated profile-writer responses,
+external decoder judgments, and human ratings remain separate evidence
+layers. Human collection remains deferred.
 See [Data model and dataset production](docs/data-model.md) and the
 [data directory policy](data/README.md).
 
@@ -377,6 +438,23 @@ source review; loose OpenRouter outputs do not qualify. See
 [Live execution](docs/live-execution.md) for the exact audit and routing
 contract.
 
+Conversation authoring is a separate, one-time OpenRouter workflow:
+
+```bash
+cape-loop conversations generate-openrouter \
+  data/scenarios/scenario-catalog-v1.json \
+  data/scenarios/conversation-templates-v1.json \
+  --model anthropic/claude-sonnet-5 --execute-live
+```
+
+It writes the template bank and the readable sibling
+`data/scenarios/conversation-templates-v1.generation.jsonl`. Experiment runs
+select the frozen bank with `[scenarios] conversation_file`; they do not call
+the authoring model once per user or trial. Each authoring response contains
+only neutral display names and one neutral base template. Code expands the
+stored treatment forms and fixes `I choose {selected_name}.` The evaluated
+profile writer is a different role configured under `[llm]`.
+
 Completed live runs copy the used provider evidence into
 `llm/provider-audit.jsonl` and `llm/transport-attempts.jsonl`; both digests and
 portable paths are retained in `llm/provider-manifest.json`. OpenRouter audits
@@ -468,8 +546,14 @@ runs/<run-id>/
 ├── manifest.json
 ├── environment.json
 ├── splits.json        # Experiments A–C
+├── inputs/
+│   ├── scenario-catalog.json
+│   ├── conversation-templates.json
+│   └── conversation-templates-manifest.json
 ├── population/        # Experiments A–C
-├── events/
+├── events/            # complete reproducibility/audit records; can be large
+├── analysis/          # compact derived rows for ordinary A/B/C analysis
+├── conversations/     # exhaustive deduplicated traces and readable previews
 ├── metrics/
 │   └── summary.json
 ├── models/
@@ -478,6 +562,80 @@ runs/<run-id>/
 ├── llm/
 └── SHA256SUMS
 ```
+
+The configured source bank remains in
+`data/scenarios/conversation-templates-v1.json`; every run copies its exact
+consumed templates to `inputs/conversation-templates.json` and records the
+bank ID, source, scenario count, and retained filename in
+`inputs/conversation-templates-manifest.json` and `manifest.json`. Each full event
+stores `observation.assistant_message`, `observation.surface_response`,
+`observation.selected_option`, and `observation.surface_id`. Evaluated model
+requests and responses remain under `llm/`; the authoring log is the sibling
+`.generation.jsonl` beside the source bank and is not another experimental
+observation.
+
+For a newly generated run, the compact file is
+`analysis/experiment-a-rows.jsonl`,
+`analysis/experiment-b-turns.jsonl`, or
+`analysis/experiment-c-rows.jsonl`. A rows are one updater×trial evaluation, B
+rows are one retained trajectory turn, and C rows are one evaluation/ranking
+row. A also writes `analysis/experiment-a-exclusions.jsonl` so exclusion
+accounting remains available without the raw events. Sensitivity does not add
+another projection because its existing `metrics/` and `tables/` records are
+already compact aggregates.
+
+Runs additionally write an exhaustive, human-oriented trace and a
+Markdown preview:
+
+```text
+conversations/experiment-a.jsonl
+conversations/experiment-a.md
+conversations/experiment-b.jsonl
+conversations/experiment-b.md
+conversations/experiment-c.jsonl
+conversations/experiment-c.md
+conversations/sensitivity.jsonl
+conversations/sensitivity.md
+```
+
+Only the pair matching the current run is produced. The JSONL is complete and
+stores each logical conversation or trajectory once, with metric evaluations
+grouped when the design shares one history across updaters (Experiment A and
+fixed-history C). Endogenous B/C/sensitivity trajectories remain separate per
+updater because the stored profile can change later actions. The Markdown file
+is a deterministic, diverse preview of at most 100 trace records by default.
+Its header reports the exact
+complete record, turn, and outcome/evaluation counts and explains the displayed
+metrics, so a reader can understand the run without mistaking the preview for
+the exhaustive data. `metrics/summary.json` exposes
+`conversation_log_artifact`, `conversation_log_markdown_artifact`,
+`conversation_record_count`, `conversation_turn_count`,
+`conversation_outcome_count`, and `conversation_markdown_preview_count`.
+When a legacy or programmatic run has no natural-language bank, its trace
+preserves the structured choice and explicitly marks the surface unavailable
+instead of fabricating a conversation.
+
+The compact rows are derived from the same in-memory records as the full
+`events/` and `metrics/` artifacts. They are not a second synthetic dataset and
+do not increase the experimental sample. They omit large posterior and native
+memory payloads needed for forensic reconstruction, so retain the full run for
+reproducibility. Because the runner writes them before finalization, they are
+covered by the run's ordinary `SHA256SUMS`.
+
+Completed runs are immutable and are never backfilled. To make a compact
+analysis directory from a verified historical run without modifying it:
+
+```bash
+PYTHONPATH=src python -m cape_loop artifact compact \
+  runs/<run-id> artifacts/<compact-id>
+PYTHONPATH=src python -m cape_loop artifact verify-compact \
+  artifacts/<compact-id>
+```
+
+That derived directory contains `analysis-rows.jsonl`, its own `manifest.json`,
+and its own `SHA256SUMS`. The manifest binds the source run and the exact
+exporter-source digest. It is a convenient projection, not an independently
+collected dataset or a replacement for the full release archive.
 
 Exact experiment files vary. Canonical scientific records are JSON or JSON
 Lines whose version boundary is carried by the row, a generated schema `$id`,

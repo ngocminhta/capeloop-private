@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from hashlib import sha256
 import io
 import json
@@ -19,7 +20,7 @@ from cape_loop.config import (
     LLMSection,
     load_config,
 )
-from cape_loop.beliefs import PreferenceBelief
+from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
 from cape_loop.domains import TRAVEL
 from cape_loop.elicitation import build_matched_anchor_set
 from cape_loop.human_study import (
@@ -28,7 +29,13 @@ from cape_loop.human_study import (
     build_assignment_codebook,
     validate_rating_record,
 )
-from cape_loop.llm_exchange import LLMRequest, LLMResponse, ReplayProvider
+from cape_loop.llm_exchange import (
+    ATTRIBUTES,
+    VALUES,
+    LLMRequest,
+    LLMResponse,
+    ReplayProvider,
+)
 from cape_loop.policies import SoftProfileConditionedPolicy
 from cape_loop.schema_export import export_schemas
 from cape_loop.runner import _llm_input_manifest
@@ -252,9 +259,57 @@ class ExchangeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             LLMResponse.parse(malformed)
 
+    def test_accepted_provider_rounding_is_normalized_for_belief_use(self) -> None:
+        request = LLMRequest.build(
+            request_id="rounded-provider-vector",
+            updater_id="llm_full_context",
+            view="full_context",
+            prior={},
+            observation={"selected_option": "lower-fare"},
+            context={"options": ["lower-fare", "higher-fare"]},
+        )
+        response = LLMResponse.parse(
+            {
+                "schema_version": 1,
+                "request_id": request.request_id,
+                "prompt_sha256": request.prompt_sha256,
+                "model_id": "rounded-provider-model",
+                "beliefs": {
+                    "attribute_1": {
+                        "-2": 0.440232,
+                        "-1": 0.316871,
+                        "+1": 0.148197,
+                        "+2": 0.094701,
+                    },
+                    "attribute_2": {
+                        "-2": 0.25,
+                        "-1": 0.25,
+                        "+1": 0.25,
+                        "+2": 0.25,
+                    },
+                    "attribute_3": {
+                        "-2": 0.25,
+                        "-1": 0.25,
+                        "+1": 0.25,
+                        "+2": 0.25,
+                    },
+                },
+            }
+        )
+        rows = tuple(
+            tuple(response.beliefs[attribute][value] for value in VALUES)
+            for attribute in ATTRIBUTES
+        )
+        belief = MarginalPreferenceBelief(rows)
+        self.assertAlmostEqual(sum(belief.marginal(0)), 1.0)
+        self.assertEqual(LLMResponse.parse(response.to_dict()), response)
+
     def test_llm_replay_updater_binds_prompt_and_updates_profile(self) -> None:
         matched = build_matched_anchor_set(TRAVEL, scenario_id="llm-replay")
-        context = matched.context("default")
+        context = replace(
+            matched.context("default"),
+            prompt="Choose one lodging package for the same trip.",
+        )
         view = make_update_view(
             UpdateViewKind.FULL_CONTEXT,
             context,
@@ -270,6 +325,14 @@ class ExchangeTests(unittest.TestCase):
         )
         state = request_builder.initial_state(prior)
         request = request_builder.build_request(state, view)
+        self.assertEqual(
+            request.payload["context"]["task"],
+            context.prompt,
+        )
+        serialized_prompt = json.dumps(request.payload, sort_keys=True)
+        self.assertNotIn('"features"', serialized_prompt)
+        self.assertNotIn('"target_attribute"', serialized_prompt)
+        self.assertIn('"profile_schema"', serialized_prompt)
         beliefs = {
             f"attribute_{attribute}": {
                 "-2": 0.1,
@@ -351,6 +414,8 @@ class ExchangeTests(unittest.TestCase):
                 "context_id",
                 "scenario_id",
                 "turn_id",
+                "features",
+                "target_attribute",
                 "incorrect",
                 "secret-crn",
                 "user-7",

@@ -14,6 +14,8 @@ Suitable tracked content includes:
 - tiny synthetic fixtures used by offline tests;
 - versioned option, scenario, dialogue, paraphrase, split, or terminal-battery
   manifests;
+- small frozen model-assisted language assets with explicit provenance and
+  review status;
 - public schema examples;
 - data-generation metadata and checksums; and
 - reviewed provider/model declarations that contain no credentials or model
@@ -26,6 +28,43 @@ Generated populations, trajectories, events, models, and metrics belong in the
 ignored, content-addressed `runs/<run-id>/` tree. Curated evidence may be copied
 or frozen under `artifacts/` only with a manifest, checksums, and provenance
 statement.
+
+## Canonical scenario catalog
+
+[`scenarios/scenario-catalog-v1.json`](scenarios/scenario-catalog-v1.json) is
+the canonical interaction-stimulus input used by every checked-in
+configuration. Version 1.0.0 contains 24 unique split-disjoint families:
+six train, six development, and twelve test scenarios, covering both domains
+and all three attributes. Runs copy and checksum-bind the exact consumed bytes;
+generated interactions and responses still belong under `runs/`, not here.
+
+The catalog is deliberately `frozen-development` and
+`simulation-and-pilot-only`. All 24 scenarios are provisional, none has
+completed the required human surface and scientific reviews, and none is
+paper-eligible. Its Codex-assisted provenance is explicit in the file. The
+normative good-scenario and review policy is in
+[Scientific design](../docs/scientific-design.md#scenario-catalog-and-quality-policy);
+the exact fields, coverage, and run artifacts are in
+[Data model](../docs/data-model.md#scenario-catalog-input). The independently
+generated held-out terminal-v2 batteries remain separate from this catalog.
+
+## Frozen conversation bank
+
+[`scenarios/conversation-templates-v1.json`](scenarios/conversation-templates-v1.json)
+contains one small natural-language template family for each of the 24
+scenarios. A pinned Claude model authored only neutral display names and a
+neutral presentation through OpenRouter. Repository code supplies the fixed
+default/suggestion wording and the fixed local reply, and the mathematical
+simulator—not Claude—selects the option.
+
+[`scenarios/conversation-templates-v1.generation.jsonl`](scenarios/conversation-templates-v1.generation.jsonl)
+is the readable 24-request/24-result authoring log. It contains no credential
+or authorization header. Both files are candidate research stimuli: they are
+valid for simulation and bounded pilots, but remain model-assisted,
+independently unreviewed, and not paper-eligible. Before a public evidence
+release, confirm applicable provider-output terms and complete the surface and
+scientific reviews described in
+[Scientific design](../docs/scientific-design.md#scenario-catalog-and-quality-policy).
 
 ## Checked-in model declarations
 

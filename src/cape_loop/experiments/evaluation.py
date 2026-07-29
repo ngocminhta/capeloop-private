@@ -10,6 +10,7 @@ from statistics import mean
 from typing import Any, Mapping, Sequence
 
 from ..beliefs import PreferenceBelief
+from ..conversation_surfaces import ConversationTemplateBank
 from ..domains import DOMAINS, DomainSpec
 from ..heldout import build_heldout_terminal_suite
 from ..metrics import marginal_brier
@@ -18,9 +19,11 @@ from ..policies import (
     BalancedPolicy,
     FixedBiasPolicy,
     InteractionPolicy,
+    PolicyAction,
     SoftProfileConditionedPolicy,
 )
 from ..response import RandomUtilityModel, intrinsic_utility
+from ..scenarios import ScenarioCatalog, materialize_context
 from ..schemas import (
     InteractionContext,
     InteractionRecord,
@@ -140,6 +143,9 @@ def generate_fixed_history(
     reference_belief: PreferenceBelief | None = None,
     history_id: str | None = None,
     crn_key: str | None = None,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
+    data_split: str = "test",
 ) -> FixedHistory:
     """Generate a logger history without consulting any evaluated updater."""
 
@@ -164,6 +170,23 @@ def generate_fixed_history(
             master_seed=seed,
             trajectory_id=identifier,
         )
+        if scenario_catalog is not None:
+            target = action.context.target_attribute
+            if target is None:
+                raise ValueError(
+                    "catalog-backed fixed history requires a target attribute"
+                )
+            scenario = scenario_catalog.select(
+                domain=domain.domain_id,
+                split=data_split,
+                target_attribute=target,
+                seed=seed,
+                selection_key=("fixed-history", common_key, turn),
+            )
+            action = PolicyAction(
+                context=materialize_context(action.context, scenario),
+                provenance=action.provenance,
+            )
         observation = declared_response.sample(
             user.theta,
             user.susceptibility,
@@ -171,6 +194,19 @@ def generate_fixed_history(
             seed,
             noise_key=("fixed-history-crn", common_key, turn),
         )
+        if conversation_bank is not None:
+            rendered = conversation_bank.render(
+                action.context,
+                action.provenance,
+                observation.selected_option_id,
+            )
+            observation = Observation(
+                selected_option_id=observation.selected_option_id,
+                surface_response=rendered.user_message,
+                choice_noise_key=observation.choice_noise_key,
+                assistant_message=rendered.assistant_message,
+                surface_id=rendered.surface_id,
+            )
         events.append(
             LoggedEvent(
                 event_id=f"{identifier}:turn-{turn}",
@@ -1557,6 +1593,8 @@ def run_experiment_c(
     seed: int = 1729,
     bootstrap_replicates: int = 1000,
     tie_tolerance: float = 1e-6,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
 ) -> ExperimentCResult:
     """Run fixed balanced, fixed biased, and endogenous evaluation regimes."""
 
@@ -1644,6 +1682,9 @@ def run_experiment_c(
                         response_model=declared_response,
                         history_id=f"{paired_key}:fixed-balanced",
                         crn_key=paired_key,
+                        scenario_catalog=scenario_catalog,
+                        conversation_bank=conversation_bank,
+                        data_split=split,
                     )
                     biased_history = generate_fixed_history(
                         user=user,
@@ -1654,6 +1695,9 @@ def run_experiment_c(
                         response_model=declared_response,
                         history_id=f"{paired_key}:fixed-biased",
                         crn_key=paired_key,
+                        scenario_catalog=scenario_catalog,
+                        conversation_bank=conversation_bank,
+                        data_split=split,
                     )
                     histories.extend((balanced_history, biased_history))
 
@@ -1731,6 +1775,9 @@ def run_experiment_c(
                                 f"{paired_key}:closed:{updater_id}"
                             ),
                             crn_key=f"{paired_key}:closed",
+                            scenario_catalog=scenario_catalog,
+                            conversation_bank=conversation_bank,
+                            data_split=split,
                         )
                         endogenous_trajectories.append(closed)
                         system_projection_score = evaluate_terminal_battery(

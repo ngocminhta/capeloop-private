@@ -1,5 +1,11 @@
 schema_version = 1
 
+[scenarios]
+catalog_file = "data/scenarios/scenario-catalog-v1.json"
+catalog_sha256 = "67ad79b911a94811638ed320f7ddd1d4e8e8c1767f15419b9499c691badb6b3a"
+conversation_file = "data/scenarios/conversation-templates-v1.json"
+selection_policy = "deterministic-stratified-v1"
+
 # Canonical offline Experiment C source for a ceiling-safe two-family external-decoder
 # rescore. The later repository-selected automated collection routes the
 # declared Claude and Gemini models through OpenRouter; the source run itself

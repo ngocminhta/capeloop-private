@@ -73,6 +73,16 @@ The offline Gate 4 and Experiment C external-rescore source configs do not call
 models. They are sized so their later selected OpenRouter or optional direct
 external-model collections fit the same approved per-source ceilings.
 
+The live-only
+[`demo one-scenario`](getting-started.md#run-one-understandable-live-scenario)
+command is deliberately not another TOML preset or configuration schema. Its
+one request, zero retries, official OpenRouter endpoint, no-fallback behavior,
+and token limits are fixed diagnostic guardrails; all of its input, model,
+routing, and execution controls are command-line options rather than new TOML
+keys. Run `cape-loop demo one-scenario --help` for that small command surface.
+Use a checked-in or reviewed local TOML configuration for any experiment or
+pilot.
+
 ## Root schema
 
 The only accepted root keys are:
@@ -81,6 +91,7 @@ The only accepted root keys are:
 schema_version = 1
 
 [run]
+[scenarios]
 [experiment]
 [response_model]
 [inference]
@@ -119,7 +130,9 @@ The simulation implementation is semantic-key deterministic regardless of
 array traversal. `run.deterministic` is a recorded whole-run declaration, not
 an alternate execution engine. It must be `false` when an `llm_*` updater uses
 live OpenAI or OpenRouter generation, because seeded simulator state does not
-make an external model response deterministic.
+make an external model response deterministic. Loading a frozen
+`scenarios.conversation_file` does not change determinism: no authoring call is
+made during the run.
 
 The run directory is:
 
@@ -141,6 +154,73 @@ failed artifact under
 run path, and resume its external provider journal. It accepts only a failed
 artifact with the same resolved configuration; it cannot overwrite or resume a
 completed run.
+
+## `[scenarios]`
+
+| Key | Type | Default | Validation and behavior |
+| --- | --- | --- | --- |
+| `catalog_file` | string | `""` | Path to the strict versioned JSON catalog; empty enables only the legacy/programmatic generated-surface fallback |
+| `catalog_sha256` | string | `""` | Lowercase 64-character SHA-256 of the exact catalog bytes |
+| `selection_policy` | string | `"deterministic-stratified-v1"` | Only accepted selection policy |
+| `conversation_file` | string | `""` | Frozen per-scenario natural-language template bank; requires `catalog_file` |
+
+`catalog_file` and `catalog_sha256` must be both empty or both nonempty. Every
+checked-in configuration opts in to
+`data/scenarios/scenario-catalog-v1.json`; the empty default exists so legacy
+and direct programmatic configurations remain interpretable. The configured
+digest is verified before provider construction or run-artifact creation, and
+reuse also requires the retained catalog input manifest to match.
+
+Selection filters by domain, split, and target attribute, then uses the run
+seed and an experiment-owned semantic pairing key. It does not select on latent
+truth, current belief, observed response, updater, result, or
+sensitivity-grid point.
+
+Official hybrid configurations set:
+
+```toml
+[scenarios]
+catalog_file = "data/scenarios/scenario-catalog-v1.json"
+catalog_sha256 = "<catalog digest>"
+selection_policy = "deterministic-stratified-v1"
+conversation_file = "data/scenarios/conversation-templates-v1.json"
+```
+
+`conversation_file` does not configure a runtime LLM. The mathematical
+response model selects an option first; the frozen bank then renders a natural
+assistant/user exchange for the visible context and selected option. Empty
+preserves legacy and small programmatic fixtures that do not exercise the
+hybrid surface. A configured bank must cover every catalog scenario and all
+four option IDs for each one.
+
+OpenRouter authors one neutral `base_template` and the four `display_names` per
+scenario. Code expands the base into the five stored presentation forms:
+balanced/restricted/ranking share neutral wording, while default and suggested
+receive only their fixed treatment sentence. Code also fixes
+`choice_template = "I choose {selected_name}."`; neither treatment language nor
+the reply is model-authored.
+
+Author or refresh the bank separately:
+
+```bash
+cape-loop conversations generate-openrouter \
+  data/scenarios/scenario-catalog-v1.json \
+  data/scenarios/conversation-templates-v1.json \
+  --model anthropic/claude-sonnet-5 --execute-live
+```
+
+The command writes
+`data/scenarios/conversation-templates-v1.generation.jsonl` beside the bank.
+It is an authoring record, not an experiment response file. Review and freeze
+the result before referencing it from a run.
+
+The catalog is a frozen scientific input. Any byte edit—including wording,
+metadata, or formatting—requires a new catalog version/freeze and an updated
+`catalog_sha256` in every configuration that consumes it. Do not change only
+the digest to bless an unreviewed edit, and never modify the retained copy in a
+completed run. Catalog structure, current eligibility, and retained artifacts
+are documented in
+[Data model](data-model.md#scenario-catalog-input).
 
 ## `[experiment]`
 
@@ -401,6 +481,10 @@ remains displayed; selecting that alternative is a rejection.
 
 ## `[llm]`
 
+This section configures the evaluated profile writer. It does not configure the
+separate OpenRouter conversation-authoring command. Runtime dialogue rendering
+is offline once `[scenarios] conversation_file` is frozen.
+
 | Key | Type/default | Meaning |
 | --- | --- | --- |
 | `mode` | string / `"replay"` | `"replay"` for retained JSONL, `"openai"` for direct OpenAI Responses API execution, or `"openrouter"` for OpenRouter Chat Completions |
@@ -455,6 +539,13 @@ effort fixed across `llm_response_only`, `llm_full_context`, and
 `llm_provenance_aware`. The two checked-in OpenAI pilot configs do this. A model
 override is valid software configuration but must be treated as a reported
 protocol change.
+
+All evaluated views receive a semantic codebook that names each domain
+attribute and explains the four signed levels. Model-facing option records
+contain readable descriptions, not the simulator's numeric feature vectors.
+Full-context and provenance-aware views also receive the exact rendered
+assistant/user dialogue; neither receives the internal target index.
+Response-only deliberately omits the unselected options and assistant turn.
 
 ### LLM probability calibration
 
@@ -673,6 +764,12 @@ collections; the selected validator rejects a changed effort until the
 versioned protocol is updated. The selected defaults do not use one global
 effort for both families.
 
+OpenRouter is also the selected one-time conversation-authoring path. That
+command uses its explicit `--model` argument to obtain neutral base wording and
+display names. Code expands the frozen bank and writes the readable
+`.generation.jsonl`; the command does not use `[llm]`, fit a profile, author
+treatments, choose a response, or run once per experimental trial.
+
 Unlike the standalone profile-writer CLI defaults, the decoder-study
 `plan-openrouter` and `execute-openrouter` commands with no model/budget
 overrides load the selected two-model suite with zero retries, 1,024 output
@@ -690,14 +787,56 @@ Anthropic/Gemini adapters remain an optional origin-replication mode. See
 
 | Key | Default | Behavior |
 | --- | --- | --- |
-| `retain_events` | `true` | Write configured training and experiment event files |
-| `retain_prompts` | `false` | Write consumed LLM requests when LLM replay is used |
+| `retain_events` | `true` | Write configured full training and experiment audit-event files |
+| `retain_prompts` | `false` | Write consumed evaluated-profile-writer requests when LLM replay is used |
 | `checksum_manifest` | `true` | Write `SHA256SUMS` on success or captured failure |
 
 Some scientific records are written unconditionally because they are metrics or
 required evaluation definitions. `retain_events = false` is therefore not a
 promise that every `events/` file is absent; for example, Experiment C retains
 its terminal-battery definitions.
+
+When full events are retained, each hybrid observation includes
+`assistant_message`, user `surface_response`, `selected_option`, and
+`surface_id`. The frozen source bank is copied to
+`inputs/conversation-templates.json` regardless of `retain_prompts`.
+Conversation-authoring requests remain in the sibling `.generation.jsonl` and
+are not controlled by this section.
+
+Full event retention can be the dominant storage cost in multi-turn B/C and
+sensitivity runs because complete posterior, shadow, and native state is
+repeated for reconstruction. Newly generated A–C runs always write their narrow
+runner-native `analysis/*.jsonl` projection from the same evaluated records;
+`retain_events` does not control those files. The projection creates no new
+synthetic users, interactions, or observations. Use it for routine analysis,
+but retain the full events for a release that promises forensic
+reconstruction. Sensitivity's existing aggregated metrics and CSV already
+serve as its compact projection.
+
+A–C and sensitivity runs also write an exhaustive deduplicated
+`conversations/<experiment>.jsonl` and a matching Markdown preview. These
+outputs are derived from the same evaluated records and are not controlled by
+`retain_events` or `retain_prompts`. The JSONL contains every logical
+conversation while grouping evaluations that share it. A run without a
+configured natural surface uses nullable dialogue fields and
+`surface_available = false`; it does not fabricate text. The Markdown uses a
+deterministic diverse selection capped at 100 trace records by default; its
+header still reports exact complete record, turn, and outcome counts and
+provides readable metric labels and interpretation guidance. The cap limits
+only the readable preview, not data collection or the exhaustive JSONL.
+
+The run summary reports
+`conversation_log_artifact`, `conversation_log_markdown_artifact`,
+`conversation_record_count`, `conversation_turn_count`,
+`conversation_outcome_count`, and `conversation_markdown_preview_count`.
+These counts describe the complete trace except for the explicitly bounded
+Markdown preview count.
+
+Changing `retain_events` changes the resolved configuration and therefore the
+content-addressed run ID. It is not a command for stripping an existing
+completed run. Completed runs remain immutable; use the separately
+checksum-bound `artifact compact` workflow when a small projection of a
+historical verified run is needed.
 
 If checksums are disabled, `verify RUN_DIR` reports that `SHA256SUMS` is
 missing.
@@ -730,9 +869,9 @@ Configuration validation does not establish:
 - passage of any stage gate; or
 - reproducibility of an external provider call.
 
-The runner consumes the split manifest through feature-matched
-atlas/beacon/cedar option, dialogue, and scenario families and through the
-content-addressed paraphrase suite. It writes a concrete binding/overlap audit;
-see [Data model](data-model.md#splits-and-leakage-controls). Gate 1 still
-remains incomplete whenever its
-required held-out updater/case pairs are absent.
+For checked-in configurations, the runner consumes the split manifest through
+the checksum-bound catalog's atlas/beacon/cedar option, dialogue, and scenario
+families and through the content-addressed paraphrase suite. It writes a
+concrete binding/overlap audit; see
+[Data model](data-model.md#splits-and-leakage-controls). Gate 1 still remains
+incomplete whenever its required held-out updater/case pairs are absent.

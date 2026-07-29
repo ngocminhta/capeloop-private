@@ -54,6 +54,11 @@
           "minItems": 1,
           "type": "array"
         },
+        "prompt": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
         "question_type": {
           "minLength": 1,
           "type": "string"
@@ -112,11 +117,20 @@
     "observation": {
       "additionalProperties": false,
       "properties": {
+        "assistant_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "choice_noise_key": {
           "type": "string"
         },
         "selected_option": {
           "minLength": 1,
+          "type": "string"
+        },
+        "surface_id": {
           "type": "string"
         },
         "surface_response": {
@@ -129,7 +143,9 @@
       "required": [
         "selected_option",
         "surface_response",
-        "choice_noise_key"
+        "choice_noise_key",
+        "assistant_message",
+        "surface_id"
       ],
       "type": "object"
     },

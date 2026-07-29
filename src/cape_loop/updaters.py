@@ -24,6 +24,7 @@ from .beliefs import (
 )
 from .fitting import AwareConditionalLogitModel, UnawareSemanticDirectionModel
 from .inference import exact_aware_update, theta_bayes_update
+from .domains import get_domain
 from .llm_exchange import (
     ATTRIBUTES,
     CompletionProvider,
@@ -810,6 +811,45 @@ class LLMReplayUpdater:
             for index, attribute in enumerate(ATTRIBUTES)
         }
 
+    @staticmethod
+    def _profile_schema(domain_id: str) -> dict[str, Any]:
+        """Describe the three latent dimensions without exposing math fields."""
+
+        domain = get_domain(domain_id)
+        result: dict[str, Any] = {}
+        for index, attribute in enumerate(domain.attributes, start=1):
+            result[f"attribute_{index}"] = {
+                "name": attribute.key,
+                "values": {
+                    "-2": (
+                        "strongly favors "
+                        f"{attribute.negative_label}"
+                    ),
+                    "-1": (
+                        "somewhat favors "
+                        f"{attribute.negative_label}"
+                    ),
+                    "+1": (
+                        "somewhat favors "
+                        f"{attribute.positive_label}"
+                    ),
+                    "+2": (
+                        "strongly favors "
+                        f"{attribute.positive_label}"
+                    ),
+                },
+            }
+        return result
+
+    @staticmethod
+    def _visible_option(option: Option) -> dict[str, str]:
+        """Return only user-readable option material for an LLM prompt."""
+
+        return {
+            "option_id": option.option_id,
+            "description": option.label,
+        }
+
     def build_request(
         self,
         state: UpdaterState,
@@ -817,31 +857,45 @@ class LLMReplayUpdater:
     ) -> LLMRequest:
         """Build the exact request without calling the completion provider."""
 
-        observation = {
+        observation: dict[str, Any] = {
             "selected_option": view.observation.selected_option_id,
-            "surface_response": view.observation.surface_response,
-            "selected_option_record": view.selected_option.to_dict(),
-            "target_attribute": view.target_attribute,
+            "user_message": view.observation.surface_response,
+            "selected_option_record": self._visible_option(
+                view.selected_option
+            ),
+            "profile_schema": self._profile_schema(
+                view.selected_option.domain
+            ),
         }
-        context = (
-            None
-            if view.context is None
-            else {
+        context = None
+        if view.context is not None:
+            context = {
                 # Audit identifiers are intentionally absent. They can encode
                 # user, initial-profile, policy, or CRN labels that are not
                 # part of the user-visible elicitation context.
                 "domain": view.context.domain,
                 "options": [
-                    option.to_dict() for option in view.context.options
+                    self._visible_option(option)
+                    for option in view.context.options
                 ],
                 "ranking": list(view.context.ranking),
                 "default": view.context.default_option_id,
                 "suggested_option": view.context.suggested_option_id,
-                "wording_template": view.context.wording_template,
                 "question_type": view.context.question_type,
-                "target_attribute": view.context.target_attribute,
             }
-        )
+            if view.context.prompt is not None:
+                context["task"] = view.context.prompt
+            if view.observation.assistant_message is not None:
+                context["conversation"] = [
+                    {
+                        "role": "assistant",
+                        "content": view.observation.assistant_message,
+                    },
+                    {
+                        "role": "user",
+                        "content": view.observation.surface_response,
+                    },
+                ]
         draft = LLMRequest.build(
             request_id="content-addressed-request",
             updater_id=self.updater_id,

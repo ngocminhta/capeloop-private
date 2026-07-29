@@ -136,6 +136,62 @@ class RunSection:
 
 
 @dataclass(frozen=True, slots=True)
+class ScenarioSection:
+    """Scenario catalog plus an optional frozen hybrid-dialogue bank."""
+
+    catalog_file: str = ""
+    catalog_sha256: str = ""
+    selection_policy: str = "deterministic-stratified-v1"
+    conversation_file: str = ""
+
+    @classmethod
+    def parse(cls, raw: Mapping[str, Any]) -> "ScenarioSection":
+        _only_keys(
+            "scenarios",
+            raw,
+            {
+                "catalog_file",
+                "catalog_sha256",
+                "selection_policy",
+                "conversation_file",
+            },
+        )
+        result = cls(**raw)
+        if not isinstance(result.catalog_file, str):
+            raise ConfigError("scenarios.catalog_file must be a string")
+        if not isinstance(result.catalog_sha256, str):
+            raise ConfigError("scenarios.catalog_sha256 must be a string")
+        if not isinstance(result.conversation_file, str):
+            raise ConfigError("scenarios.conversation_file must be a string")
+        if bool(result.catalog_file) != bool(result.catalog_sha256):
+            raise ConfigError(
+                "scenarios.catalog_file and scenarios.catalog_sha256 must be "
+                "declared together"
+            )
+        if result.catalog_sha256 and (
+            len(result.catalog_sha256) != 64
+            or result.catalog_sha256.lower() != result.catalog_sha256
+            or any(
+                character not in "0123456789abcdef"
+                for character in result.catalog_sha256
+            )
+        ):
+            raise ConfigError(
+                "scenarios.catalog_sha256 must be a lowercase SHA-256 digest"
+            )
+        if result.selection_policy != "deterministic-stratified-v1":
+            raise ConfigError(
+                "scenarios.selection_policy must be "
+                "'deterministic-stratified-v1'"
+            )
+        if result.conversation_file and not result.catalog_file:
+            raise ConfigError(
+                "scenarios.conversation_file requires a scenario catalog"
+            )
+        return result
+
+
+@dataclass(frozen=True, slots=True)
 class ExperimentSection:
     kind: str = "provenance_audit"
     domains: tuple[str, ...] = ("travel", "writing")
@@ -879,6 +935,7 @@ class LLMSection:
 class AppConfig:
     schema_version: int = SCHEMA_VERSION
     run: RunSection = field(default_factory=RunSection)
+    scenarios: ScenarioSection = field(default_factory=ScenarioSection)
     experiment: ExperimentSection = field(default_factory=ExperimentSection)
     response_model: ResponseModelSection = field(default_factory=ResponseModelSection)
     inference: InferenceSection = field(default_factory=InferenceSection)
@@ -895,6 +952,7 @@ class AppConfig:
             {
                 "schema_version",
                 "run",
+                "scenarios",
                 "experiment",
                 "response_model",
                 "inference",
@@ -916,6 +974,7 @@ class AppConfig:
         sections = {}
         parsers = {
             "run": RunSection,
+            "scenarios": ScenarioSection,
             "experiment": ExperimentSection,
             "response_model": ResponseModelSection,
             "inference": InferenceSection,

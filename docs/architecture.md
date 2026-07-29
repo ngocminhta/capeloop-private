@@ -15,43 +15,49 @@ for evidence that still depends on external collection.
 ## End-to-end flow
 
 ```text
-                              evaluator only
-                         ┌──────────────────────┐
-                         │ latent user θ, ψ     │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-┌─────────┐   profile   ┌───────────────┐   C, P   ┌───────────────┐
-│ updater │────────────►│ interaction   │─────────►│ response model│
-└────▲────┘             │ policy        │          └───────┬───────┘
-     │                  └───────────────┘                  │ Y
-     │                                                     ▼
-     │             ┌─────────────────────────────────────────────┐
-     └─────────────│ information-view builder + update recorder  │
-                   └──────────────────┬──────────────────────────┘
-                                      │
-                                      ▼
-                   ┌─────────────────────────────────────────────┐
-                   │ event store, shadow inference, evaluation   │
-                   └─────────────────────────────────────────────┘
+ profile ──► interaction policy ──► [visible context C | provenance P]
+                                              │
+ evaluator-only latent user θ, ψ ─────────────┤
+                                              ▼
+                             mathematical response model ──► selected option Y
+                                              │                         │
+                                              └────────────┬────────────┘
+                                                           ▼
+                                             frozen conversation bank
+                                                           │
+                                                assistant + user turns
+                                                           ▼
+                                             declared information view
+                                                           │
+                             ┌─────────────────────────────┴─────────────┐
+                             ▼                                           ▼
+                   evaluated profile writer                  same-history shadow
+                             │
+                             ▼
+                     event store and evaluator
 ```
 
 `C` is the user-visible `InteractionContext`. `P` is the separately recorded
 `PolicyProvenance` explaining why that context was produced. The response model
 needs latent truth to simulate a choice; policies and updaters never receive
-it. The evaluator may read truth only after the action, observation, and update
-have been fixed.
+it. Only after the option is fixed does the renderer select a reviewed
+per-scenario template and produce the natural two-turn exchange. Rendering is
+deterministic and cannot alter the option. The evaluator may read truth only
+after the action, observation, and update have been fixed.
 
 The trajectory runner owns the order:
 
 1. obtain the evaluated system's current public profile;
 2. ask the policy for visible context and separate provenance;
-3. sample or replay the user observation;
-4. construct exactly the updater's declared information view;
-5. update the evaluated structured or native state;
-6. update the same-history action-aware shadow;
-7. retain before/after state, action influence, and event linkage; and
-8. pass the retained record and latent truth to evaluation.
+3. mathematically sample or replay the selected option;
+4. render the exact assistant presentation and local user choice from the
+   frozen conversation bank;
+5. construct exactly the updater's declared information view;
+6. update the evaluated structured or native state;
+7. update the same-history action-aware shadow;
+8. retain the structured choice, rendered dialogue, state, and event linkage;
+   and
+9. pass the retained record and latent truth to evaluation.
 
 Static evaluation generates a history once and replays the identical events to
 every updater. Endogenous evaluation creates one trajectory per updater because
@@ -65,8 +71,14 @@ The implementation enforces five cross-cutting invariants:
   or presentation susceptibility.
 - **Context/provenance separation.** What the user saw is distinct from the
   internal reason the policy showed it.
+- **Choice/language separation.** The response model fixes the option before
+  language rendering; a conversation template cannot choose, explain, or
+  change that option.
 - **Declared views.** Response-only, full-context, and provenance-aware inputs
   are constructed centrally rather than by individual updaters.
+- **Natural model views.** Evaluated LLMs receive readable descriptions and a
+  semantic attribute codebook, never numeric feature vectors or the target
+  index used by the evaluator.
 - **Semantic pairing.** Random values derive from a root seed and stable
   semantic keys, not execution order.
 - **Evidence before claims.** A software capability, request plan, smoke run,
@@ -83,9 +95,9 @@ between generation, inference, external execution, and analysis.
 | --- | --- |
 | `LatentUser` | Fixed evaluator/simulator-only preference and presentation susceptibility |
 | `Option` | Stable option ID, label, domain, and three intrinsic features |
-| `InteractionContext` | Displayed options, ranking, default, suggestion, wording, scenario, turn, and target |
+| `InteractionContext` | Task prompt, displayed options, ranking, default, suggestion, wording, scenario, turn, and target |
 | `PolicyProvenance` | Policy/version, profile snapshot, semantic key, applied mechanism, and profile-conditioning flag |
-| `Observation` | Selected option, optional constrained surface response, and choice-noise key |
+| `Observation` | Selected option, exact assistant/user surface, surface ID, and choice-noise key |
 | `ProfileUpdate` | Structured belief or native-state before/after references plus written delta |
 | `InteractionRecord` | Context, provenance, observation, and optional update |
 | `TrajectoryRecord` | Ordered audit events; latent truth is excluded by design |
@@ -137,6 +149,49 @@ system merely for exploiting a default, rank, or suggestion. A directly tested
 rule-based response family supports robustness analysis through the same
 interface.
 
+### Frozen hybrid conversation surfaces
+
+`[scenarios] conversation_file` loads a `ConversationTemplateBank`. Each
+scenario has four neutral display names and one neutral base presentation.
+Balanced, restricted, and ranking all use that same base wording; only the
+visible option pair or order changes. Code derives the default form by
+inserting a fixed default sentence and the suggested form by inserting a fixed
+suggestion sentence. It also fixes the user template to
+`I choose {selected_name}.`
+
+The neutral authoring inputs are generated once, outside experimental
+execution, with:
+
+```bash
+cape-loop conversations generate-openrouter \
+  data/scenarios/scenario-catalog-v1.json \
+  data/scenarios/conversation-templates-v1.json \
+  --model anthropic/claude-sonnet-5 --execute-live
+```
+
+The transient OpenRouter response contains only `display_names` and a neutral
+`base_template`. The base uses `{prompt}`, both visible name placeholders, and
+both visible description placeholders exactly once, then ends in a question;
+it contains no treatment placeholder. Code expands it into the five
+core-compatible stored `presentation_templates`. The three neutral forms are
+identical before option and order substitution. For the default and suggested
+forms, code inserts the corresponding fixed treatment sentence immediately
+after `{prompt}`. The stored `choice_template` is always
+`I choose {selected_name}.`
+
+The authoring call may improve neutral fluency but cannot see latent users,
+assign a choice, write treatment wording, vary the user reply, or run the
+evaluated profile-writing task. A run reuses the frozen bank rather than asking
+the authoring model to rewrite every trial.
+
+The evaluated writer is a separate model call. Its model-facing projection
+uses readable option descriptions and a domain-specific codebook such as
+“`-2` strongly favors lower-cost; `+2` strongly favors higher-cost.” It omits
+internal feature vectors, target indices, split labels, and randomness keys.
+Full-context and provenance-aware views receive the exact assistant/user
+dialogue; response-only receives the user reply and selected readable option as
+an intentional information ablation.
+
 ### Matched elicitation and policies
 
 The elicitation constructor creates balanced, restricted, defaulted, and
@@ -175,12 +230,15 @@ returns an auditable update:
 
 | View | Supplied information |
 | --- | --- |
-| `response_only` | Observation, selected option, and target attribute |
+| `response_only` | Observation and selected option; internal mathematical references also receive the scoring coordinate |
 | `full_context` | Response-only fields plus complete visible context |
 | `provenance_aware` | Full context plus policy provenance |
 
 The central view builder rejects the wrong view kind and duplicate events.
-Structured, LLM-replay, and native-memory adapters all use this protocol.
+Structured, LLM-replay, and native-memory adapters all use this protocol. The
+external-LLM projection is narrower than the internal Python view: it removes
+the scoring coordinate and numeric features before constructing any model
+request.
 
 ### Evaluation, statistics, and artifacts
 
@@ -204,6 +262,40 @@ identity. Reporting consumes retained records and cannot resample users, change
 state, or call a model. A verified run can be frozen into a deterministic tar
 whose sidecar binds the source run and archive digest.
 
+Experiments A–C also project narrow analysis rows during the same runner
+execution:
+
+```text
+evaluated in-memory record
+  ├── full event/metric record for reconstruction
+  ├── compact analysis row for ordinary statistics
+  └── deduplicated conversation trace
+          └── deterministic Markdown preview
+```
+
+Neither projection branch calls a simulator or provider or creates a second
+observation. A writes one updater×trial analysis row but groups conversation
+evaluations under one trace per trial. B flattens each retained trajectory for
+analysis while keeping the same trajectory as one multi-turn conversation
+record. C writes one analysis row per evaluation but stores a fixed history
+once across its replayed updaters. Sensitivity keeps its existing aggregate
+analysis and uses the B-style trace with a sensitivity-point condition.
+
+The conversation JSONL is exhaustive. It excludes latent truth, feature
+vectors, posterior arrays, and native-memory payloads, so size grows with
+unique natural exchanges and scalar evaluations rather than reconstruction
+state. The companion Markdown deterministically chooses a diverse preview of
+at most 100 trace records by default and states exact complete
+record/turn/outcome counts plus readable metric labels and interpretation
+guidance. All outputs are finalized in the same run and covered by the same
+`SHA256SUMS`.
+
+An immutable historical run cannot acquire new files without invalidating its
+inventory. The compact-artifact adapter therefore verifies the source and
+writes a separate `analysis-rows.jsonl`, manifest, and checksum inventory
+bound to that source. This derived directory is not a full run and cannot
+promote the source's evidence status.
+
 ## Information-access matrix
 
 | Component | Latent user | Visible context | Policy provenance | Profile/state | Observation |
@@ -211,9 +303,10 @@ whose sidecar binds the source run and archive digest.
 | Domain | No | Constructs options | No | No | No |
 | Policy | No | Constructs | Writes | Declared public view | No |
 | Response model | Yes | Reads | No | No | Writes |
+| Conversation renderer | No | Reads readable fields | Treatment only | No | Reads fixed choice; writes language |
 | Response-only updater | No | Selected option only | No | Own state | Reads |
-| Full-context updater | No | Reads | No | Own state/history | Reads |
-| Provenance-aware updater | No | Reads | Reads | Own state/history | Reads |
+| Full-context updater | No | Reads rendered dialogue | No | Own state/history | Reads |
+| Provenance-aware updater | No | Reads rendered dialogue | Reads declared metadata | Own state/history | Reads |
 | Exact shadow | No | Reads | Not required by likelihood | Joint shadow state | Reads |
 | Native decoder | No | Blinded retained evidence only | Blinded/omitted | Blinded native view | If retained in view |
 | External decoder source | No | Blinded request payload only | Omitted | Blinded native view | No |
@@ -429,7 +522,7 @@ analysis/confirmatory-mixed-effects/
 tests/                         deterministic offline unit and integration tests
 docs/                          scientific, operational, and status references
 examples/                      small instructional programs, never evidence
-runs/                          ignored local run output
+runs/                          ignored local output; each run has conversations/
 artifacts/                     curated checksum-verified release bundles
 paper/                         manuscript, figure, and table provenance
 ```
@@ -459,7 +552,7 @@ Extensions must preserve the same information and evidence boundaries:
 | Native memory | Versioned content-addressed state, source-linked deltas, public persona projection, blinded decoder compatibility, and terminal action interface |
 | LLM/provider adapter | Content-hashed request, strict output, environment-only secret, attempt/audit journal, hard budgets, offline replay, and explicit origin semantics |
 | Metric/statistic | Versioned formula, analysis unit, missing/tie rules, aggregation/resampling unit, and hand-checkable fixture |
-| Experiment | Predeclared factorial cells, estimand/controls, pairing, splits, metrics/gates, incomplete-cell retention, and common artifact writer |
+| Experiment | Predeclared factorial cells, estimand/controls, pairing, splits, metrics/gates, incomplete-cell retention, a declared compact-row unit that does not change sample size, and the common artifact writer |
 | Schema | Explicit compatibility decision, deterministic export, consumer updates, and version tests |
 
 Choose stable IDs and versions, reject unknown configuration, retain component

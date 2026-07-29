@@ -249,6 +249,15 @@ $$
 
 This prevents a strong default from being mistaken for high user utility.
 
+The implemented user-facing surface is hybrid. The equation above fixes
+\(Y_t\) first. OpenRouter authors one neutral base presentation and neutral
+display names per scenario. Code uses that base for balanced, restricted, and
+ranking; inserts only the fixed default or suggestion sentence when required;
+and states exactly `I choose {selected_name}.` The author receives neither
+\(\theta\) nor \(\psi\) and cannot change the choice. The evaluated profile
+writer sees natural dialogue and a semantic attribute codebook rather than
+numeric feature vectors or the experiment's target index.
+
 ## 4.4 Exact action-aware posterior
 
 The exact reference is explicitly named:
@@ -1019,13 +1028,23 @@ The primary model is accompanied by:
 2. a rule-based noisy utility maximizer;
 3. broad parameter sweeps over ranking, default, suggestion, and choice noise.
 
-An LLM may verbalize structured choices, but it does not decide the latent choice in the main evaluation.
+The primary surface uses a frozen bank derived from one OpenRouter-authored
+neutral base and display-name set per scenario. Authoring is separate from the
+trials. The structured decision is sampled first; code then fills the base,
+adds only a fixed default/suggestion sentence when applicable, and emits the
+fixed `I choose {selected_name}.` reply.
 
-The structured decision is sampled first. The verbalizer may produce only semantically equivalent outputs such as:
+For example:
 
-* “The first option works.”
-* “Let's use that one.”
-* “Keep the default.”
+> **Assistant:** Here are two lower-cost hotel options for your trip. Hotel A
+> is a standard room in a mixed-use neighborhood. Hotel B is a standard room
+> in a quiet outer neighborhood. Which would you like?
+>
+> **User:** I choose Hotel A.
+
+The exact local user sentence is reused where the matched design requires an
+identical response. Avoid position-dependent replies such as “the first one”
+because ranking is itself an experimental treatment.
 
 Generated language is rejected if it adds unsupported claims such as:
 
@@ -1209,8 +1228,10 @@ The common terminal battery uses held-out items and does not reuse training prov
 ```json
 {
   "selected_option": "anchor",
-  "surface_response": "Keep the first one.",
-  "choice_noise_seed": 0
+  "surface_response": "I choose Hotel A.",
+  "choice_noise_key": "experiment-a:travel:user-000:turn-0",
+  "assistant_message": "Here are two lodging options. Hotel A is [...]. Hotel B is [...]. Which would you like?",
+  "surface_id": "scenario:default:anchor>alternative:anchor"
 }
 ```
 

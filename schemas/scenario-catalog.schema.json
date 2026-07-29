@@ -1,0 +1,427 @@
+{
+  "$id": "urn:cape-loop:schema:scenario-catalog:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attribute_order": {
+      "additionalProperties": false,
+      "properties": {
+        "travel": {
+          "const": [
+            "price",
+            "setting",
+            "planning"
+          ]
+        },
+        "writing": {
+          "const": [
+            "length",
+            "tone",
+            "spelling"
+          ]
+        }
+      },
+      "required": [
+        "travel",
+        "writing"
+      ],
+      "type": "object"
+    },
+    "authoring_provenance": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "catalog_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "catalog_status": {
+      "const": "frozen-development"
+    },
+    "catalog_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "created_on": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "eligibility": {
+      "const": "simulation-and-pilot-only"
+    },
+    "frozen_on": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "language": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "license": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "locale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "scenarios": {
+      "items": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "approved"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "review": {
+                  "properties": {
+                    "automated_validation": {
+                      "const": "passed"
+                    },
+                    "scientific_human_review": {
+                      "const": "passed"
+                    },
+                    "surface_human_review": {
+                      "const": "passed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "difficulty": {
+            "enum": [
+              "standard_tradeoff",
+              "close_tradeoff"
+            ]
+          },
+          "domain": {
+            "enum": [
+              "travel",
+              "writing"
+            ]
+          },
+          "family_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "negative_option": {
+            "additionalProperties": false,
+            "properties": {
+              "features": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "option_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "label",
+              "features"
+            ],
+            "type": "object"
+          },
+          "negative_same_direction_option": {
+            "additionalProperties": false,
+            "properties": {
+              "features": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "option_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "label",
+              "features"
+            ],
+            "type": "object"
+          },
+          "positive_option": {
+            "additionalProperties": false,
+            "properties": {
+              "features": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "option_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "label",
+              "features"
+            ],
+            "type": "object"
+          },
+          "positive_same_direction_option": {
+            "additionalProperties": false,
+            "properties": {
+              "features": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "label": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "option_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "label",
+              "features"
+            ],
+            "type": "object"
+          },
+          "prompt": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "quality_assertions": {
+            "additionalProperties": false,
+            "properties": {
+              "all_surface_facts_modeled_or_matched": {
+                "const": true
+              },
+              "feature_role_contract": {
+                "const": true
+              },
+              "neutral_wording": {
+                "const": true
+              },
+              "no_objective_dominance": {
+                "const": true
+              },
+              "no_real_entities": {
+                "const": true
+              },
+              "no_split_cues": {
+                "const": true
+              },
+              "no_time_sensitive_facts": {
+                "const": true
+              },
+              "no_treatment_cues": {
+                "const": true
+              },
+              "symmetric_surface": {
+                "const": true
+              }
+            },
+            "required": [
+              "neutral_wording",
+              "symmetric_surface",
+              "no_treatment_cues",
+              "no_split_cues",
+              "no_real_entities",
+              "no_time_sensitive_facts",
+              "no_objective_dominance",
+              "all_surface_facts_modeled_or_matched",
+              "feature_role_contract"
+            ],
+            "type": "object"
+          },
+          "review": {
+            "additionalProperties": false,
+            "properties": {
+              "automated_validation": {
+                "enum": [
+                  "pending",
+                  "passed"
+                ]
+              },
+              "note": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "paper_eligible": {
+                "const": false
+              },
+              "scientific_human_review": {
+                "enum": [
+                  "not_completed",
+                  "passed"
+                ]
+              },
+              "surface_human_review": {
+                "enum": [
+                  "not_completed",
+                  "passed"
+                ]
+              }
+            },
+            "required": [
+              "automated_validation",
+              "surface_human_review",
+              "scientific_human_review",
+              "paper_eligible",
+              "note"
+            ],
+            "type": "object"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scenario_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "split": {
+            "enum": [
+              "train",
+              "development",
+              "test"
+            ]
+          },
+          "status": {
+            "enum": [
+              "provisional",
+              "approved"
+            ]
+          },
+          "supported_mechanisms": {
+            "items": {
+              "enum": [
+                "balanced",
+                "restricted",
+                "default",
+                "suggested",
+                "ranking",
+                "suggestion"
+              ]
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "target_attribute": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "target_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "task_family": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "wording_template_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "family_id",
+          "revision",
+          "status",
+          "split",
+          "domain",
+          "task_family",
+          "target_attribute",
+          "target_key",
+          "difficulty",
+          "prompt",
+          "wording_template_id",
+          "negative_option",
+          "positive_option",
+          "negative_same_direction_option",
+          "positive_same_direction_option",
+          "supported_mechanisms",
+          "quality_assertions",
+          "review"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "selection_policy": {
+      "const": "deterministic-stratified-v1"
+    },
+    "source": {
+      "const": "project-authored-synthetic"
+    },
+    "split_policy": {
+      "const": "scenario-family-disjoint-v1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "catalog_id",
+    "catalog_version",
+    "catalog_status",
+    "eligibility",
+    "language",
+    "locale",
+    "source",
+    "license",
+    "created_on",
+    "frozen_on",
+    "split_policy",
+    "selection_policy",
+    "attribute_order",
+    "authoring_provenance",
+    "scenarios"
+  ],
+  "title": "CAPE-Loop versioned scenario catalog",
+  "type": "object"
+}

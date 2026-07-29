@@ -14,6 +14,11 @@ machine-local diagnostics.
 | Question | Current answer |
 | --- | --- |
 | Can the repository generate its synthetic data and run offline? | **Yes.** Experiments A–C, sensitivity analysis, verification, and diagnostic gate reports are executable without an API key. |
+| Can ordinary analysis avoid the multi-gigabyte audit logs? | **Yes for newly generated A–C runs.** The runner writes checksum-bound compact rows alongside the full records; verified historical runs can be projected without mutation. |
+| Is the scenario catalog ready for paper evidence? | **No.** Catalog loading, validation, deterministic selection, split auditing, and run binding are implemented, but all 24 scenarios are provisional, zero are approved, and the required human reviews are incomplete. |
+| Does the simulator produce natural conversations? | **Yes for configured hybrid runs.** Math selects the option, then the frozen per-scenario bank renders an assistant/user exchange. The bank is model-assisted but its required independent human surface and scientific reviews remain incomplete. |
+| Can a researcher read conversations beside their metrics? | **Yes.** Each A/B/C/sensitivity run writes exhaustive deduplicated JSONL plus a deterministic diverse Markdown preview of at most 100 trace records by default, with exact complete conversation, turn, and outcome counts and readable metric guidance. Hybrid runs contain the natural exchange; non-surface fixtures are marked unavailable. |
+| Can a researcher inspect one complete live example first? | **Yes, as a diagnostic.** `demo one-scenario` runs one frozen scenario, one mathematical user choice, one full-context OpenRouter profile update, and one local exact reference, then writes a natural-language walkthrough with adjacent metrics and complete request/audit files. It is explicitly demonstration-only and cannot support a paper claim. |
 | Can it call real models? | **Yes, with explicit authorization.** Direct OpenAI and OpenRouter adaptive execution, replay, selected decoder collection, and native-action collection are implemented and budget checked. |
 | Is it ready for a bounded live pilot? | **Yes at the software level.** The public pilots fit the approved ceilings and require `--execute-live`; the operator must still review cost, model identity, routing, and evidence governance. |
 | Is the paper study complete? | **No.** No eligible provider corpus, Gate 4 collection, human response dataset, confirmatory study fit, or paper result is checked in. |
@@ -39,9 +44,10 @@ gate result proves only that the coded conditions evaluated as recorded.
 The current tree passes:
 
 - `make check`, including compilation, runtime diagnosis, all public TOML
-  validation, the static mixed-effects contract, and 374 offline tests across
-  38 test modules;
-- byte-for-byte parity for 31 generated JSON Schemas;
+  validation, the static mixed-effects contract, and the full offline test
+  suite;
+- byte-for-byte parity for 34 generated JSON Schemas, including the exhaustive
+  conversation-log row contract;
 - Ruff, `git diff --check`, and resolution of all relative Markdown file
   targets; and
 - validation of all 18 public configurations: one smoke, eight offline/source,
@@ -58,7 +64,8 @@ study corpus.
 ## Repository evidence boundary
 
 The tracked repository contains source code, tests, schemas, configurations,
-model-role declarations, and documentation. It does not contain:
+model-role declarations, documentation, one explicitly provisional scenario
+catalog, and its frozen candidate conversation bank. It does not contain:
 
 - an API key or authorization header;
 - an eligible OpenAI, OpenRouter, Anthropic, or Gemini response corpus;
@@ -74,27 +81,44 @@ is assembled. Canonical scientific records are JSON and JSON Lines; CSV files
 are derived analysis projections. See [Data model](data-model.md) for the
 record graph and [Reproducibility](../REPRODUCIBILITY.md) for admission rules.
 
+New A–C runs contain both full reconstruction records and narrow
+`analysis/*.jsonl` projections. The compact rows are derived from the same
+evaluated records, so they add no observations and cannot change an experiment's
+sample size or evidence status.
+
+A–C and sensitivity runs also contain a normalized trace under
+`conversations/`. Its JSONL exhaustively stores logical conversations with
+their evaluations without repeating shared dialogue per updater. Its Markdown
+is a bounded reading preview, not an analysis sample or an additional dataset.
+Runs without a configured surface retain nullable dialogue rather than
+inventing one.
+
 ## Implemented scientific core
 
 | Component | Status | Current boundary |
 | --- | --- | --- |
 | Runtime and configuration | Implemented | Python 3.11+ standard-library core; strict schema-versioned TOML; unknown and experiment-incompatible fields fail validation. |
 | Synthetic population and domains | Implemented | Fixed latent users, heterogeneous presentation susceptibility, and travel and writing domains with three signed attributes. |
-| Dataset surfaces and splits | Implemented | Generator-bound train/development/test option, dialogue, scenario, paraphrase, and terminal families with content digests and overlap audits. |
+| Scenario catalog and selection | Implemented | Strict schema and SHA-256 loading, 24 family-disjoint stimuli, deterministic paired selection across A/B/C/sensitivity, model-visible task stems, complete fitted-data design-cell checks, retained availability/consumption records, and reuse checks are implemented. All stimuli remain simulation-and-pilot-only: 24 provisional, 0 approved, no completed human reviews, and not paper-eligible. |
+| Hybrid conversation surfaces | Implemented / review-dependent | OpenRouter authors one neutral base and display-name set per scenario. Code expands balanced/restricted/ranking from the same wording, inserts only fixed default/suggestion text, and fixes `I choose {selected_name}.` after the response model chooses. `[scenarios] conversation_file` loads that frozen bank and observations retain the rendered exchange and surface ID. Human review remains pending, so the current bank is not paper-eligible. |
+| Dataset surfaces and splits | Implemented | Catalog-bound train/development/test option, dialogue, and scenario families plus separate paraphrase and terminal families, with content digests and overlap audits. |
 | Response models | Implemented | Random-utility and rule-based families; intrinsic utility remains separate from rank, default, and suggestion effects. |
 | Exact inference | Implemented | Full finite preference×susceptibility posterior with an action-aware likelihood; public beliefs use the preference marginal. |
 | Fitted references | Implemented | Parameter-count-matched aware and unaware likelihoods trained on the same records, with raw and development-calibrated bundles retained separately. |
 | Randomness | Implemented | Semantic-keyed SHA-256 streams and option-keyed Gumbels provide deterministic common-random-number branches. |
 | Structured and native state | Implemented | Structured beliefs plus inspectable episodic, semantic, persona, and provenance-linked native memory with content-addressed state identity. |
-| Information boundaries | Implemented | Updaters receive only their declared response-only, full-context, or provenance-aware view; latent truth is restricted to the simulator and evaluator. |
+| Information boundaries | Implemented | Evaluated LLMs receive semantic attribute meanings and readable options, not numeric features or the target index. Full/provenance views receive the rendered dialogue; response-only remains an ablation. Latent truth is restricted to the simulator and evaluator. |
 | Run integrity | Implemented | Resolved configuration identity, source digest, manifests, streamed checksums, symlink rejection, run verification, and deterministic freeze/verify tooling. |
+| Compact analysis projections | Implemented | New A, B, and C runs automatically retain one updater×trial, trajectory-turn, or evaluation/ranking row respectively; summary metadata and the run checksum bind the projection. Historical completed runs remain immutable and use a separately verified derived directory. |
+| Human-readable conversation traces | Implemented | A, B, C, and sensitivity runs retain exhaustive deduplicated JSONL with compact analysis metrics plus a deterministic diverse Markdown preview capped at 100 trace records by default. Summary metadata exposes both paths and exact complete record, turn, and outcome counts; runs without a natural surface mark it unavailable. |
 
 The durable data flow is:
 
 ```text
 latent synthetic user
   -> policy provenance and separately retained visible context
-  -> simulated, replayed, or live response
+  -> mathematical option choice
+  -> frozen natural assistant/user rendering
   -> declared updater information view
   -> structured profile or native-memory update
   -> evaluator-only metrics and no-claim gate records
@@ -177,6 +201,7 @@ decoder requests per model. These generation runs do not call a model.
 
 | Role | Current declaration | Transport |
 | --- | --- | --- |
+| Neutral-base/display-name author | `anthropic/claude-sonnet-5` | Separate OpenRouter authoring command; not called per treatment or trial |
 | Primary profile writer and Gate 4 native actions | `gpt-5.6-sol`, medium effort | Direct OpenAI |
 | Profile-writer replication | `gpt-5.6-terra`, medium effort | Direct OpenAI |
 | Generic decoder/pilot role | `gpt-5.6-luna`, low effort | Direct OpenAI |
@@ -195,6 +220,17 @@ Machine-local diagnostics have exercised direct OpenAI and one schema-valid
 request to each selected OpenRouter decoder route. Some supporting evidence was
 temporary and none is checked in, so these calls are not independently
 verifiable release evidence and do not enter a dataset, hypothesis, or gate.
+The dedicated `demo one-scenario` path also completed its fresh-directory
+Gemini/OpenRouter check with one executed request, zero resumed requests, and
+one physical transport attempt; its ignored local walkthrough remains
+diagnostic only.
+
+The checked-in conversation-authoring log records 24 prepared and 24 completed
+OpenRouter calls to pinned `anthropic/claude-sonnet-5`, and the resulting bank
+passes exact catalog coverage and runtime validation. These calls created
+candidate stimulus language only; they did not generate experiment
+observations, evaluate a profile writer, or change the bank's unreviewed,
+not-paper-eligible status.
 
 An earlier Claude diagnostic exposed a route-specific rejection of numeric JSON
 Schema bounds. The compatible wire-schema subset and strict local finite-range
@@ -205,6 +241,33 @@ packets, a three-seed Experiment C review, and a complete 19-point simulator
 OAT run. They all retain `not_claimed` and are not distributed evidence. The
 complete Gate 4 decoder/native-action collections and Experiment C external
 rescore collection have not been executed.
+
+The hybrid renderer and authoring path are distinct from those diagnostics.
+The checked-in candidate bank can be rendered offline, while the separate
+OpenRouter authoring command requires explicit authorization. Its model output
+contains only neutral base wording and display names; code adds the fixed
+treatments and choice reply. The resulting small input plus
+`.generation.jsonl` is not an evaluated profile-writer corpus. No completed
+human review makes that bank paper evidence.
+
+Some machine-local completed runs predate runner-native compact rows. They must
+not be edited or backfilled because doing so would invalidate `SHA256SUMS`.
+`artifact compact` instead derives `analysis-rows.jsonl` in a separate
+source-bound directory, and `artifact verify-compact` verifies that projection.
+It does not alter or promote the source run.
+
+Verified ignored compact sidecars now exist locally for the completed primary
+Experiment A run, the completed Experiment B run, and all three completed
+Experiment C seed runs. Together they occupy about 97 MB, versus roughly 25 GB
+for those full source runs. They remain local analysis conveniences, not
+checked-in evidence or paper results.
+
+On 2026-07-29, the seven separate incomplete or interrupted sensitivity attempt
+directories were revalidated as unfinished (`created` or missing a manifest),
+confirmed to have no completed checksum inventory, and permanently deleted with
+the operator's explicit approval. This reclaimed 28.551 GiB. The similarly
+named completed `simulator-sensitivity-full-725020f80ee4` run was excluded from
+that cleanup and verified successfully both before and after it.
 
 ## Gate state
 
@@ -228,6 +291,10 @@ Boolean available to that artifact evaluated true. It never changes
 
 ## Work still required for paper evidence
 
+- Complete independent surface and scientific review of the scenario catalog
+  and conversation bank, resolve or reject candidates without consulting
+  experiment outcomes, then freeze a paper-eligible version before
+  confirmatory collection.
 - Freeze the preregistration, estimands, model identities, provider routes,
   budgets, and release policy.
 - Execute and admit eligible live Experiment A–C and Gate 6 collections.
@@ -263,7 +330,10 @@ The repository is currently:
 | --- | --- |
 | Understand and inspect the complete protocol | Yes |
 | Generate synthetic datasets | Yes |
+| Render frozen natural conversations after mathematical choices | Yes |
+| Treat the current scenario/conversation surfaces as paper-eligible | No; independent human surface and scientific review are pending |
 | Run and verify offline Experiments A–C and sensitivity | Yes |
+| Analyze A–C using compact rows without loading full audit events | Yes for new runs; use the derived compact-artifact workflow for immutable historical runs |
 | Plan live requests without reading credentials | Yes |
 | Execute an explicitly authorized bounded live pilot | Yes, subject to operator review and provider availability |
 | Reproduce checked-in empirical findings | No; none are checked in |

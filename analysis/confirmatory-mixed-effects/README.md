@@ -28,7 +28,8 @@ substitutes for the proposal's user-random-slope and
 scenario-random-intercept models.
 
 This R project is the sole canonical mixed-effects harness. It verifies
-completed source runs, normalizes the retained event rows, fits the exact
+completed source runs and normalizes either their runner-native compact rows or
+a separately verified compact sidecar for a historical run. It fits the exact
 maximal models below, evaluates coding-invariant planned contrasts, retains
 complete numerical diagnostics, and publishes a separate checksum-bound
 analysis directory. It never edits a source run or promotes a technically
@@ -37,7 +38,8 @@ successful fit to a scientific claim.
 ## Models
 
 Experiment A uses naturally sampled rows and operationalizes proposal
-`UpdateError` as Action-Conditioned Update Error (`metrics.acue`):
+`UpdateError` as Action-Conditioned Update Error (`metrics.acue`). The runner
+writes the compact value as `update_error`:
 
 ```text
 update_error ~ updater * mechanism + domain + prior_strength
@@ -45,7 +47,7 @@ update_error ~ updater * mechanism + domain + prior_strength
 ```
 
 `user` is `run_id + user_id`; `scenario` is
-`run_id + context.scenario_id`. Run prefixes prevent accidental cluster
+`run_id + scenario_id`. Run prefixes prevent accidental cluster
 collisions when matched replications are combined.
 
 Experiment B contributes one analysis row for every retained turn:
@@ -55,11 +57,12 @@ terminal_error ~ updater * policy * initial_profile + domain + turn
                + (1 + policy | user) + (1 | scenario)
 ```
 
-For each row, the outcome named `terminal_error` by the frozen formula is
-reconstructed as marginal Brier error from that turn's
-`turns[].belief_after` and the trajectory's top-level latent `theta`.
-Zero-based retained turn indices are normalized to `1, ..., T`. The final
-reconstructed value must equal the trajectory's retained top-level
+For each row, the runner derives the outcome named `terminal_error` by the
+frozen formula as marginal Brier error from that turn's `belief_after` and the
+trajectory's top-level latent `theta`. The compact file retains both the
+zero-based source index and its normalized `1, ..., T` value. R checks their
+relationship, complete turn coverage, invariant trajectory metadata, and that
+the final compact value equals the trajectory's retained top-level
 `terminal_error`; a mismatch aborts analysis. Here `user` is
 `run_id + user_id`, and `scenario` is `run_id + crn_key`. The latter is the
 complete common-random-number twin set shared by counterfactual policy/updater
@@ -113,24 +116,38 @@ It does not fit a model or validate empirical findings.
 
 ## Inputs
 
-Every source must be a completed CAPE-Loop run with `SHA256SUMS` and retained
-events:
+Every source must be a completed CAPE-Loop run with `SHA256SUMS`. Compact
+analysis projections are written unconditionally, independently of optional
+raw event retention:
 
 - Experiment A:
-  `events/experiment-a.jsonl`, with `response_mode = naturally_sampled`;
+  `analysis/experiment-a-rows.jsonl`, filtered by R to
+  `response_mode = naturally_sampled`, plus
+  `analysis/experiment-a-exclusions.jsonl`;
 - Experiment B:
-  `events/experiment-b-trajectories.jsonl`.
+  `analysis/experiment-b-turns.jsonl`.
 
 The runner checks the complete run inventory and every source checksum,
-manifest status/run ID, resolved experiment kind, summary label, retained-event
-declaration, required fields, finite outcomes, duplicate records, factor
+manifest status/run ID, resolved experiment kind, summary label, compact-file
+declaration, exact field sets, finite outcomes, duplicate records, factor
 coverage, and complete user-level updater-by-treatment cells. It also requires
 the retained `config.resolved.json` to be the canonical one-line JSON payload
 and recomputes the manifest configuration digest from that payload. It requires
 at least eight user and eight scenario clusters. Experiment A requires and
 records the excluded-matched-set file and digest even when the file contains
-zero rows. Experiment B reconstructs every after-turn marginal Brier score and
-checks its final value against the retained terminal score.
+zero rows. Experiment B checks every source/turn key, requires contiguous
+turns and invariant trajectory metadata, and compares each final compact
+marginal Brier score with the retained terminal score.
+
+Historical runs created before these compact files existed remain analyzable
+through a three-file bundle produced by `cape_loop artifact compact`. Such a
+bundle contains exactly `manifest.json`, `analysis-rows.jsonl`, and
+`SHA256SUMS`. R still verifies the complete immutable source run, including the
+legacy A event/exclusion files or B trajectory file. It then verifies the
+bundle inventory and checksums and binds its run ID, experiment, source
+manifest, source checksum manifest, configuration, summary, legacy input,
+exclusion, row count, and row digest to that paired source. The large legacy
+event file is lineage evidence; R reads the compact sidecar for modeling.
 
 Source runs combined in one analysis must be independent repeats of the same
 scientific and model declaration, use an identical B horizon/design when
@@ -172,8 +189,10 @@ Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
 
 The exact Experiment A formula requires variation in `prior_strength`. A run
 or pooled set with fewer than two retained prior-strength values is reported as
-`not_estimable`; the current one-level pilot configurations therefore cannot
-produce this confirmatory fit.
+`not_estimable`. The current live pilot configurations use two retained levels
+and satisfy this condition, but their four users remain below the required
+minimum of eight user and scenario clusters, so they cannot produce a
+confirmatory fit.
 
 Experiment B uses the same interface:
 
@@ -183,6 +202,23 @@ Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
   --run runs/<closed-loop-run> \
   --output analyses/<closed-loop-analysis>
 ```
+
+For a historical run, first create a compact sidecar, then pair it explicitly:
+
+```bash
+PYTHONPATH=src python -m cape_loop artifact compact \
+  runs/<historical-a-run> artifacts/<historical-a-compact>
+
+Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
+  --experiment A \
+  --run runs/<historical-a-run> \
+  --compact-bundle artifacts/<historical-a-compact> \
+  --output analyses/<historical-a-analysis>
+```
+
+Supply either no `--compact-bundle` arguments or exactly one per `--run`, in
+the same order. Swapped, missing, duplicated, or source-mismatched bundles
+abort before fitting. The output must be outside every source run and bundle.
 
 Because B is normalized to one row per retained turn, an ordinary multi-turn
 run supplies within-trajectory `turn` variation. A one-turn design is reported
@@ -253,7 +289,7 @@ to the confirmatory result.
 ## Output contract
 
 The requested output directory must not already exist and cannot be inside a
-source run. It contains:
+source run or compact sidecar bundle. It contains:
 
 ```text
 analysis-result.json
@@ -270,9 +306,10 @@ SHA256SUMS
 
 `input-manifest.json` binds source run/config/source digests, the canonical
 resolved-config payload digest, complete source checksum-manifest digests,
-exact event/exclusion digests, normalized row digest, cluster counts, factor
-levels, analysis source digests, and the dependency lock. For Experiment B,
-`analysis-rows.csv` contains one reconstructed row per retained turn.
+exact compact-input/exclusion digests, normalized row digest, cluster counts, factor
+levels, sidecar manifest/checksum digests when applicable, analysis source
+digests, and the dependency lock. For Experiment B,
+`analysis-rows.csv` contains one validated compact row per retained turn.
 `analysis-result.json` follows
 [`analysis-result.schema.json`](analysis-result.schema.json).
 

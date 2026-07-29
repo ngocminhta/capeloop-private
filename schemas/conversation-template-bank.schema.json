@@ -1,0 +1,96 @@
+{
+  "$id": "urn:cape-loop:schema:conversation-template-bank:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bank_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "templates": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "choice_template": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "display_names": {
+            "additionalProperties": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxProperties": 4,
+            "minProperties": 4,
+            "type": "object"
+          },
+          "presentation_templates": {
+            "additionalProperties": false,
+            "properties": {
+              "balanced": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "default": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ranking": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "restricted": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "suggested": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "balanced",
+              "restricted",
+              "default",
+              "suggested",
+              "ranking"
+            ],
+            "type": "object"
+          },
+          "scenario_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "display_names",
+          "presentation_templates",
+          "choice_template"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "bank_id",
+    "source",
+    "templates"
+  ],
+  "title": "CAPE-Loop frozen conversation template bank",
+  "type": "object"
+}

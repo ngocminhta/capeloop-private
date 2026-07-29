@@ -73,6 +73,113 @@
         "null"
       ]
     },
+    "inputs": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_templates": {
+          "additionalProperties": false,
+          "properties": {
+            "bank_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "input_kind": {
+              "const": "conversation_template_bank"
+            },
+            "retained_file": {
+              "const": "inputs/conversation-templates.json"
+            },
+            "scenario_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "schema_version": {
+              "const": 1
+            },
+            "source": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema_version",
+            "input_kind",
+            "bank_id",
+            "source",
+            "scenario_count",
+            "retained_file"
+          ],
+          "type": "object"
+        },
+        "scenario_catalog": {
+          "additionalProperties": false,
+          "properties": {
+            "catalog_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "catalog_status": {
+              "const": "frozen-development"
+            },
+            "catalog_version": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "eligibility": {
+              "const": "simulation-and-pilot-only"
+            },
+            "family_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "input_kind": {
+              "const": "scenario_catalog"
+            },
+            "paper_eligible": {
+              "const": false
+            },
+            "retained_file": {
+              "const": "inputs/scenario-catalog.json"
+            },
+            "scenario_count": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "schema_version": {
+              "const": 1
+            },
+            "selection_policy": {
+              "const": "deterministic-stratified-v1"
+            },
+            "source_filename": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "source_sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema_version",
+            "input_kind",
+            "catalog_id",
+            "catalog_version",
+            "catalog_status",
+            "eligibility",
+            "selection_policy",
+            "source_filename",
+            "source_sha256",
+            "retained_file",
+            "scenario_count",
+            "family_count",
+            "paper_eligible"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "run_id": {
       "minLength": 1,
       "type": "string"

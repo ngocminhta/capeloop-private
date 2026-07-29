@@ -25,6 +25,7 @@ from .fitting import (
     semantic_choice_label,
 )
 from .response import RandomUtilityModel
+from .scenarios import ScenarioCatalog, materialize_matched_anchor_set
 from .schemas import LatentUser, Observation
 
 
@@ -53,6 +54,7 @@ def generate_training_examples(
     count: int,
     seed: int,
     split: str = "train",
+    scenario_catalog: ScenarioCatalog | None = None,
 ) -> tuple[ChoiceTrainingExample, ...]:
     """Generate a balanced randomized training log across provenance conditions."""
 
@@ -63,19 +65,27 @@ def generate_training_examples(
     if split not in DATA_SPLITS:
         raise ValueError(f"split must be one of {DATA_SPLITS}")
     examples = []
+    cell_count = len(MECHANISMS) * 3 * 2
+    replicates_per_cell = max(1, count // cell_count)
     for index in range(count):
-        # Cycle users inside each target × mechanism × direction block. This
-        # crosses every user with provenance conditions instead of assigning a
-        # permanent mechanism through two matching modulo schedules.
-        user = users[index % len(users)]
-        cell = index // len(users)
-        mechanism = MECHANISMS[cell % len(MECHANISMS)]
-        target = (cell // len(MECHANISMS)) % 3
-        direction = (
-            -1
-            if (cell // (len(MECHANISMS) * 3)) % 2 == 0
-            else 1
-        )
+        # Traverse all 24 mechanism × target × direction cells before
+        # repeating one. This guarantees full design-cell coverage whenever
+        # count >= 24, independently of the training-population size. Within a
+        # complete users × cells schedule, every user still visits every cell.
+        cell = (index // replicates_per_cell) % cell_count
+        within_cell = index % replicates_per_cell
+        schedule_cycle = index // (replicates_per_cell * cell_count)
+        mechanism = MECHANISMS[(cell // 2) % len(MECHANISMS)]
+        target = cell // (len(MECHANISMS) * 2)
+        direction = -1 if cell % 2 == 0 else 1
+        user = users[
+            (
+                cell * replicates_per_cell
+                + within_cell
+                + schedule_cycle * replicates_per_cell
+            )
+            % len(users)
+        ]
         matched = build_matched_anchor_set(
             domain,
             target_attribute=target,
@@ -89,6 +99,15 @@ def generate_training_examples(
             ),
             turn=index,
         )
+        if scenario_catalog is not None:
+            scenario = scenario_catalog.select(
+                domain=domain.domain_id,
+                split=split,
+                target_attribute=target,
+                seed=seed,
+                selection_key=("fitted-likelihood", split, index),
+            )
+            matched = materialize_matched_anchor_set(matched, scenario)
         context = matched.context(mechanism)
         selected = response_model.sample_choice(
             user.theta,

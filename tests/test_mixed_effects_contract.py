@@ -210,21 +210,56 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
 
     def test_experiment_b_is_a_retained_turn_analysis(self) -> None:
         experiment_b = self.load_json("analysis-spec.json")["experiments"]["B"]
+        self.assertEqual(
+            experiment_b["input_file"],
+            "analysis/experiment-b-turns.jsonl",
+        )
+        self.assertEqual(
+            experiment_b["legacy_input_file"],
+            "events/experiment-b-trajectories.jsonl",
+        )
+        self.assertEqual(
+            experiment_b["bundle_analysis_unit"],
+            "retained_trajectory_turn",
+        )
         self.assertEqual(experiment_b["analysis_unit"], "retained_turn")
         self.assertEqual(
             experiment_b["outcome_source"],
-            "turns[].belief_after marginal Brier against top-level theta",
+            (
+                "runner-native compact terminal_error derived from "
+                "turns[].belief_after marginal Brier against top-level theta"
+            ),
         )
-        self.assertEqual(experiment_b["turn_source"], "turns[].turn + 1")
+        self.assertEqual(
+            experiment_b["turn_source"],
+            "compact turn equals source_turn_index + 1",
+        )
         self.assertEqual(
             experiment_b["terminal_consistency_check"],
-            "final reconstructed turn error equals retained terminal_error",
+            "final compact turn error equals retained_terminal_error",
         )
         self.assertEqual(experiment_b["outcome_name"], "terminal_error")
 
-    def test_r_input_contract_binds_source_and_reconstructs_turn_rows(
+    def test_r_input_contract_binds_source_and_validates_compact_rows(
         self,
     ) -> None:
+        experiment_a = self.load_json("analysis-spec.json")["experiments"]["A"]
+        self.assertEqual(
+            experiment_a["input_file"],
+            "analysis/experiment-a-rows.jsonl",
+        )
+        self.assertEqual(
+            experiment_a["exclusion_file"],
+            "analysis/experiment-a-exclusions.jsonl",
+        )
+        self.assertEqual(
+            experiment_a["legacy_input_file"],
+            "events/experiment-a.jsonl",
+        )
+        self.assertEqual(
+            experiment_a["legacy_exclusion_file"],
+            "events/experiment-a-exclusions.jsonl",
+        )
         source = self.read_r_source("R/io.R")
         for anchor in (
             "canonical_config_sha256 <- function(path)",
@@ -241,20 +276,40 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             "length(unique(source_digests)) != 1L",
             "the same Experiment B horizon",
             "if (!identical(reference, candidate))",
-            "marginal_brier_from_retained_belief <- function(",
-            "turn$belief_after",
-            "theta <- validate_theta_values(row$theta",
-            "sum((numeric_probabilities - expected)^2)",
-            "sum(attribute_scores) / 3",
-            "source_turn_index = observed",
-            "turn = observed + 1L",
-            "source_turn_index = turn_values$source_turn_index",
-            "terminal_error = turn_values$terminal_error",
-            "reconstructed_terminal_error <- tail(",
-            "abs(reconstructed_terminal_error - retained_terminal_error)",
-            "final turn Brier error differs from retained terminal_error",
+            "assert_exact_fields <- function(value, expected, label)",
+            "source$summary$analysis_row_count",
+            "row$retained_terminal_error",
+            "row$same_history_shadow",
+            "compact Experiment A source_record_index values must cover",
+            "compact Experiment B source_record_index values must cover",
+            "source summary compact exclusion declaration differs",
+            "compact Experiment B rows are not in canonical source/turn order",
+            "compact turn indexes are not contiguous from zero",
+            "compact turn must equal source_turn_index + 1",
+            "final compact turn error differs from retained_terminal_error",
+            "verify_compact_bundle <- function(",
+            "compact bundle inventory must be exactly",
+            "compact bundle source manifest digest mismatch",
+            "compact bundle source SHA256SUMS digest mismatch",
+            "compact bundle source config file digest mismatch",
+            "compact bundle source summary file digest mismatch",
+            "compact bundle source input binding mismatch",
+            "compact bundle source exclusion binding mismatch",
+            "compact bundle analysis row digest mismatch",
+            "source$analysis_input_path",
+            "source$analysis_input_sha256",
         ):
             self.assertIn(anchor, source)
+        self.assertNotIn(
+            "source run did not declare artifacts.retain_events=true",
+            source,
+        )
+        self.assertNotIn(
+            "read_jsonl_objects(\n"
+            "    source$input_path,\n"
+            '    paste0(source$run_id, " Experiment B trajectories")',
+            source,
+        )
         self.assertNotRegex(
             source,
             r"experiment_config\s*\$turns\s*<-\s*NULL",
@@ -271,11 +326,25 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
         function = runner[start:end]
         source_check = function.index("for (source in source_paths)")
         rejection = function.index(
-            'abort_analysis("analysis output cannot be inside a source run")'
+            "analysis output cannot be inside a source run or compact bundle"
         )
         parent_creation = function.index("dir.create(parent")
         self.assertLess(source_check, rejection)
         self.assertLess(rejection, parent_creation)
+
+    def test_historical_bundle_cli_is_strictly_paired(self) -> None:
+        runner = self.read_r_source("run_analysis.R")
+        for anchor in (
+            '"--compact-bundle"',
+            "length(result$compact_bundles) != length(result$runs)",
+            "exactly one per --run in the same order",
+            "use_legacy_input = if (uses_historical_bundles) NULL else FALSE",
+            "verify_compact_bundle(",
+            "source_runs[[index]]$analysis_input_path <- bundle$rows_path",
+            "source_runs[[index]]$analysis_input_sha256 <- bundle$rows_sha256",
+            "source_lineage_with_external_compact_analysis_rows",
+        ):
+            self.assertIn(anchor, runner)
 
     def test_model_defenses_scaled_gradient_and_pointwise_intervals(
         self,

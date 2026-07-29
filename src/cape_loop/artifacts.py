@@ -211,7 +211,16 @@ class RunArtifacts:
         run_id = f"{config.run.name}-{config_digest(config)[:12]}"
         path = output_root / run_id
         path.mkdir(parents=True, exist_ok=exist_ok)
-        for child in ("events", "metrics", "models", "tables", "figures", "llm"):
+        for child in (
+            "events",
+            "analysis",
+            "conversations",
+            "metrics",
+            "models",
+            "tables",
+            "figures",
+            "llm",
+        ):
             (path / child).mkdir(exist_ok=True)
         run = cls(path=path, config=config)
         resolved_config_sha256 = config_digest(config)
@@ -270,6 +279,23 @@ class RunArtifacts:
         destination = self._resolve(relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("w", encoding="utf-8", newline="\n") as handle:
+            for row in rows:
+                handle.write(canonical_json(row) + "\n")
+        return destination
+
+    def write_jsonl_chunk(
+        self,
+        relative: str | Path,
+        rows: Iterable[Any],
+        *,
+        append: bool,
+    ) -> Path:
+        """Write one bounded chunk of a potentially large JSONL artifact."""
+
+        destination = self._resolve(relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if append else "w"
+        with destination.open(mode, encoding="utf-8", newline="\n") as handle:
             for row in rows:
                 handle.write(canonical_json(row) + "\n")
         return destination

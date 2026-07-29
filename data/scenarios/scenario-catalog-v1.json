@@ -1,0 +1,1862 @@
+{
+  "schema_version": 1,
+  "catalog_id": "cape-loop-scenarios-v1",
+  "catalog_version": "1.0.0",
+  "catalog_status": "frozen-development",
+  "eligibility": "simulation-and-pilot-only",
+  "language": "en",
+  "locale": "international",
+  "source": "project-authored-synthetic",
+  "license": "Apache-2.0",
+  "created_on": "2026-07-29",
+  "frozen_on": "2026-07-29",
+  "split_policy": "scenario-family-disjoint-v1",
+  "selection_policy": "deterministic-stratified-v1",
+  "attribute_order": {
+    "travel": [
+      "price",
+      "setting",
+      "planning"
+    ],
+    "writing": [
+      "length",
+      "tone",
+      "spelling"
+    ]
+  },
+  "authoring_provenance": {
+    "method": "codex-assisted-project-draft",
+    "assistant_interface": "Codex",
+    "provider": "OpenAI",
+    "underlying_model": "not-exposed-by-interface",
+    "drafted_on": "2026-07-29",
+    "human_reviewed": false,
+    "note": "Codex assisted with the project-authored scenario surfaces. The interface did not expose the exact underlying model identifier. These records remain provisional until automated validation and independent human review are complete."
+  },
+  "scenarios": [
+    {
+      "scenario_id": "travel-scenario-atlas-lodging-price-01",
+      "family_id": "travel-family-atlas-lodging-price-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "travel",
+      "task_family": "lodging",
+      "target_attribute": 0,
+      "target_key": "price",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one lodging package for a short personal trip.",
+      "wording_template_id": "travel-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "travel-atlas-lodging-price-01-negative",
+        "label": "Lower-cost standard room in a mixed-use neighborhood",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-atlas-lodging-price-01-positive",
+        "label": "Higher-cost upgraded room in a mixed-use neighborhood",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-atlas-lodging-price-01-negative-peer",
+        "label": "Lower-cost standard room in a quiet outer neighborhood",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-atlas-lodging-price-01-positive-peer",
+        "label": "Higher-cost upgraded room in a quiet outer neighborhood",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-rail-price-01",
+      "family_id": "travel-family-beacon-rail-price-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "travel",
+      "task_family": "intercity_rail",
+      "target_attribute": 0,
+      "target_key": "price",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one intercity rail package for the same route and departure period.",
+      "wording_template_id": "travel-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "travel-beacon-rail-price-01-negative",
+        "label": "Lower-fare standard seat from the main terminal",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-beacon-rail-price-01-positive",
+        "label": "Higher-fare upgraded seat from the main terminal",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-beacon-rail-price-01-negative-peer",
+        "label": "Lower-fare standard seat from a quieter outer terminal",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-beacon-rail-price-01-positive-peer",
+        "label": "Higher-fare upgraded seat from a quieter outer terminal",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-airfare-price-01",
+      "family_id": "travel-family-cedar-airfare-price-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "airfare",
+      "target_attribute": 0,
+      "target_key": "price",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one flight package for the same destination and travel window.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-airfare-price-01-negative",
+        "label": "Lower-fare standard cabin package from the main airport",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-airfare-price-01-positive",
+        "label": "Higher-fare upgraded cabin package from the main airport",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-airfare-price-01-negative-peer",
+        "label": "Lower-fare standard cabin package from a quieter outer airport",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-airfare-price-01-positive-peer",
+        "label": "Higher-fare upgraded cabin package from a quieter outer airport",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-activity-price-02",
+      "family_id": "travel-family-cedar-activity-price-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "guided_activity",
+      "target_attribute": 0,
+      "target_key": "price",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one guided activity package covering the same subject and duration.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-activity-price-02-negative",
+        "label": "Lower-cost standard group session at a central meeting point",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-activity-price-02-positive",
+        "label": "Higher-cost enhanced group session at a central meeting point",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-activity-price-02-negative-peer",
+        "label": "Lower-cost standard group session at a quiet outer meeting point",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-activity-price-02-positive-peer",
+        "label": "Higher-cost enhanced group session at a quiet outer meeting point",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-atlas-meeting-setting-01",
+      "family_id": "travel-family-atlas-meeting-setting-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "travel",
+      "task_family": "meeting_location",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one location for a small travel-group meeting.",
+      "wording_template_id": "travel-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "travel-atlas-meeting-setting-01-negative",
+        "label": "Compact meeting room near the main transit area",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-atlas-meeting-setting-01-positive",
+        "label": "Spacious quiet meeting room farther from the main transit area",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-atlas-meeting-setting-01-negative-peer",
+        "label": "Compact central meeting room with self-managed flexible timing",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-atlas-meeting-setting-01-positive-peer",
+        "label": "Spacious quiet meeting room with self-managed flexible timing",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-dining-setting-01",
+      "family_id": "travel-family-beacon-dining-setting-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "travel",
+      "task_family": "dining_location",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one dining location with a comparable menu and service format.",
+      "wording_template_id": "travel-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "travel-beacon-dining-setting-01-negative",
+        "label": "Compact dining room in a central active district",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-beacon-dining-setting-01-positive",
+        "label": "Spacious quiet dining room outside the central district",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-beacon-dining-setting-01-negative-peer",
+        "label": "Compact central dining room with a flexible arrival window",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-beacon-dining-setting-01-positive-peer",
+        "label": "Spacious quiet dining room with a flexible arrival window",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-workspace-setting-01",
+      "family_id": "travel-family-cedar-workspace-setting-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "temporary_workspace",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one temporary workspace for a day during a trip.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-workspace-setting-01-negative",
+        "label": "Compact work lounge beside the central transport hub",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-workspace-setting-01-positive",
+        "label": "Spacious quiet work lounge farther from the transport hub",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-workspace-setting-01-negative-peer",
+        "label": "Compact central work lounge with flexible access hours",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-workspace-setting-01-positive-peer",
+        "label": "Spacious quiet work lounge with flexible access hours",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-seating-setting-02",
+      "family_id": "travel-family-cedar-seating-setting-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "event_seating",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one seating area for the same event programme.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-seating-setting-02-negative",
+        "label": "Compact seat near the central stage area",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-seating-setting-02-positive",
+        "label": "Roomier seat in a quieter area farther from the stage",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-seating-setting-02-negative-peer",
+        "label": "Compact central seat with a flexible entry window",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-seating-setting-02-positive-peer",
+        "label": "Roomier quiet-area seat with a flexible entry window",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-atlas-itinerary-planning-01",
+      "family_id": "travel-family-atlas-itinerary-planning-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "travel",
+      "task_family": "day_itinerary",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one structure for a day itinerary covering the same places.",
+      "wording_template_id": "travel-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "travel-atlas-itinerary-planning-01-negative",
+        "label": "Coordinated itinerary with a fixed sequence and bundled logistics",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-atlas-itinerary-planning-01-positive",
+        "label": "Self-directed itinerary with a changeable sequence and open timing",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-atlas-itinerary-planning-01-negative-peer",
+        "label": "Higher-cost coordinated itinerary with upgraded bundled logistics",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-atlas-itinerary-planning-01-positive-peer",
+        "label": "Higher-cost self-directed itinerary with upgraded flexible support",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-beacon-booking-planning-01",
+      "family_id": "travel-family-beacon-booking-planning-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "travel",
+      "task_family": "multi_leg_booking",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one booking structure for the same multi-leg journey.",
+      "wording_template_id": "travel-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "travel-beacon-booking-planning-01-negative",
+        "label": "Single coordinated booking with fixed connections",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-beacon-booking-planning-01-positive",
+        "label": "Separate changeable bookings with adjustable connections",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-beacon-booking-planning-01-negative-peer",
+        "label": "Higher-cost coordinated booking with upgraded connection support",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-beacon-booking-planning-01-positive-peer",
+        "label": "Higher-cost changeable bookings with upgraded flexible support",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-transfer-planning-01",
+      "family_id": "travel-family-cedar-transfer-planning-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "airport_transfer",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one transfer arrangement between an airport and a lodging area.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-transfer-planning-01-negative",
+        "label": "Coordinated transfer with a fixed pickup and bundled routing",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-transfer-planning-01-positive",
+        "label": "Self-arranged transfer with adjustable pickup and routing",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-transfer-planning-01-negative-peer",
+        "label": "Higher-cost coordinated transfer with upgraded bundled service",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-transfer-planning-01-positive-peer",
+        "label": "Higher-cost self-arranged transfer with upgraded flexible service",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-schedule-planning-02",
+      "family_id": "travel-family-cedar-schedule-planning-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "activity_schedule",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one scheduling format for a set of activities.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-schedule-planning-02-negative",
+        "label": "Prearranged activity sequence with fixed times and bundled entry",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-schedule-planning-02-positive",
+        "label": "Open activity sequence with changeable times and separate entry",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-schedule-planning-02-negative-peer",
+        "label": "Higher-cost prearranged sequence with upgraded bundled entry",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-schedule-planning-02-positive-peer",
+        "label": "Higher-cost open sequence with upgraded flexible entry",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-status-length-01",
+      "family_id": "writing-family-atlas-status-length-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "writing",
+      "task_family": "status_update",
+      "target_attribute": 0,
+      "target_key": "length",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one version of a project status update containing the same core facts.",
+      "wording_template_id": "writing-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "writing-atlas-status-length-01-negative",
+        "label": "Concise status update in a neutral tone",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-atlas-status-length-01-positive",
+        "label": "Detailed status update in a neutral tone",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-atlas-status-length-01-negative-peer",
+        "label": "Concise status update in a conversational tone",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-atlas-status-length-01-positive-peer",
+        "label": "Detailed status update in a conversational tone",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-explainer-length-01",
+      "family_id": "writing-family-beacon-explainer-length-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "writing",
+      "task_family": "technical_explainer",
+      "target_attribute": 0,
+      "target_key": "length",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one technical explanation covering the same concept and conclusion.",
+      "wording_template_id": "writing-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "writing-beacon-explainer-length-01-negative",
+        "label": "Concise technical overview in a neutral tone",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-beacon-explainer-length-01-positive",
+        "label": "Detailed technical walkthrough in a neutral tone",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-beacon-explainer-length-01-negative-peer",
+        "label": "Concise technical overview in a conversational tone",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-beacon-explainer-length-01-positive-peer",
+        "label": "Detailed technical walkthrough in a conversational tone",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-customer-length-01",
+      "family_id": "writing-family-cedar-customer-length-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "customer_email",
+      "target_attribute": 0,
+      "target_key": "length",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one customer email that communicates the same decision and next step.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-customer-length-01-negative",
+        "label": "Concise customer email in a neutral tone",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-customer-length-01-positive",
+        "label": "Detailed customer email in a neutral tone",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-customer-length-01-negative-peer",
+        "label": "Concise customer email in a conversational tone",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-customer-length-01-positive-peer",
+        "label": "Detailed customer email in a conversational tone",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-summary-length-02",
+      "family_id": "writing-family-cedar-summary-length-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "meeting_summary",
+      "target_attribute": 0,
+      "target_key": "length",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one meeting summary containing the same decisions and action items.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-summary-length-02-negative",
+        "label": "Concise meeting summary in a neutral tone",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-summary-length-02-positive",
+        "label": "Detailed meeting summary in a neutral tone",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-summary-length-02-negative-peer",
+        "label": "Concise meeting summary in a conversational tone",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-summary-length-02-positive-peer",
+        "label": "Detailed meeting summary in a conversational tone",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-workplace-tone-01",
+      "family_id": "writing-family-atlas-workplace-tone-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "writing",
+      "task_family": "workplace_email",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one workplace email that conveys the same request and deadline.",
+      "wording_template_id": "writing-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "writing-atlas-workplace-tone-01-negative",
+        "label": "Formal workplace email with neutral spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-atlas-workplace-tone-01-positive",
+        "label": "Conversational workplace email with neutral spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-atlas-workplace-tone-01-negative-peer",
+        "label": "Formal workplace email using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-atlas-workplace-tone-01-positive-peer",
+        "label": "Conversational workplace email using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-support-tone-01",
+      "family_id": "writing-family-beacon-support-tone-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "writing",
+      "task_family": "support_reply",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one support reply that provides the same explanation and resolution.",
+      "wording_template_id": "writing-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "writing-beacon-support-tone-01-negative",
+        "label": "Formal support reply with neutral spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-beacon-support-tone-01-positive",
+        "label": "Conversational support reply with neutral spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-beacon-support-tone-01-negative-peer",
+        "label": "Formal support reply using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-beacon-support-tone-01-positive-peer",
+        "label": "Conversational support reply using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-announcement-tone-01",
+      "family_id": "writing-family-cedar-announcement-tone-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "project_announcement",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one project announcement that presents the same update and timing.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-announcement-tone-01-negative",
+        "label": "Formal project announcement with neutral spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-announcement-tone-01-positive",
+        "label": "Conversational project announcement with neutral spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-announcement-tone-01-negative-peer",
+        "label": "Formal project announcement using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-announcement-tone-01-positive-peer",
+        "label": "Conversational project announcement using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-feedback-tone-02",
+      "family_id": "writing-family-cedar-feedback-tone-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "peer_feedback",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one peer-feedback note that communicates the same observations and suggestions.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-feedback-tone-02-negative",
+        "label": "Formal peer-feedback note with neutral spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-feedback-tone-02-positive",
+        "label": "Conversational peer-feedback note with neutral spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-feedback-tone-02-negative-peer",
+        "label": "Formal peer-feedback note using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-feedback-tone-02-positive-peer",
+        "label": "Conversational peer-feedback note using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-description-spelling-01",
+      "family_id": "writing-family-atlas-description-spelling-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "train",
+      "domain": "writing",
+      "task_family": "product_description",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one product description with the same claims and structure.",
+      "wording_template_id": "writing-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "writing-atlas-description-spelling-01-negative",
+        "label": "Product description using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-atlas-description-spelling-01-positive",
+        "label": "Product description using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-atlas-description-spelling-01-negative-peer",
+        "label": "Detailed product description using British spelling",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-atlas-description-spelling-01-positive-peer",
+        "label": "Detailed product description using American spelling",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-documentation-spelling-01",
+      "family_id": "writing-family-beacon-documentation-spelling-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "development",
+      "domain": "writing",
+      "task_family": "software_documentation",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one software documentation passage with the same instructions and examples.",
+      "wording_template_id": "writing-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-negative",
+        "label": "Documentation passage using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-positive",
+        "label": "Documentation passage using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-negative-peer",
+        "label": "Detailed documentation passage using British spelling",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-positive-peer",
+        "label": "Detailed documentation passage using American spelling",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-newsletter-spelling-01",
+      "family_id": "writing-family-cedar-newsletter-spelling-01",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "community_newsletter",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "difficulty": "standard_tradeoff",
+      "prompt": "Choose one community newsletter item with the same information and ordering.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-negative",
+        "label": "Newsletter item using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-positive",
+        "label": "Newsletter item using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-negative-peer",
+        "label": "Detailed newsletter item using British spelling",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-positive-peer",
+        "label": "Detailed newsletter item using American spelling",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-guide-spelling-02",
+      "family_id": "writing-family-cedar-guide-spelling-02",
+      "revision": 1,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "museum_guide",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "difficulty": "close_tradeoff",
+      "prompt": "Choose one museum guide passage with the same description and sequence.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-guide-spelling-02-negative",
+        "label": "Museum guide passage using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-guide-spelling-02-positive",
+        "label": "Museum guide passage using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-guide-spelling-02-negative-peer",
+        "label": "Detailed museum guide passage using British spelling",
+        "features": [
+          0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-guide-spelling-02-positive-peer",
+        "label": "Detailed museum guide passage using American spelling",
+        "features": [
+          0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      }
+    }
+  ]
+}

@@ -18,17 +18,21 @@ experimental outcome.
 
 Experiments A–C call the same preparation path before their main runner:
 
-1. load the travel and/or writing domain;
-2. build a deterministic split manifest;
-3. generate disjoint train, development, and test latent-user groups;
-4. generate randomized training interactions across the four provenance
+1. load and checksum-validate the configured scenario catalog, when enabled;
+2. load the travel and/or writing domain;
+3. build a deterministic split manifest;
+4. generate disjoint train, development, and test latent-user groups;
+5. generate randomized training interactions across the four provenance
    mechanisms;
-5. fit four-parameter aware and unaware likelihood models on the same training
+6. fit four-parameter aware and unaware likelihood models on the same training
    interactions;
-6. generate a distinct development interaction set;
-7. optionally fit separate aware and unaware temperatures on development
+7. generate a distinct development interaction set;
+8. optionally fit separate aware and unaware temperatures on development
    outcomes; and
-8. retain the split, population, raw model, active model, calibration, and
+9. when `[scenarios] conversation_file` is configured, render each
+   mathematically fixed choice through the frozen per-scenario conversation
+   bank; and
+10. retain the split, population, raw model, active model, calibration, and
    development diagnostic records.
 
 The active fitted bundle is the raw bundle when calibration is `none`; otherwise
@@ -75,7 +79,7 @@ axes:
 | Susceptibility | The complete ranking/default/suggestion tuple belongs to one split |
 | Option template | Feature-matched atlas, beacon, and cedar families belong to train, development, and test |
 | Dialogue template | Each split has a distinct opaque visible wording-template ID |
-| Scenario family | Each split has a distinct scenario-family prefix |
+| Scenario family | Each complete catalog family and its visible surfaces belong to one split |
 | Paraphrase template | Each content-addressed family belongs to exactly one split |
 
 Atlas, beacon, and cedar are intentionally opaque so that split labels do not
@@ -106,6 +110,84 @@ software split; it cannot prove that researchers avoided looking at test
 results while tuning prompts or thresholds, which remains a preregistration and
 release-review obligation.
 
+### Catalog-backed deterministic selection
+
+Every checked-in configuration binds the canonical 1.0.0 catalog and its exact
+SHA-256. Selection first filters by domain, split, and target attribute, sorts
+eligible scenarios by stable ID, and chooses one with a semantic hash of the
+run seed, catalog identity/version, and an experiment-owned pairing key. It
+does not inspect latent preference, current profile, updater output, response,
+model performance, or sensitivity-grid coordinates. The catalog replaces
+generic surfaces inside existing cells; it is not an additional Cartesian
+factor and does not by itself increase the model-call budget.
+
+- **Training/development:** the existing example schedule selects
+  deterministically from its own atlas/beacon pool before fitting or
+  calibration.
+- **Experiment A:** selection is keyed by test-user index, attribute, and
+  anchor direction. All mechanisms, response modes, prior strengths, and
+  updaters within that matched case reuse the same scenario and anchor.
+- **Experiment B:** selection is keyed by the common trajectory-pair key and
+  turn. Policy/updater twins therefore retain the same scenario whenever they
+  target the same attribute, while presentation and endogenous response can
+  still differ.
+- **Experiment C:** development and test use their distinct catalog pools.
+  Every updater replays each fixed history verbatim; fixed logger twins and
+  same-target endogenous updater branches use paired scenario schedules.
+- **Sensitivity:** every grid point reuses the same frozen catalog and semantic
+  schedule. Parameters may change choices, but a grid coordinate cannot select
+  a different scenario.
+
+Every catalog-backed run retains the consumed bytes, input manifest, and
+availability and realized-consumption reports described in
+[Data model](data-model.md#scenario-catalog-input). The held-out terminal-v2
+batteries used by Experiments B and C remain separate generated evaluation
+instruments and are not selected from the interaction catalog.
+
+### Hybrid conversation protocol
+
+The scenario catalog defines the controlled meanings; the companion
+`[scenarios] conversation_file` defines their frozen natural-language
+realizations. The mathematical random-utility or rule-based model always
+selects the option first. Runtime then renders one assistant turn that presents
+the visible options, followed by the fixed user sentence
+`I choose {selected_name}.`
+
+For example, a restricted lodging surface is:
+
+> **Assistant:** Here are two lower-cost hotel options for your trip. Hotel A
+> is a standard room in a mixed-use neighborhood. Hotel B is a standard room
+> in a quiet outer neighborhood. Which would you like?
+>
+> **User:** I choose Hotel A.
+
+The template-authoring model neither sees the latent user nor chooses Hotel A.
+It authors one neutral base presentation and neutral display names per scenario.
+Balanced, restricted, and ranking share that base wording. Code adds only the
+fixed default or suggestion sentence when that treatment is present and fixes
+the user reply. The resulting templates are reviewed as scenario inputs and
+reused across trials; runtime introduces no authoring-model call per event.
+
+Full-context and provenance-aware evaluated LLMs receive the rendered dialogue,
+readable option descriptions, and a semantic attribute codebook. They do not
+receive numeric feature vectors or the internal target-attribute index.
+Response-only receives the local reply and selected readable option as the
+deliberately information-poor ablation. The evaluated writer remains the model
+configured in `[llm]`; it is separate from the conversation author.
+
+Every run writes a normalized trace with associated metrics under
+`conversations/`. Configured hybrid runs contain the exact rendered exchanges;
+legacy/programmatic runs explicitly mark the natural surface unavailable. The
+JSONL is exhaustive and deduplicated by the experiment's logical conversation
+unit. The matching Markdown is a deterministic, diverse preview of at most 100
+trace records by default; it reports the complete record, turn, and
+outcome/evaluation counts and provides readable metric labels and
+interpretation guidance. The preview is for reading, not a substitute for the
+complete JSONL or canonical metric artifacts. Each run summary names both paths
+and records the complete conversation, turn, and outcome counts plus the
+displayed preview count; the exact summary keys are listed in
+[Data model](data-model.md#conversation-logs-and-readable-previews).
+
 ## Experiment A: provenance audit
 
 Use:
@@ -118,7 +200,8 @@ PYTHONPATH=src python -m cape_loop run configs/smoke.toml
 
 For every selected test user, domain, target attribute, anchor direction,
 prior-strength stratum, mechanism, response mode, and updater, the runner
-constructs a matched anchor set.
+constructs a matched anchor set from one deterministically selected cedar
+scenario.
 
 `experiment.prior_strengths` crosses a declared concentration factor. At level
 `s`, the user-specific prior is `(1-s)` uniform joint mass plus `s`
@@ -145,7 +228,12 @@ Exclusions are retained when event retention is enabled.
 `controlled_anchor` supplies the same anchor observation in every mechanism.
 This is a functional provenance-sensitivity control, not an average treatment
 effect. `naturally_sampled` samples from the declared response distribution for
-each context.
+each context. With the hybrid surface bank, the anchor keeps the same stable
+display name and exact local user sentence across controlled mechanisms. The
+assistant base wording is shared. Restricted changes the option pair, ranking
+changes its order, and only default or suggestion inserts a fixed treatment
+sentence. Naturally sampled rows render whichever option the mathematical
+response model selected.
 
 The configured policy must be exactly `balanced`; mechanism variation is
 constructed by the elicitation layer rather than a policy trajectory.
@@ -166,6 +254,10 @@ configurations should set the count explicitly.
 The runner writes:
 
 ```text
+analysis/experiment-a-rows.jsonl            # one compact updater×trial row
+analysis/experiment-a-exclusions.jsonl      # always-retained exclusions
+conversations/experiment-a.jsonl            # exhaustive, one record per trial
+conversations/experiment-a.md               # diverse human preview, at most 100
 events/experiment-a.jsonl                  # when retain_events = true
 events/experiment-a-exact-references.jsonl # when retain_events = true
 events/experiment-a-exclusions.jsonl       # when retain_events = true
@@ -196,6 +288,20 @@ figures/experiment-a-update-magnitude.svg  # when controlled rows exist
 metrics/gate-report.json
 metrics/summary.json
 ```
+
+The compact A file includes both `controlled_anchor` and `naturally_sampled`
+rows. It exposes identifiers, mechanism, prior strength, response mode, and
+ACUE as `update_error`; the full event and exact-reference files remain the
+source for reconstructing complete posteriors and causal chains. A compact row
+is a projection of an evaluated trial, not an additional trial.
+`analysis/experiment-a-exclusions.jsonl` mirrors the versioned exclusion rows
+independently of raw event retention so confirmatory admission never silently
+drops an excluded matched set.
+
+The A conversation trace stores the assistant/user exchange once per
+`trial_id` and groups the updater evaluations beneath that record. This avoids
+copying identical dialogue once for every updater while retaining the source
+record linkage and the A metrics used in analysis.
 
 Metric rows include marginal Brier score, fitted-aware reference Brier,
 excess Brier, action-conditioned update error, marginal KL, update-direction
@@ -488,8 +594,9 @@ trajectories independent users. Fewer than eight user clusters is explicitly
 marked `insufficient_clusters`.
 
 These are paired, cluster-aware nonparametric intervals. They are not a GLMM or
-a user-level mixed-effects model; the latter remains a separate proposal
-analysis requiring an appropriate statistical environment.
+a user-level mixed-effects model. The latter is implemented by the separate,
+version-pinned [R mixed-effects harness](../analysis/confirmatory-mixed-effects/README.md)
+and must be fitted on verified paper runs in the declared R environment.
 
 ### Pilot power for the frozen three-way interaction
 
@@ -609,6 +716,9 @@ not establish statistically independent decoder errors.
 ### Artifacts
 
 ```text
+analysis/experiment-b-turns.jsonl               # one compact retained turn
+conversations/experiment-b.jsonl                 # exhaustive trajectory traces
+conversations/experiment-b.md                    # diverse human preview, at most 100
 events/experiment-b-trajectories.jsonl         # when retain_events = true
 events/experiment-b-terminal-batteries.jsonl   # when retain_events = true
 events/experiment-b-held-out-terminal-suites.jsonl # when retain_events = true
@@ -633,6 +743,18 @@ decoder/design-manifest.json
 metrics/gate-report.json
 metrics/summary.json
 ```
+
+The compact B file flattens each retained trajectory into one row per turn. It
+keeps the trajectory/user/domain/updater/policy/initial-condition identifiers,
+the common-random-number key, per-turn marginal Brier error, retained terminal
+error, and same-history shadow indicator. It omits the repeated full joint
+belief and native-memory payloads that make the raw trajectory audit large.
+The number of compact rows is the number of retained turns, not a larger
+experimental sample.
+
+The B conversation trace instead keeps each trajectory as one readable record:
+its turns appear in order with per-turn metrics, followed by the terminal
+evaluation. It omits posterior arrays, latent truth, and native-memory payloads.
 
 Each Experiment B terminal row includes profile Brier and projected behavioral
 scores, same-history shadow-to-system marginal KL, preference-dimension
@@ -844,6 +966,9 @@ review supports an interpretation.
 ### Artifacts
 
 ```text
+analysis/experiment-c-rows.jsonl            # one compact evaluation/ranking row
+conversations/experiment-c.jsonl            # exhaustive deduplicated histories
+conversations/experiment-c.md               # diverse human preview, at most 100
 events/experiment-c-fixed-histories.jsonl  # when retain_events = true
 events/experiment-c-replays.jsonl          # when retain_events = true
 events/experiment-c-endogenous.jsonl       # when retain_events = true
@@ -858,6 +983,19 @@ tables/experiment-c-llm-raw-calibrated-terminal.csv
 metrics/gate-report.json
 metrics/summary.json
 ```
+
+The compact C file keeps one row for each existing fixed-history or endogenous
+evaluation. It retains the split/regime/replicate/system identifiers, four
+ranking scores, score basis, and history/battery digests while leaving nested
+native decoder payloads and full replay/trajectory state in the canonical
+metric and event records. It does not re-evaluate a system or add a ranking
+observation.
+
+The C conversation trace stores each fixed history once and groups all updater
+evaluations that replayed it. Endogenous histories remain separate because the
+evaluated updater can change later policy actions and dialogue. This
+normalization is the main reason the trace is much smaller than a naive
+updater-by-history transcript export.
 
 When event retention is enabled, replay records retain complete terminal native
 state when present and endogenous records retain complete native state at every
@@ -1129,6 +1267,8 @@ Artifacts are:
 
 ```text
 models/sensitivity-fits.jsonl
+conversations/sensitivity.jsonl          # exhaustive trajectory traces
+conversations/sensitivity.md             # diverse human preview, at most 100
 metrics/sensitivity.jsonl
 metrics/sensitivity-decomposition.jsonl
 metrics/sensitivity-grand.jsonl
@@ -1147,6 +1287,14 @@ llm/transport-attempts.jsonl           # live modes
 metrics/gate-report.json
 metrics/summary.json
 ```
+
+Sensitivity does not write another `analysis/` projection. Its existing
+`metrics/sensitivity*.jsonl` files are already aggregated by declared grid
+point and analysis stratum, and `tables/sensitivity.csv` is the compact readable
+projection. The large optional `events/sensitivity-trajectories.jsonl` remains
+the reconstruction audit. Its conversation trace uses the same closed-loop
+format as B, with one record per trajectory and the full sensitivity point,
+including `sensitivity_point_id`, retained among the conditions.
 
 Each model row contains raw and active fitted bundles, calibration, and
 development diagnostics. `sensitivity.jsonl` and its CSV are stratified by

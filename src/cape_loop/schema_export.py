@@ -171,6 +171,218 @@ _OPTION = {
     },
 }
 
+_SCENARIO_OPTION = {
+    "type": "object",
+    "required": ["option_id", "label", "features"],
+    "additionalProperties": False,
+    "properties": {
+        "option_id": _NONEMPTY_STRING,
+        "label": _NONEMPTY_STRING,
+        "features": {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 3,
+            "maxItems": 3,
+        },
+    },
+}
+
+_SCENARIO_RECORD = {
+    "type": "object",
+    "required": [
+        "scenario_id",
+        "family_id",
+        "revision",
+        "status",
+        "split",
+        "domain",
+        "task_family",
+        "target_attribute",
+        "target_key",
+        "difficulty",
+        "prompt",
+        "wording_template_id",
+        "negative_option",
+        "positive_option",
+        "negative_same_direction_option",
+        "positive_same_direction_option",
+        "supported_mechanisms",
+        "quality_assertions",
+        "review",
+    ],
+    "additionalProperties": False,
+    "allOf": [
+        {
+            "if": {
+                "properties": {"status": {"const": "approved"}},
+                "required": ["status"],
+            },
+            "then": {
+                "properties": {
+                    "review": {
+                        "properties": {
+                            "automated_validation": {"const": "passed"},
+                            "surface_human_review": {"const": "passed"},
+                            "scientific_human_review": {"const": "passed"},
+                        }
+                    }
+                }
+            },
+        }
+    ],
+    "properties": {
+        "scenario_id": _NONEMPTY_STRING,
+        "family_id": _NONEMPTY_STRING,
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["provisional", "approved"]},
+        "split": _SPLIT,
+        "domain": {"enum": ["travel", "writing"]},
+        "task_family": _NONEMPTY_STRING,
+        "target_attribute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+        },
+        "target_key": _NONEMPTY_STRING,
+        "difficulty": {
+            "enum": ["standard_tradeoff", "close_tradeoff"]
+        },
+        "prompt": _NONEMPTY_STRING,
+        "wording_template_id": _NONEMPTY_STRING,
+        "negative_option": _SCENARIO_OPTION,
+        "positive_option": _SCENARIO_OPTION,
+        "negative_same_direction_option": _SCENARIO_OPTION,
+        "positive_same_direction_option": _SCENARIO_OPTION,
+        "supported_mechanisms": {
+            "type": "array",
+            "uniqueItems": True,
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+                "enum": [
+                    "balanced",
+                    "restricted",
+                    "default",
+                    "suggested",
+                    "ranking",
+                    "suggestion",
+                ]
+            },
+        },
+        "quality_assertions": {
+            "type": "object",
+            "required": [
+                "neutral_wording",
+                "symmetric_surface",
+                "no_treatment_cues",
+                "no_split_cues",
+                "no_real_entities",
+                "no_time_sensitive_facts",
+                "no_objective_dominance",
+                "all_surface_facts_modeled_or_matched",
+                "feature_role_contract",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                key: {"const": True}
+                for key in (
+                    "neutral_wording",
+                    "symmetric_surface",
+                    "no_treatment_cues",
+                    "no_split_cues",
+                    "no_real_entities",
+                    "no_time_sensitive_facts",
+                    "no_objective_dominance",
+                    "all_surface_facts_modeled_or_matched",
+                    "feature_role_contract",
+                )
+            },
+        },
+        "review": {
+            "type": "object",
+            "required": [
+                "automated_validation",
+                "surface_human_review",
+                "scientific_human_review",
+                "paper_eligible",
+                "note",
+            ],
+            "additionalProperties": False,
+            "properties": {
+                "automated_validation": {"enum": ["pending", "passed"]},
+                "surface_human_review": {
+                    "enum": ["not_completed", "passed"]
+                },
+                "scientific_human_review": {
+                    "enum": ["not_completed", "passed"]
+                },
+                "paper_eligible": {"const": False},
+                "note": _NONEMPTY_STRING,
+            },
+        },
+    },
+}
+
+_SCENARIO_CATALOG_INPUT = {
+    "type": "object",
+    "required": [
+        "schema_version",
+        "input_kind",
+        "catalog_id",
+        "catalog_version",
+        "catalog_status",
+        "eligibility",
+        "selection_policy",
+        "source_filename",
+        "source_sha256",
+        "retained_file",
+        "scenario_count",
+        "family_count",
+        "paper_eligible",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "schema_version": {"const": 1},
+        "input_kind": {"const": "scenario_catalog"},
+        "catalog_id": _NONEMPTY_STRING,
+        "catalog_version": _NONEMPTY_STRING,
+        "catalog_status": {"const": "frozen-development"},
+        "eligibility": {"const": "simulation-and-pilot-only"},
+        "selection_policy": {
+            "const": "deterministic-stratified-v1"
+        },
+        "source_filename": _NONEMPTY_STRING,
+        "source_sha256": _SHA256,
+        "retained_file": {"const": "inputs/scenario-catalog.json"},
+        "scenario_count": {"type": "integer", "minimum": 1},
+        "family_count": {"type": "integer", "minimum": 1},
+        "paper_eligible": {"const": False},
+    },
+}
+
+_CONVERSATION_TEMPLATE_INPUT = {
+    "type": "object",
+    "required": [
+        "schema_version",
+        "input_kind",
+        "bank_id",
+        "source",
+        "scenario_count",
+        "retained_file",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "schema_version": {"const": 1},
+        "input_kind": {"const": "conversation_template_bank"},
+        "bank_id": _NONEMPTY_STRING,
+        "source": _NONEMPTY_STRING,
+        "scenario_count": {"type": "integer", "minimum": 1},
+        "retained_file": {
+            "const": "inputs/conversation-templates.json"
+        },
+    },
+}
+
 _CONTEXT = {
     "type": "object",
     "required": [
@@ -198,6 +410,7 @@ _CONTEXT = {
         "suggested_option": {"type": ["string", "null"]},
         "wording_template": {"type": "string", "minLength": 1},
         "question_type": {"type": "string", "minLength": 1},
+        "prompt": {"type": "string", "minLength": 1, "maxLength": 500},
         "target_attribute": {
             "anyOf": [
                 {"type": "integer", "minimum": 0, "maximum": 2},
@@ -245,12 +458,20 @@ _PROVENANCE = {
 
 _OBSERVATION = {
     "type": "object",
-    "required": ["selected_option", "surface_response", "choice_noise_key"],
+    "required": [
+        "selected_option",
+        "surface_response",
+        "choice_noise_key",
+        "assistant_message",
+        "surface_id",
+    ],
     "additionalProperties": False,
     "properties": {
         "selected_option": {"type": "string", "minLength": 1},
         "surface_response": {"type": ["string", "null"]},
         "choice_noise_key": {"type": "string"},
+        "assistant_message": {"type": ["string", "null"]},
+        "surface_id": {"type": "string"},
     },
 }
 
@@ -326,7 +547,336 @@ _TERMINAL_ACTION = {
     },
 }
 
+_CONVERSATION_METRIC_VALUE = {
+    "anyOf": [
+        {"type": "number"},
+        {"type": "boolean"},
+        {"type": "string"},
+        {"type": "null"},
+        {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    {"type": "string"},
+                    {"type": "null"},
+                ]
+            },
+        },
+    ]
+}
+
+_CONVERSATION_DIALOGUE_TURN = {
+    "type": "object",
+    "required": [
+        "turn",
+        "event_id",
+        "scenario_id",
+        "surface_id",
+        "surface_available",
+        "assistant",
+        "user",
+        "selected_option_id",
+        "selected_option_label",
+        "presentation_mechanism",
+        "choice_source",
+        "surface_source",
+        "turn_metrics",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "turn": {"type": "integer", "minimum": 1},
+        "event_id": _NONEMPTY_STRING,
+        "scenario_id": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "surface_id": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "surface_available": {"type": "boolean"},
+        "assistant": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "user": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "selected_option_id": _NONEMPTY_STRING,
+        "selected_option_label": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "presentation_mechanism": _NONEMPTY_STRING,
+        "choice_source": {"const": "mathematical_user_simulator"},
+        "surface_source": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "turn_metrics": {
+            "type": "object",
+            "additionalProperties": _CONVERSATION_METRIC_VALUE,
+        },
+    },
+}
+
+_CONVERSATION_OUTCOME = {
+    "type": "object",
+    "required": [
+        "updater_id",
+        "updater_view",
+        "model_ids",
+        "metrics",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "updater_id": _NONEMPTY_STRING,
+        "updater_view": {
+            "anyOf": [_NONEMPTY_STRING, {"type": "null"}]
+        },
+        "model_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": _NONEMPTY_STRING,
+        },
+        "metrics": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": _CONVERSATION_METRIC_VALUE,
+        },
+    },
+}
+
+_CONVERSATION_ASSESSMENT = {
+    "type": "object",
+    "required": ["attribute", "metrics", "clause_results"],
+    "additionalProperties": False,
+    "properties": {
+        "attribute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+        },
+        "metrics": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": _CONVERSATION_METRIC_VALUE,
+        },
+        "clause_results": {
+            "type": "object",
+            "additionalProperties": {"type": "boolean"},
+        },
+    },
+}
+
+_CONVERSATION_COMPARISON = {
+    "type": "object",
+    "required": ["comparison_id", "metrics"],
+    "additionalProperties": False,
+    "properties": {
+        "comparison_id": _NONEMPTY_STRING,
+        "metrics": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": _CONVERSATION_METRIC_VALUE,
+        },
+    },
+}
+
 SCHEMAS: dict[str, dict[str, Any]] = {
+    "scenario-catalog": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:scenario-catalog:v1",
+        "title": "CAPE-Loop versioned scenario catalog",
+        "type": "object",
+        "required": [
+            "schema_version",
+            "catalog_id",
+            "catalog_version",
+            "catalog_status",
+            "eligibility",
+            "language",
+            "locale",
+            "source",
+            "license",
+            "created_on",
+            "frozen_on",
+            "split_policy",
+            "selection_policy",
+            "attribute_order",
+            "authoring_provenance",
+            "scenarios",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "catalog_id": _NONEMPTY_STRING,
+            "catalog_version": _NONEMPTY_STRING,
+            "catalog_status": {"const": "frozen-development"},
+            "eligibility": {"const": "simulation-and-pilot-only"},
+            "language": _NONEMPTY_STRING,
+            "locale": _NONEMPTY_STRING,
+            "source": {"const": "project-authored-synthetic"},
+            "license": _NONEMPTY_STRING,
+            "created_on": _NONEMPTY_STRING,
+            "frozen_on": _NONEMPTY_STRING,
+            "split_policy": {"const": "scenario-family-disjoint-v1"},
+            "selection_policy": {
+                "const": "deterministic-stratified-v1"
+            },
+            "attribute_order": {
+                "type": "object",
+                "required": ["travel", "writing"],
+                "additionalProperties": False,
+                "properties": {
+                    "travel": {
+                        "const": ["price", "setting", "planning"]
+                    },
+                    "writing": {
+                        "const": ["length", "tone", "spelling"]
+                    },
+                },
+            },
+            "authoring_provenance": {
+                "type": "object",
+                "minProperties": 1,
+            },
+            "scenarios": {
+                "type": "array",
+                "minItems": 1,
+                "items": _SCENARIO_RECORD,
+            },
+        },
+    },
+    "conversation-template-bank": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:conversation-template-bank:v1",
+        "title": "CAPE-Loop frozen conversation template bank",
+        "type": "object",
+        "required": [
+            "schema_version",
+            "bank_id",
+            "source",
+            "templates",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "bank_id": _NONEMPTY_STRING,
+            "source": _NONEMPTY_STRING,
+            "templates": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "scenario_id",
+                        "display_names",
+                        "presentation_templates",
+                        "choice_template",
+                    ],
+                    "additionalProperties": False,
+                    "properties": {
+                        "scenario_id": _NONEMPTY_STRING,
+                        "display_names": {
+                            "type": "object",
+                            "minProperties": 4,
+                            "maxProperties": 4,
+                            "additionalProperties": _NONEMPTY_STRING,
+                        },
+                        "presentation_templates": {
+                            "type": "object",
+                            "required": [
+                                "balanced",
+                                "restricted",
+                                "default",
+                                "suggested",
+                                "ranking",
+                            ],
+                            "additionalProperties": False,
+                            "properties": {
+                                name: _NONEMPTY_STRING
+                                for name in (
+                                    "balanced",
+                                    "restricted",
+                                    "default",
+                                    "suggested",
+                                    "ranking",
+                                )
+                            },
+                        },
+                        "choice_template": _NONEMPTY_STRING,
+                        "source": _NONEMPTY_STRING,
+                    },
+                },
+            },
+        },
+    },
+    "conversation-log": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:cape-loop:schema:conversation-log:v1",
+        "title": "CAPE-Loop natural-language conversation and metric trace",
+        "description": (
+            "A compact reporting view that stores visible dialogue once and "
+            "groups the evaluated updater outcomes beside it. It intentionally "
+            "excludes latent user state, option feature vectors, beliefs, "
+            "native memory, and provider prompts or responses."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "record_kind",
+            "experiment",
+            "conversation_id",
+            "conversation_kind",
+            "source_id",
+            "user_id",
+            "domain_id",
+            "conditions",
+            "dialogue",
+            "outcomes",
+            "assessments",
+            "comparisons",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": 1},
+            "record_kind": {"const": "conversation_trace"},
+            "experiment": {
+                "enum": ["A", "B", "C", "sensitivity", "demo"]
+            },
+            "conversation_id": _NONEMPTY_STRING,
+            "conversation_kind": {
+                "enum": [
+                    "single_turn",
+                    "closed_loop",
+                    "fixed_history",
+                ]
+            },
+            "source_id": _NONEMPTY_STRING,
+            "user_id": _NONEMPTY_STRING,
+            "domain_id": {"enum": ["travel", "writing"]},
+            "conditions": {
+                "type": "object",
+                "additionalProperties": _CONVERSATION_METRIC_VALUE,
+            },
+            "dialogue": {
+                "type": "array",
+                "minItems": 1,
+                "items": _CONVERSATION_DIALOGUE_TURN,
+            },
+            "outcomes": {
+                "type": "array",
+                "minItems": 1,
+                "items": _CONVERSATION_OUTCOME,
+            },
+            "assessments": {
+                "type": "array",
+                "items": _CONVERSATION_ASSESSMENT,
+            },
+            "comparisons": {
+                "type": "array",
+                "items": _CONVERSATION_COMPARISON,
+            },
+        },
+    },
     "user-state": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:cape-loop:schema:user-state:v1",
@@ -488,6 +1038,16 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
             "deterministic": {"type": "boolean"},
             "status": {"enum": ["created", "complete", "failed"]},
+            "inputs": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "scenario_catalog": _SCENARIO_CATALOG_INPUT,
+                    "conversation_templates": (
+                        _CONVERSATION_TEMPLATE_INPUT
+                    ),
+                },
+            },
         },
     },
     "human-rating": {

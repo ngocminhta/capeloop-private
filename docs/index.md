@@ -14,7 +14,7 @@ creating one-off pages.
   [Scientific design](scientific-design.md).
 - **Understand an experiment or gate:** [Experiments](experiments.md), then
   [Metrics and estimands](metrics.md).
-- **Understand records and generated data:**
+- **Understand full audit records, compact analysis rows, and generated data:**
   [Data model](data-model.md).
 - **Use OpenAI, OpenRouter, replay, external decoders, or native actions:**
   [Live execution](live-execution.md).
@@ -25,13 +25,13 @@ creating one-off pages.
 
 | Guide | Scope |
 | --- | --- |
-| [Getting started](getting-started.md) | Install, validate, generate the synthetic dataset, run experiments, and approach live pilots safely |
+| [Getting started](getting-started.md) | Install, validate, generate and inspect full or compact synthetic outputs, run experiments, and approach live pilots safely |
 | [Configuration](configuration.md) | Complete TOML and strict-validation reference |
 | [Architecture](architecture.md) | End-to-end flow, component contracts, information boundaries, native memory, repository layout, and extension points |
 | [Scientific design](scientific-design.md) | Causal question, evaluation tracks, controls, and claim boundaries |
 | [Experiments](experiments.md) | Experiments A–C, sensitivity, human-study support, correction debt, controls, external rescoring, and Gates 1–6 |
 | [Metrics and estimands](metrics.md) | Metric formulas, inference units, uncertainty, H1/H2/H7, and confirmatory-analysis relationship |
-| [Data model](data-model.md) | Dataset production, splits, schemas, record joins, run outputs, and artifact lifecycle |
+| [Data model](data-model.md) | Dataset production, splits, schemas, full-versus-compact records, record joins, run outputs, and artifact lifecycle |
 | [Live execution](live-execution.md) | Replay and provider workflows, model selection, budgets, journals, collection, admission, and recovery |
 | [Ethics and limitations](ethics-and-limitations.md) | Interpretation, privacy, human-study, provider, and release limits |
 | [Implementation status](implementation-status.md) | Tested capabilities, external dependencies, local diagnostic boundary, gates, and completion criteria |
@@ -46,7 +46,6 @@ its code in
 - [Reproducibility](../REPRODUCIBILITY.md)
 - [Data directory and release policy](../data/README.md)
 - [Artifact policy](../artifacts/README.md)
-- [Paper directory policy](../paper/README.md)
 - [Schema directory](../schemas/README.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Security](../SECURITY.md)

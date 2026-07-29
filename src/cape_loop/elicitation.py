@@ -76,6 +76,7 @@ class MatchedAnchorSet:
             "wording_template",
             "question_type",
             "target_attribute",
+            "prompt",
         )
         for mechanism, context in (("default", default), ("suggested", suggested)):
             for field_name in invariant_fields:

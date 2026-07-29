@@ -70,9 +70,17 @@ usage <- function() {
       "Usage:",
       "  Rscript run_analysis.R --experiment A|B --run RUN_DIR",
       "    [--run RUN_DIR ...] --output OUTPUT_DIR",
+      "    [--compact-bundle BUNDLE_DIR ...]",
       "    [--target-updater llm_full_context]",
       "",
-      "The output directory must not exist and must be outside every source run.",
+      paste(
+        "Supply no compact bundles for runner-native inputs, or exactly one",
+        "bundle per --run in the same order."
+      ),
+      paste(
+        "The output directory must not exist and must be outside every source",
+        "run and compact bundle."
+      ),
       sep = "\n"
     )
   )
@@ -82,6 +90,7 @@ parse_arguments <- function(arguments) {
   result <- list(
     experiment = NULL,
     runs = character(),
+    compact_bundles = character(),
     output = NULL,
     target_updater = "llm_full_context"
   )
@@ -96,6 +105,7 @@ parse_arguments <- function(arguments) {
       !(flag %in% c(
         "--experiment",
         "--run",
+        "--compact-bundle",
         "--output",
         "--target-updater"
       ))
@@ -116,6 +126,8 @@ parse_arguments <- function(arguments) {
       result$experiment <- value
     } else if (identical(flag, "--run")) {
       result$runs <- c(result$runs, value)
+    } else if (identical(flag, "--compact-bundle")) {
+      result$compact_bundles <- c(result$compact_bundles, value)
     } else if (identical(flag, "--output")) {
       if (!is.null(result$output)) {
         abort_analysis("--output may be supplied only once")
@@ -134,6 +146,17 @@ parse_arguments <- function(arguments) {
   }
   if (anyDuplicated(result$runs)) {
     abort_analysis("duplicate --run arguments are not allowed")
+  }
+  if (anyDuplicated(result$compact_bundles)) {
+    abort_analysis("duplicate --compact-bundle arguments are not allowed")
+  }
+  if (
+    length(result$compact_bundles) &&
+    length(result$compact_bundles) != length(result$runs)
+  ) {
+    abort_analysis(
+      "supply either zero compact bundles or exactly one per --run in the same order"
+    )
   }
   if (is.null(result$output)) {
     abort_analysis("--output is required")
@@ -177,7 +200,9 @@ safe_output_path <- function(output, source_paths) {
       identical(destination, source) ||
       startsWith(destination, paste0(source, .Platform$file.sep))
     ) {
-      abort_analysis("analysis output cannot be inside a source run")
+      abort_analysis(
+        "analysis output cannot be inside a source run or compact bundle"
+      )
     }
   }
   parent <- dirname(destination)
@@ -204,16 +229,45 @@ if (is.null(experiment_spec)) {
   abort_analysis("analysis specification has no requested experiment")
 }
 
+uses_historical_bundles <- length(args$compact_bundles) > 0L
 source_runs <- lapply(args$runs, function(path) {
-  verify_source_run(path, experiment_spec)
+  verify_source_run(
+    path,
+    experiment_spec,
+    use_legacy_input = if (uses_historical_bundles) NULL else FALSE
+  )
 })
 if (anyDuplicated(vapply(source_runs, `[[`, character(1), "run_id"))) {
   abort_analysis("source run IDs must be unique")
 }
 assert_same_design(source_runs, args$experiment)
+if (uses_historical_bundles) {
+  for (index in seq_along(source_runs)) {
+    bundle <- verify_compact_bundle(
+      args$compact_bundles[[index]],
+      source_runs[[index]],
+      args$experiment,
+      experiment_spec
+    )
+    source_runs[[index]]$compact_bundle <- bundle
+    source_runs[[index]]$analysis_input_path <- bundle$rows_path
+    source_runs[[index]]$analysis_input_sha256 <- bundle$rows_sha256
+  }
+}
 output_dir <- safe_output_path(
   args$output,
-  vapply(source_runs, `[[`, character(1), "path")
+  c(
+    vapply(source_runs, `[[`, character(1), "path"),
+    if (uses_historical_bundles) {
+      vapply(
+        source_runs,
+        function(source) source$compact_bundle$path,
+        character(1)
+      )
+    } else {
+      character()
+    }
+  )
 )
 
 rows <- if (identical(args$experiment, "A")) {
@@ -305,9 +359,27 @@ source_records <- lapply(source_runs, function(source) {
     reasoning_effort = source$config$llm$reasoning_effort,
     configured_turns = source$config$experiment$turns,
     checksum_manifest_sha256 = source$checksum_manifest_sha256,
-    input_file = experiment_spec$input_file,
+    input_file = source$input_relative,
     input_sha256 = source$input_sha256,
-    exclusion_file = experiment_spec$exclusion_file %||% NULL,
+    input_role = if (is.null(source$compact_bundle)) {
+      "runner_native_compact_analysis_rows"
+    } else {
+      "source_lineage_with_external_compact_analysis_rows"
+    },
+    analysis_rows_sha256 = source$analysis_input_sha256,
+    compact_bundle_manifest_sha256 = if (is.null(source$compact_bundle)) {
+      NULL
+    } else {
+      source$compact_bundle$manifest_sha256
+    },
+    compact_bundle_checksum_manifest_sha256 = if (
+      is.null(source$compact_bundle)
+    ) {
+      NULL
+    } else {
+      source$compact_bundle$checksum_manifest_sha256
+    },
+    exclusion_file = source$exclusion_relative %||% NULL,
     exclusion_sha256 = source$exclusion_sha256,
     exclusion_count = source$exclusion_count
   )
@@ -329,8 +401,8 @@ input_manifest <- list(
   source_runs = source_records,
   source_run_count = length(source_runs),
   pooled_source_sha256 = source_runs[[1L]]$manifest$source_sha256,
-  original_input_row_count = sum(vapply(source_runs, function(source) {
-    length(readLines(source$input_path, warn = FALSE))
+  compact_input_row_count = sum(vapply(source_runs, function(source) {
+    length(readLines(source$analysis_input_path, warn = FALSE))
   }, integer(1))),
   retained_analysis_row_count = nrow(rows),
   excluded_matched_set_count = sum(vapply(
@@ -362,7 +434,7 @@ input_manifest <- list(
   } else {
     NULL
   },
-  score_layer = "active_event_state_calibrated_when_configured",
+  score_layer = "checksum_bound_compact_active_state_calibrated_when_configured",
   source_file_digests = source_file_digests
 )
 write_json(file.path(output_dir, "input-manifest.json"), input_manifest)
@@ -453,12 +525,12 @@ result <- list(
   ),
   notes = list(
     "This artifact reports a software analysis result and does not itself assert a paper claim.",
-    "The primary outcome uses the active retained event state, which is calibrated when the source run configured calibration.",
+    "The primary outcome uses a checksum-bound compact projection of the active state, which is calibrated when configured.",
     if (identical(args$experiment, "B")) {
       paste(
-        "Experiment B has one row per retained after-turn belief at turn",
-        "1..T; the final reconstructed marginal Brier score was checked",
-        "against the retained terminal_error."
+        "Experiment B has one compact row per retained after-turn belief",
+        "at turn 1..T; turn indexes are checked and the final compact",
+        "marginal Brier score must equal retained_terminal_error."
       )
     } else {
       paste(

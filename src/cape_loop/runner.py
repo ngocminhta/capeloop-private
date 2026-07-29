@@ -26,6 +26,20 @@ from .calibration import (
     fit_temperature,
 )
 from .config import AppConfig
+from .conversation_surfaces import (
+    ConversationTemplateBank,
+    load_conversation_bank,
+)
+from .conversation_reporting import (
+    DEFAULT_MARKDOWN_PREVIEW_LIMIT,
+    build_closed_loop_records,
+    build_experiment_a_records,
+    build_experiment_c_records,
+    conversation_stats,
+    render_markdown,
+    select_diverse_records,
+    updater_model_ids,
+)
 from .control_study import (
     build_control_llm_exchange,
     build_experiment_a_control_plan,
@@ -40,6 +54,7 @@ from .domains import (
     option_template_id,
     scenario_family_id,
 )
+from .elicitation import MECHANISMS
 from .experiment_c_review import write_experiment_c_decoder_packet
 from .decoder_study import (
     DecoderTruthLabel,
@@ -124,6 +139,11 @@ from .power import (
 )
 from .reporting import grouped_mean, write_csv, write_line_svg
 from .response import RandomUtilityModel
+from .scenarios import (
+    LoadedScenarioCatalog,
+    ScenarioCatalog,
+    load_scenario_catalog,
+)
 from .sensitivity import (
     PhaseCriterion,
     classify_phase_point,
@@ -170,6 +190,46 @@ class PreparedStudy:
     development_records: tuple[Any, ...]
     held_out_diagnostics: Mapping[str, Any]
     split_leakage_audit: Mapping[str, Any]
+    scenario_catalog: ScenarioCatalog | None
+    conversation_bank: ConversationTemplateBank | None
+
+
+def _write_conversation_artifacts(
+    run: RunArtifacts,
+    *,
+    slug: str,
+    experiment: str,
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Write one complete JSONL trace and its bounded Markdown preview."""
+
+    jsonl_artifact = f"conversations/{slug}.jsonl"
+    markdown_artifact = f"conversations/{slug}.md"
+    stats = conversation_stats(records)
+    preview = select_diverse_records(
+        records,
+        limit=DEFAULT_MARKDOWN_PREVIEW_LIMIT,
+    )
+    run.write_jsonl(jsonl_artifact, records)
+    run.write_text(
+        markdown_artifact,
+        render_markdown(
+            preview,
+            experiment=experiment,
+            complete_stats=stats,
+            complete_jsonl_path=jsonl_artifact,
+            preview_limit=DEFAULT_MARKDOWN_PREVIEW_LIMIT,
+            records_are_preselected=True,
+        ),
+    )
+    return {
+        "conversation_log_artifact": jsonl_artifact,
+        "conversation_log_markdown_artifact": markdown_artifact,
+        "conversation_record_count": stats["record_count"],
+        "conversation_turn_count": stats["turn_count"],
+        "conversation_outcome_count": stats["outcome_count"],
+        "conversation_markdown_preview_count": len(preview),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,29 +262,53 @@ def _selected_domains(config: AppConfig) -> tuple[DomainSpec, ...]:
 def _study_split_manifest(
     config: AppConfig,
     domains: Sequence[DomainSpec],
+    scenario_catalog: ScenarioCatalog | None = None,
 ) -> SplitManifest:
     domain_ids = tuple(domain.domain_id for domain in domains)
-    option_by_split = {
-        split: tuple(
-            option_template_id(domain_id, split)
-            for domain_id in domain_ids
-        )
-        for split in DATA_SPLITS
-    }
-    dialogue_by_split = {
-        split: tuple(
-            dialogue_template_id(domain_id, split)
-            for domain_id in domain_ids
-        )
-        for split in DATA_SPLITS
-    }
-    scenario_by_split = {
-        split: tuple(
-            scenario_family_id(domain_id, split)
-            for domain_id in domain_ids
-        )
-        for split in DATA_SPLITS
-    }
+    if scenario_catalog is None:
+        option_by_split = {
+            split: tuple(
+                option_template_id(domain_id, split)
+                for domain_id in domain_ids
+            )
+            for split in DATA_SPLITS
+        }
+        dialogue_by_split = {
+            split: tuple(
+                dialogue_template_id(domain_id, split)
+                for domain_id in domain_ids
+            )
+            for split in DATA_SPLITS
+        }
+        scenario_by_split = {
+            split: tuple(
+                scenario_family_id(domain_id, split)
+                for domain_id in domain_ids
+            )
+            for split in DATA_SPLITS
+        }
+    else:
+        option_by_split = {
+            split: scenario_catalog.option_ids(
+                split=split,
+                domains=domain_ids,
+            )
+            for split in DATA_SPLITS
+        }
+        dialogue_by_split = {
+            split: scenario_catalog.wording_ids(
+                split=split,
+                domains=domain_ids,
+            )
+            for split in DATA_SPLITS
+        }
+        scenario_by_split = {
+            split: scenario_catalog.family_ids(
+                split=split,
+                domains=domain_ids,
+            )
+            for split in DATA_SPLITS
+        }
     paraphrase_suite = build_default_paraphrase_suite()
     paraphrase_by_split = {
         split: tuple(
@@ -302,6 +386,7 @@ def _split_leakage_audit(
     training_records: Sequence[Any],
     development_records: Sequence[Any],
     test_domains: Sequence[DomainSpec],
+    scenario_catalog: ScenarioCatalog | None = None,
 ) -> dict[str, Any]:
     """Validate the concrete assets consumed by fitting and evaluation."""
 
@@ -317,30 +402,82 @@ def _split_leakage_audit(
         }
         for split, records in records_by_split.items()
     }
-    option_ids["test"] = {
-        option.option_id
-        for domain in test_domains
-        for option in (*domain.option_pool, *domain.isolated_options)
-    }
+    domain_ids = tuple(domain.domain_id for domain in test_domains)
+    if scenario_catalog is None:
+        option_ids["test"] = {
+            option.option_id
+            for domain in test_domains
+            for option in (*domain.option_pool, *domain.isolated_options)
+        }
+    else:
+        option_ids["test"] = set(
+            scenario_catalog.option_ids(split="test", domains=domain_ids)
+        )
     wording_templates = {
         split: {record.context.wording_template for record in records}
         for split, records in records_by_split.items()
     }
-    wording_templates["test"] = {
-        dialogue_template_id(domain.domain_id, "test")
-        for domain in test_domains
-    }
-    scenario_families = {
-        split: {
-            scenario_family_id(record.context.domain, split)
-            for record in records
+    if scenario_catalog is None:
+        wording_templates["test"] = {
+            dialogue_template_id(domain.domain_id, "test")
+            for domain in test_domains
         }
-        for split, records in records_by_split.items()
-    }
-    scenario_families["test"] = {
-        scenario_family_id(domain.domain_id, "test")
-        for domain in test_domains
-    }
+        scenario_families = {
+            split: {
+                scenario_family_id(record.context.domain, split)
+                for record in records
+            }
+            for split, records in records_by_split.items()
+        }
+        scenario_families["test"] = {
+            scenario_family_id(domain.domain_id, "test")
+            for domain in test_domains
+        }
+        scenario_surface_fingerprints = {
+            split: set() for split in DATA_SPLITS
+        }
+    else:
+        wording_templates["test"] = set(
+            scenario_catalog.wording_ids(
+                split="test",
+                domains=domain_ids,
+            )
+        )
+        scenario_families = {
+            split: {
+                scenario_catalog.scenario(
+                    record.context.scenario_id
+                ).family_id
+                for record in records
+            }
+            for split, records in records_by_split.items()
+        }
+        scenario_families["test"] = set(
+            scenario_catalog.family_ids(
+                split="test",
+                domains=domain_ids,
+            )
+        )
+        scenario_surface_fingerprints = {
+            split: {
+                sha256(
+                    json.dumps(
+                        {
+                            "prompt": scenario.prompt,
+                            "labels": [
+                                option.label for option in scenario.options
+                            ],
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                for scenario in scenario_catalog.scenarios
+                if scenario.split == split
+                and scenario.domain in set(domain_ids)
+            }
+            for split in DATA_SPLITS
+        }
 
     def overlaps(groups: Mapping[str, set[str]]) -> dict[str, list[str]]:
         result = {}
@@ -355,6 +492,9 @@ def _split_leakage_audit(
         "option_ids": overlaps(option_ids),
         "dialogue_templates": overlaps(wording_templates),
         "scenario_families": overlaps(scenario_families),
+        "scenario_surface_fingerprints": overlaps(
+            scenario_surface_fingerprints
+        ),
     }
     if any(overlap_report.values()):
         raise ValueError(
@@ -362,39 +502,154 @@ def _split_leakage_audit(
             + json.dumps(overlap_report, sort_keys=True)
         )
 
-    manifest_checks = []
-    for split in DATA_SPLITS:
-        for domain in test_domains:
-            expected = (
-                (
-                    "option_templates",
-                    option_template_id(domain.domain_id, split),
-                ),
-                (
-                    "dialogue_templates",
-                    dialogue_template_id(domain.domain_id, split),
-                ),
-                (
-                    "scenario_families",
-                    scenario_family_id(domain.domain_id, split),
-                ),
-            )
-            for group_name, template_id in expected:
-                observed_split = manifest.group_maps()[group_name].get(
-                    template_id
+    realized_scenario_coverage: dict[str, Any] = {}
+    if scenario_catalog is not None:
+        for split, records in records_by_split.items():
+            domain_reports = []
+            for domain_id in domain_ids:
+                domain_records = tuple(
+                    record
+                    for record in records
+                    if record.context.domain == domain_id
                 )
-                if observed_split != split:
-                    raise ValueError(
-                        f"{group_name}[{template_id!r}] is assigned to "
-                        f"{observed_split!r}, expected {split!r}"
+                cell_counts: dict[tuple[str, int, int], int] = {}
+                observed_scenarios = {
+                    record.context.scenario_id for record in domain_records
+                }
+                for record in domain_records:
+                    context = record.context
+                    target = context.target_attribute
+                    if target is None:
+                        raise ValueError(
+                            "catalog-backed fitted record has no target attribute"
+                        )
+                    if context.default_option_id is not None:
+                        mechanism = "default"
+                    elif context.suggested_option_id is not None:
+                        mechanism = "suggested"
+                    else:
+                        directions = {
+                            -1 if option.features[target] < 0.0 else 1
+                            for option in context.options
+                        }
+                        mechanism = (
+                            "balanced"
+                            if directions == {-1, 1}
+                            else "restricted"
+                        )
+                    anchor_direction = (
+                        -1
+                        if context.options[0].features[target] < 0.0
+                        else 1
                     )
-                manifest_checks.append(
+                    cell = (mechanism, target, anchor_direction)
+                    cell_counts[cell] = cell_counts.get(cell, 0) + 1
+                expected_scenarios = {
+                    scenario.scenario_id
+                    for scenario in scenario_catalog.scenarios
+                    if scenario.domain == domain_id
+                    and scenario.split == split
+                }
+                expected_cells = {
+                    (mechanism, target, direction)
+                    for mechanism in MECHANISMS
+                    for target in range(3)
+                    for direction in (-1, 1)
+                }
+                missing_cells = sorted(expected_cells - set(cell_counts))
+                missing_scenarios = sorted(
+                    expected_scenarios - observed_scenarios
+                )
+                complete = not missing_cells and not missing_scenarios
+                domain_reports.append(
                     {
-                        "group": group_name,
-                        "template_id": template_id,
-                        "split": split,
+                        "domain": domain_id,
+                        "record_count": len(domain_records),
+                        "observed_scenario_ids": sorted(
+                            observed_scenarios
+                        ),
+                        "expected_scenario_ids": sorted(
+                            expected_scenarios
+                        ),
+                        "missing_scenario_ids": missing_scenarios,
+                        "mechanism_target_direction_cell_count": len(
+                            cell_counts
+                        ),
+                        "expected_cell_count": len(expected_cells),
+                        "missing_cells": [
+                            {
+                                "mechanism": mechanism,
+                                "target_attribute": target,
+                                "anchor_direction": direction,
+                            }
+                            for mechanism, target, direction in missing_cells
+                        ],
+                        "complete": complete,
                     }
                 )
+            realized_scenario_coverage[split] = domain_reports
+
+    manifest_checks = []
+    for split in DATA_SPLITS:
+        if scenario_catalog is None:
+            expected = tuple(
+                item
+                for domain in test_domains
+                for item in (
+                    (
+                        "option_templates",
+                        option_template_id(domain.domain_id, split),
+                    ),
+                    (
+                        "dialogue_templates",
+                        dialogue_template_id(domain.domain_id, split),
+                    ),
+                    (
+                        "scenario_families",
+                        scenario_family_id(domain.domain_id, split),
+                    ),
+                )
+            )
+        else:
+            expected = (
+                *(
+                    ("option_templates", option_id)
+                    for option_id in scenario_catalog.option_ids(
+                        split=split,
+                        domains=domain_ids,
+                    )
+                ),
+                *(
+                    ("dialogue_templates", wording_id)
+                    for wording_id in scenario_catalog.wording_ids(
+                        split=split,
+                        domains=domain_ids,
+                    )
+                ),
+                *(
+                    ("scenario_families", family_id)
+                    for family_id in scenario_catalog.family_ids(
+                        split=split,
+                        domains=domain_ids,
+                    )
+                ),
+            )
+        for group_name, template_id in expected:
+            observed_split = manifest.group_maps()[group_name].get(
+                template_id
+            )
+            if observed_split != split:
+                raise ValueError(
+                    f"{group_name}[{template_id!r}] is assigned to "
+                    f"{observed_split!r}, expected {split!r}"
+                )
+            manifest_checks.append(
+                {
+                    "group": group_name,
+                    "template_id": template_id,
+                    "split": split,
+                }
+            )
 
     suite = build_default_paraphrase_suite()
     fitted_surface_templates = (
@@ -430,11 +685,17 @@ def _split_leakage_audit(
                 "option_ids": len(option_ids[split]),
                 "dialogue_templates": len(wording_templates[split]),
                 "scenario_families": len(scenario_families[split]),
+                "scenario_surface_fingerprints": len(
+                    scenario_surface_fingerprints[split]
+                ),
                 "paraphrase_templates": len(suite.for_split(split)),
             }
             for split in DATA_SPLITS
         },
         "overlaps": overlap_report,
+        "realized_fitted_data_scenario_coverage": (
+            realized_scenario_coverage
+        ),
         "manifest_bindings_checked": manifest_checks,
         "paraphrase_suite_sha256": suite.suite_sha256,
         "paraphrase_test_leakage_check": "passed",
@@ -446,6 +707,8 @@ def _prepare_study(
     *,
     response_model: RandomUtilityModel | None = None,
     seed_namespace: int = 0,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
 ) -> PreparedStudy:
     domains = _selected_domains(config)
     training_domains = tuple(
@@ -456,7 +719,11 @@ def _prepare_study(
         domain_for_split(get_domain(domain.domain_id), "development")
         for domain in domains
     )
-    manifest = _study_split_manifest(config, domains)
+    manifest = _study_split_manifest(
+        config,
+        domains,
+        scenario_catalog,
+    )
     training_count = max(24, min(128, config.experiment.users * 4))
     development_count = max(8, config.experiment.users)
     training_users = generate_users(
@@ -495,6 +762,7 @@ def _prepare_study(
                 count=count,
                 seed=config.run.seed + seed_namespace,
                 split="train",
+                scenario_catalog=scenario_catalog,
             )
         )
     bundle = fit_model_bundle(
@@ -505,7 +773,10 @@ def _prepare_study(
         l2=config.inference.l2,
     )
     held_out = []
-    held_out_count = max(16, min(128, config.inference.training_interactions // 4))
+    held_out_count = max(
+        24 * len(domains) if scenario_catalog is not None else 16,
+        min(128, config.inference.training_interactions // 4),
+    )
     for domain, count in zip(
         development_domains,
         _allocate(held_out_count, len(domains)),
@@ -518,6 +789,7 @@ def _prepare_study(
                 count=count,
                 seed=config.run.seed + seed_namespace + 1_000_003,
                 split="development",
+                scenario_catalog=scenario_catalog,
             )
         )
     raw_diagnostics = held_out_response_scores(bundle, held_out)
@@ -558,6 +830,7 @@ def _prepare_study(
         training_records=training_records,
         development_records=held_out,
         test_domains=domains,
+        scenario_catalog=scenario_catalog,
     )
     return PreparedStudy(
         domains=domains,
@@ -574,6 +847,8 @@ def _prepare_study(
         development_records=tuple(held_out),
         held_out_diagnostics=diagnostics,
         split_leakage_audit=split_audit,
+        scenario_catalog=scenario_catalog,
+        conversation_bank=conversation_bank,
     )
 
 
@@ -911,6 +1186,8 @@ def _prepare_llm_execution(
         direction_tolerance=config.thresholds.direction_tolerance,
         seed=config.run.seed,
         data_split="development",
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
     )
     truth_by_user = {user.user_id: user.theta for user in calibration_users}
     examples: dict[str, list[CalibrationExample]] = {
@@ -1057,6 +1334,71 @@ def _write_prepared(run: RunArtifacts, prepared: PreparedStudy) -> None:
                 for example in prepared.development_records
             ),
         )
+
+
+def _write_scenario_consumption(
+    run: RunArtifacts,
+    prepared: PreparedStudy,
+    *,
+    experiment_contexts: Mapping[str, Sequence[Any]],
+) -> None:
+    """Retain actual scenario use separately from catalog availability."""
+
+    catalog = prepared.scenario_catalog
+    if catalog is None:
+        return
+    domain_ids = {domain.domain_id for domain in prepared.domains}
+    experiment_reports: dict[str, Any] = {}
+    for split, contexts in experiment_contexts.items():
+        unique_contexts = {
+            context.context_id: context for context in contexts
+        }
+        usage: dict[str, int] = {}
+        for context in unique_contexts.values():
+            scenario = catalog.scenario(context.scenario_id)
+            if scenario.split != split:
+                raise ValueError(
+                    "experiment context uses a scenario from the wrong split"
+                )
+            usage[scenario.scenario_id] = (
+                usage.get(scenario.scenario_id, 0) + 1
+            )
+        expected = {
+            scenario.scenario_id
+            for scenario in catalog.scenarios
+            if scenario.split == split
+            and scenario.domain in domain_ids
+        }
+        missing = sorted(expected - set(usage))
+        experiment_reports[split] = {
+            "unique_context_count": len(unique_contexts),
+            "observed_scenario_count": len(usage),
+            "observed_scenario_ids": sorted(usage),
+            "expected_catalog_scenario_ids": sorted(expected),
+            "missing_catalog_scenario_ids": missing,
+            "all_available_scenarios_observed": not missing,
+            "unique_contexts_by_scenario": dict(sorted(usage.items())),
+        }
+    run.write_json(
+        "metrics/scenario-consumption.json",
+        {
+            "schema_version": 1,
+            "catalog_id": catalog.catalog_id,
+            "catalog_version": catalog.catalog_version,
+            "catalog_availability_artifact": (
+                "metrics/scenario-coverage.json"
+            ),
+            "fitted_data": prepared.split_leakage_audit[
+                "realized_fitted_data_scenario_coverage"
+            ],
+            "experiment": experiment_reports,
+            "interpretation": (
+                "Observed scenario use only; counts do not add experimental "
+                "units and missing available scenarios are reported, not "
+                "silently replaced."
+            ),
+        },
+    )
 
 
 def _write_llm_exchange(
@@ -1272,16 +1614,34 @@ def _visible_context_payload(row: Any) -> dict[str, Any]:
     """Return the same non-audit context fields visible to LLM updaters."""
 
     context = row.context
-    return {
+    result = {
         "domain": context.domain,
-        "options": [option.to_dict() for option in context.options],
+        "options": [
+            {
+                "option_id": option.option_id,
+                "description": option.label,
+            }
+            for option in context.options
+        ],
         "ranking": list(context.ranking),
         "default": context.default_option_id,
         "suggested_option": context.suggested_option_id,
-        "wording_template": context.wording_template,
         "question_type": context.question_type,
-        "target_attribute": context.target_attribute,
     }
+    if context.prompt is not None:
+        result["task"] = context.prompt
+    if row.observation.assistant_message is not None:
+        result["conversation"] = [
+            {
+                "role": "assistant",
+                "content": row.observation.assistant_message,
+            },
+            {
+                "role": "user",
+                "content": row.observation.surface_response,
+            },
+        ]
+    return result
 
 
 def _heldout_paraphrase_evaluation(
@@ -1360,6 +1720,12 @@ def _heldout_paraphrase_evaluation(
             selected_option_id=source_row.observation.selected_option_id,
             surface_response=case.surface_response,
             choice_noise_key=source_row.observation.choice_noise_key,
+            assistant_message=source_row.observation.assistant_message,
+            surface_id=(
+                ""
+                if source_row.observation.assistant_message is None
+                else f"paraphrase:{case.case_id}"
+            ),
         )
         for updater in evaluated_updaters:
             state = updater.initial_state(source_row.prior)
@@ -1424,6 +1790,15 @@ def _run_a(
         minimum_probability=config.response_model.minimum_matched_probability,
         direction_tolerance=config.thresholds.direction_tolerance,
         seed=config.run.seed,
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
+    )
+    _write_scenario_consumption(
+        run,
+        prepared,
+        experiment_contexts={
+            "test": tuple(row.context for row in result.rows),
+        },
     )
     raw_prepared = PreparedStudy(
         domains=prepared.domains,
@@ -1445,6 +1820,8 @@ def _run_a(
         development_records=prepared.development_records,
         held_out_diagnostics=prepared.held_out_diagnostics,
         split_leakage_audit=prepared.split_leakage_audit,
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
     )
     raw_registry = _registry(
         config,
@@ -1465,6 +1842,8 @@ def _run_a(
         minimum_probability=config.response_model.minimum_matched_probability,
         direction_tolerance=config.thresholds.direction_tolerance,
         seed=config.run.seed,
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
     )
     if config.artifacts.retain_events:
         run.write_jsonl(
@@ -1501,6 +1880,16 @@ def _run_a(
                 for item in result.excluded
             ),
         )
+    analysis_exclusion_artifact = (
+        "analysis/experiment-a-exclusions.jsonl"
+    )
+    run.write_jsonl(
+        analysis_exclusion_artifact,
+        (
+            {"schema_version": 1, **item.to_dict()}
+            for item in result.excluded
+        ),
+    )
     analysis_replicates = (
         config.experiment.bootstrap_replicates
         if config.experiment.bootstrap_replicates > 0
@@ -1775,6 +2164,29 @@ def _run_a(
         }
         for row in result.rows
     ]
+    analysis_artifact = "analysis/experiment-a-rows.jsonl"
+    run.write_jsonl(
+        analysis_artifact,
+        (
+            {
+                "schema_version": 1,
+                "source_record_index": source_record_index,
+                "trial_id": row.trial_id,
+                "user_id": row.user_id,
+                "domain_id": row.domain_id,
+                "scenario_id": row.context.scenario_id,
+                "updater_id": row.updater_id,
+                "mechanism": row.mechanism,
+                "prior_strength": row.prior_strength,
+                "response_mode": row.response_mode,
+                "update_error": row.acue,
+            }
+            for source_record_index, row in enumerate(
+                result.rows,
+                start=1,
+            )
+        ),
+    )
     run.write_jsonl("metrics/experiment-a.jsonl", metric_rows)
     aggregate = grouped_mean(
         metric_rows,
@@ -1858,6 +2270,17 @@ def _run_a(
     )
     gate_report = _all_gates(gate_1)
     run.write_json("metrics/gate-report.json", gate_report)
+    conversation_summary = _write_conversation_artifacts(
+        run,
+        slug="experiment-a",
+        experiment="A",
+        records=build_experiment_a_records(
+            result.rows,
+            conversation_bank=prepared.conversation_bank,
+            updater_views=updater_views(registry),
+            model_ids=updater_model_ids(registry),
+        ),
+    )
     summary = {
         "experiment": "A",
         "scientific_claim_status": "not_claimed",
@@ -1896,6 +2319,10 @@ def _run_a(
         "held_out_paraphrase_complete": paraphrase_criterion.complete,
         "held_out_paraphrase_verified": paraphrase_criterion.verified,
         "gate_1_computed_status": gate_1.computed_status,
+        "analysis_artifact": analysis_artifact,
+        "analysis_row_count": len(result.rows),
+        "analysis_exclusion_artifact": analysis_exclusion_artifact,
+        **conversation_summary,
     }
     return summary
 
@@ -2355,6 +2782,20 @@ def _run_b(
             config.thresholds.false_stability_tolerance
         ),
         direction_tolerance=config.thresholds.direction_tolerance,
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
+        data_split="test",
+    )
+    _write_scenario_consumption(
+        run,
+        prepared,
+        experiment_contexts={
+            "test": tuple(
+                interaction.context
+                for trajectory in result.trajectories
+                for interaction in trajectory.audit_record.interactions
+            ),
+        },
     )
     b_inference = analyze_experiment_b_inference(
         result,
@@ -2438,6 +2879,8 @@ def _run_b(
                 config.thresholds.false_stability_tolerance
             ),
             direction_tolerance=config.thresholds.direction_tolerance,
+            scenario_catalog=prepared.scenario_catalog,
+            data_split="development",
         )
         development_native_trajectories = (
             development_result.trajectories
@@ -2510,17 +2953,26 @@ def _run_b(
         example.context.wording_template
         for example in prepared.training_records
     }
-    training_scenario_ids = {
-        example.context.scenario_id
-        for example in prepared.training_records
-        if example.context.scenario_id
-    }
+    training_scenario_family_ids = (
+        {
+            scenario_family_id(example.context.domain, "train")
+            for example in prepared.training_records
+        }
+        if prepared.scenario_catalog is None
+        else {
+            prepared.scenario_catalog.scenario(
+                example.context.scenario_id
+            ).family_id
+            for example in prepared.training_records
+            if example.context.scenario_id
+        }
+    )
     for suite in heldout_suites.values():
         suite.assert_genuinely_held_out(
             training_option_ids=training_option_ids,
             training_feature_vectors=training_feature_vectors,
             training_wording_template_ids=training_wording_ids,
-            training_scenario_family_ids=training_scenario_ids,
+            training_scenario_family_ids=training_scenario_family_ids,
         )
     terminal_rows: list[dict[str, Any]] = []
     native_decoder_rows: list[dict[str, Any]] = []
@@ -2785,6 +3237,41 @@ def _run_b(
                 for suite in heldout_suites.values()
             ),
         )
+    analysis_artifact = "analysis/experiment-b-turns.jsonl"
+    analysis_row_count = sum(
+        len(trajectory.turns) for trajectory in result.trajectories
+    )
+    run.write_jsonl(
+        analysis_artifact,
+        (
+            {
+                "schema_version": 1,
+                "source_record_index": source_record_index,
+                "source_turn_index": turn.turn,
+                "trajectory_id": trajectory.trajectory_id,
+                "user_id": trajectory.user_id,
+                "domain_id": trajectory.domain_id,
+                "crn_key": trajectory.crn_key,
+                "updater_id": trajectory.updater_id,
+                "policy_id": trajectory.policy_id,
+                "initial_profile_condition": (
+                    trajectory.initial_profile_condition
+                ),
+                "turn": turn.turn + 1,
+                "terminal_error": marginal_brier(
+                    turn.belief_after,
+                    trajectory.theta,
+                ),
+                "retained_terminal_error": trajectory.terminal_error,
+                "same_history_shadow": trajectory.same_history_shadow,
+            }
+            for source_record_index, trajectory in enumerate(
+                result.trajectories,
+                start=1,
+            )
+            for turn in trajectory.turns
+        ),
+    )
     if config.artifacts.retain_events:
         run.write_jsonl(
             "events/experiment-b-trajectories.jsonl",
@@ -2886,6 +3373,23 @@ def _run_b(
         live_provider=live_provider,
         calibrated_provider=calibrated_provider,
     )
+    conversation_summary = _write_conversation_artifacts(
+        run,
+        slug="experiment-b",
+        experiment="B",
+        records=build_closed_loop_records(
+            result.trajectories,
+            experiment="B",
+            conversation_bank=prepared.conversation_bank,
+            updater_views=updater_views(registry),
+            model_ids=updater_model_ids(registry),
+            assessments=result.self_confirmation_assessments,
+            comparisons=result.decompositions,
+            split_by_user={
+                user.user_id: "test" for user in prepared.test_users
+            },
+        ),
+    )
     summary = {
         "experiment": "B",
         "scientific_claim_status": "not_claimed",
@@ -2945,6 +3449,9 @@ def _run_b(
         "gate_2_computed_status": gate_2.computed_status,
         "gate_3_computed_status": gate_3.computed_status,
         "gate_4_computed_status": gate_4.computed_status,
+        "analysis_artifact": analysis_artifact,
+        "analysis_row_count": analysis_row_count,
+        **conversation_summary,
     }
     return summary
 
@@ -3062,6 +3569,41 @@ def _run_c(
         seed=config.run.seed,
         bootstrap_replicates=config.experiment.bootstrap_replicates,
         tie_tolerance=config.thresholds.ranking_tie_tolerance,
+        scenario_catalog=prepared.scenario_catalog,
+        conversation_bank=prepared.conversation_bank,
+    )
+    development_user_ids = {
+        user.user_id
+        for user in prepared.development_users[
+            : config.experiment.users
+        ]
+    }
+    _write_scenario_consumption(
+        run,
+        prepared,
+        experiment_contexts={
+            split: (
+                tuple(
+                    event.context
+                    for history in result.fixed_histories
+                    if (
+                        history.user_id in development_user_ids
+                    )
+                    == (split == "development")
+                    for event in history.events
+                )
+                + tuple(
+                    interaction.context
+                    for trajectory in result.endogenous_trajectories
+                    if (
+                        trajectory.user_id in development_user_ids
+                    )
+                    == (split == "development")
+                    for interaction in trajectory.audit_record.interactions
+                )
+            )
+            for split in ("development", "test")
+        },
     )
     cached_calibration_rows: list[
         CachedTerminalCalibrationOutcome
@@ -3169,6 +3711,34 @@ def _run_c(
                 for trajectory in result.endogenous_trajectories
             ),
         )
+    analysis_artifact = "analysis/experiment-c-rows.jsonl"
+    run.write_jsonl(
+        analysis_artifact,
+        (
+            {
+                "schema_version": 1,
+                "source_record_index": source_record_index,
+                "split": row.split,
+                "regime": row.regime,
+                "replicate": row.replicate,
+                "user_id": row.user_id,
+                "domain_id": row.domain_id,
+                "updater_id": row.updater_id,
+                "profile_error": row.profile_error,
+                "behavioral_accuracy": row.behavioral_accuracy,
+                "cross_context_accuracy": row.cross_context_accuracy,
+                "intrinsic_regret": row.intrinsic_regret,
+                "score_basis": row.score_basis,
+                "history_digest": row.history_digest,
+                "battery_id": row.battery_id,
+                "battery_digest": row.battery_digest,
+            }
+            for source_record_index, row in enumerate(
+                result.rows,
+                start=1,
+            )
+        ),
+    )
     metric_rows = [
         {"schema_version": 1, **row.to_dict()} for row in result.rows
     ]
@@ -3301,6 +3871,19 @@ def _run_c(
         live_provider=live_provider,
         calibrated_provider=calibrated_provider,
     )
+    conversation_summary = _write_conversation_artifacts(
+        run,
+        slug="experiment-c",
+        experiment="C",
+        records=build_experiment_c_records(
+            result.fixed_histories,
+            result.endogenous_trajectories,
+            result.rows,
+            conversation_bank=prepared.conversation_bank,
+            updater_views=updater_views(registry),
+            model_ids=updater_model_ids(registry),
+        ),
+    )
     return {
         "experiment": "C",
         "scientific_claim_status": "not_claimed",
@@ -3341,6 +3924,9 @@ def _run_c(
         "evaluation_selection_regret": esr.get("evaluation_selection_regret"),
         "updater_views": updater_views(registry),
         "gate_5_computed_status": gate_5.computed_status,
+        "analysis_artifact": analysis_artifact,
+        "analysis_row_count": len(result.rows),
+        **conversation_summary,
     }
 
 
@@ -3384,6 +3970,8 @@ def _run_sensitivity(
     *,
     completion_provider: CompletionProvider | None = None,
     live_provider: ResumableCompletionProvider | None = None,
+    scenario_catalog: ScenarioCatalog | None = None,
+    conversation_bank: ConversationTemplateBank | None = None,
 ) -> dict[str, Any]:
     points = sensitivity_grid(
         design=config.sensitivity.design,
@@ -3411,7 +3999,19 @@ def _run_sensitivity(
     phase_domain_metric_rows = []
     retained_trajectories = []
     point_registries: list[Mapping[str, ProfileUpdater]] = []
-    for point in points:
+    conversation_jsonl_artifact = "conversations/sensitivity.jsonl"
+    conversation_markdown_artifact = "conversations/sensitivity.md"
+    sensitivity_conversation_stats = {
+        "record_count": 0,
+        "turn_count": 0,
+        "outcome_count": 0,
+    }
+    sensitivity_preview_candidates: list[Mapping[str, Any]] = []
+    per_point_preview_limit = max(
+        1,
+        math.ceil(DEFAULT_MARKDOWN_PREVIEW_LIMIT / len(points)),
+    )
+    for point_index, point in enumerate(points):
         model = response_model_at(
             point,
             beta=config.response_model.beta,
@@ -3426,6 +4026,8 @@ def _run_sensitivity(
             # semantic choice-noise draws at every grid point. Parameters can
             # change outcomes, but grid enumeration order cannot.
             seed_namespace=0,
+            scenario_catalog=scenario_catalog,
+            conversation_bank=conversation_bank,
         )
         registry = _registry(
             config,
@@ -3465,7 +4067,60 @@ def _run_sensitivity(
             direction_tolerance=config.thresholds.direction_tolerance,
             profile_strength=point.profile_strength,
             prior_uncertainty=point.prior_uncertainty,
+            scenario_catalog=scenario_catalog,
+            conversation_bank=conversation_bank,
+            data_split="test",
         )
+        point_conversation_conditions = point.to_dict()
+        point_conversation_conditions["sensitivity_point_id"] = (
+            point_conversation_conditions.pop("point_id")
+        )
+        point_conversation_records = build_closed_loop_records(
+            result.trajectories,
+            experiment="sensitivity",
+            conversation_bank=conversation_bank,
+            updater_views=updater_views(registry),
+            model_ids=updater_model_ids(registry),
+            assessments=result.self_confirmation_assessments,
+            comparisons=result.decompositions,
+            split_by_user={
+                user.user_id: "test" for user in prepared.test_users
+            },
+            extra_conditions=point_conversation_conditions,
+            conversation_id_prefix=point.point_id,
+        )
+        run.write_jsonl_chunk(
+            conversation_jsonl_artifact,
+            point_conversation_records,
+            append=point_index > 0,
+        )
+        point_conversation_stats = conversation_stats(
+            point_conversation_records
+        )
+        for key in sensitivity_conversation_stats:
+            sensitivity_conversation_stats[key] += (
+                point_conversation_stats[key]
+            )
+        sensitivity_preview_candidates.extend(
+            select_diverse_records(
+                point_conversation_records,
+                limit=per_point_preview_limit,
+            )
+        )
+        if point_index == 0:
+            _write_scenario_consumption(
+                run,
+                prepared,
+                experiment_contexts={
+                    "test": tuple(
+                        interaction.context
+                        for trajectory in result.trajectories
+                        for interaction in (
+                            trajectory.audit_record.interactions
+                        )
+                    ),
+                },
+            )
         eligible_profile_ids = {
             assessment.trajectory_id
             for assessment in result.self_confirmation_assessments
@@ -4041,6 +4696,21 @@ def _run_sensitivity(
             additional_registries=tuple(point_registries[1:]),
             live_provider=live_provider,
         )
+    sensitivity_preview = select_diverse_records(
+        sensitivity_preview_candidates,
+        limit=DEFAULT_MARKDOWN_PREVIEW_LIMIT,
+    )
+    run.write_text(
+        conversation_markdown_artifact,
+        render_markdown(
+            sensitivity_preview,
+            experiment="sensitivity",
+            complete_stats=sensitivity_conversation_stats,
+            complete_jsonl_path=conversation_jsonl_artifact,
+            preview_limit=DEFAULT_MARKDOWN_PREVIEW_LIMIT,
+            records_are_preselected=True,
+        ),
+    )
     llm_model_ids = sorted(
         {
             response.model_id
@@ -4235,7 +4905,103 @@ def _run_sensitivity(
             _sensitivity_llm_request_preflight(config)
         ),
         "gate_6_computed_status": robustness_gate.computed_status,
+        "conversation_log_artifact": conversation_jsonl_artifact,
+        "conversation_log_markdown_artifact": (
+            conversation_markdown_artifact
+        ),
+        "conversation_record_count": (
+            sensitivity_conversation_stats["record_count"]
+        ),
+        "conversation_turn_count": (
+            sensitivity_conversation_stats["turn_count"]
+        ),
+        "conversation_outcome_count": (
+            sensitivity_conversation_stats["outcome_count"]
+        ),
+        "conversation_markdown_preview_count": len(
+            sensitivity_preview
+        ),
     }
+
+
+def _configured_scenario_catalog(
+    config: AppConfig,
+) -> LoadedScenarioCatalog | None:
+    if not config.scenarios.catalog_file:
+        return None
+    return load_scenario_catalog(
+        config.scenarios.catalog_file,
+        expected_sha256=config.scenarios.catalog_sha256,
+    )
+
+
+def _configured_conversation_bank(
+    config: AppConfig,
+    scenario_catalog: ScenarioCatalog | None,
+) -> ConversationTemplateBank | None:
+    if not config.scenarios.conversation_file:
+        return None
+    if scenario_catalog is None:
+        raise ValueError(
+            "a conversation template bank requires a scenario catalog"
+        )
+    bank = load_conversation_bank(config.scenarios.conversation_file)
+    bank.validate_catalog(scenario_catalog)
+    return bank
+
+
+def _write_scenario_catalog_input(
+    run: RunArtifacts,
+    loaded: LoadedScenarioCatalog,
+) -> None:
+    input_manifest = loaded.input_manifest()
+    run.write_bytes("inputs/scenario-catalog.json", loaded.source_bytes)
+    run.write_json(
+        "inputs/scenario-catalog-manifest.json",
+        input_manifest,
+    )
+    run.write_json(
+        "metrics/scenario-coverage.json",
+        loaded.catalog.coverage_report(),
+    )
+    manifest_path = run.path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    inputs = manifest.setdefault("inputs", {})
+    if not isinstance(inputs, dict):
+        raise ValueError("run manifest inputs must be an object")
+    inputs["scenario_catalog"] = input_manifest
+    run.write_json("manifest.json", manifest)
+
+
+def _write_conversation_bank_input(
+    run: RunArtifacts,
+    config: AppConfig,
+    bank: ConversationTemplateBank,
+) -> None:
+    source_bytes = read_control_bytes(
+        Path(config.scenarios.conversation_file),
+        label="conversation template bank",
+    )
+    run.write_bytes("inputs/conversation-templates.json", source_bytes)
+    input_manifest = {
+        "schema_version": 1,
+        "input_kind": "conversation_template_bank",
+        "bank_id": bank.bank_id,
+        "source": bank.source,
+        "scenario_count": len(bank.templates),
+        "retained_file": "inputs/conversation-templates.json",
+    }
+    run.write_json(
+        "inputs/conversation-templates-manifest.json",
+        input_manifest,
+    )
+    manifest_path = run.path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    inputs = manifest.setdefault("inputs", {})
+    if not isinstance(inputs, dict):
+        raise ValueError("run manifest inputs must be an object")
+    inputs["conversation_templates"] = input_manifest
+    run.write_json("manifest.json", manifest)
 
 
 def _existing_run(
@@ -4340,6 +5106,28 @@ def run_experiment(
             "config_sha256": config_digest(config),
         }
 
+    loaded_scenarios = _configured_scenario_catalog(config)
+    conversation_bank = _configured_conversation_bank(
+        config,
+        (
+            None
+            if loaded_scenarios is None
+            else loaded_scenarios.catalog
+        ),
+    )
+    conversation_source_bytes = (
+        None
+        if conversation_bank is None
+        else read_control_bytes(
+            Path(config.scenarios.conversation_file),
+            label="conversation template bank",
+        )
+    )
+    scenario_input = (
+        None
+        if loaded_scenarios is None
+        else loaded_scenarios.input_manifest()
+    )
     llm_request_preflight = build_llm_request_preflight(config)
     if execute_live:
         # Enforce the whole-design bound before constructing a provider,
@@ -4391,11 +5179,46 @@ def run_experiment(
                     else None
                 )
                 llm_input_matches = retained_llm_input == llm_input
+            retained_scenario_input_path = (
+                destination / "inputs" / "scenario-catalog-manifest.json"
+            )
+            if scenario_input is None:
+                scenario_input_matches = (
+                    not retained_scenario_input_path.exists()
+                )
+            else:
+                retained_scenario_input = (
+                    json.loads(
+                        retained_scenario_input_path.read_text(
+                            encoding="utf-8"
+                        )
+                    )
+                    if retained_scenario_input_path.is_file()
+                    else None
+                )
+                scenario_input_matches = (
+                    retained_scenario_input == scenario_input
+                )
+            retained_conversation_path = (
+                destination / "inputs" / "conversation-templates.json"
+            )
+            if conversation_source_bytes is None:
+                conversation_input_matches = (
+                    not retained_conversation_path.exists()
+                )
+            else:
+                conversation_input_matches = (
+                    retained_conversation_path.is_file()
+                    and retained_conversation_path.read_bytes()
+                    == conversation_source_bytes
+                )
             if (
                 valid
                 and summary_path.is_file()
                 and source_matches
                 and llm_input_matches
+                and scenario_input_matches
+                and conversation_input_matches
             ):
                 return {
                     "run_dir": str(destination),
@@ -4406,7 +5229,10 @@ def run_experiment(
                 "existing run is not a complete verified artifact for the "
                 f"current source tree: checksum_errors={errors}, "
                 f"source_matches={source_matches}, "
-                f"llm_input_matches={llm_input_matches}"
+                f"llm_input_matches={llm_input_matches}, "
+                f"scenario_input_matches={scenario_input_matches}, "
+                "conversation_input_matches="
+                f"{conversation_input_matches}"
             )
         raise FileExistsError(
             f"run directory already exists: {destination}; "
@@ -4436,6 +5262,10 @@ def run_experiment(
         root=output_root,
         config_origin=config_origin,
     )
+    if loaded_scenarios is not None:
+        _write_scenario_catalog_input(run, loaded_scenarios)
+    if conversation_bank is not None:
+        _write_conversation_bank_input(run, config, conversation_bank)
     if llm_input is not None:
         run.write_json("llm/input-manifest.json", llm_input)
     if llm_request_preflight is not None:
@@ -4460,9 +5290,23 @@ def run_experiment(
                 run,
                 completion_provider=raw_completion_provider,
                 live_provider=live_provider,
+                scenario_catalog=(
+                    None
+                    if loaded_scenarios is None
+                    else loaded_scenarios.catalog
+                ),
+                conversation_bank=conversation_bank,
             )
         else:
-            prepared = _prepare_study(config)
+            prepared = _prepare_study(
+                config,
+                scenario_catalog=(
+                    None
+                    if loaded_scenarios is None
+                    else loaded_scenarios.catalog
+                ),
+                conversation_bank=conversation_bank,
+            )
             _write_prepared(run, prepared)
             llm_execution = _prepare_llm_execution(
                 config,
@@ -4513,6 +5357,25 @@ def run_experiment(
                 raise ValueError(
                     f"unsupported experiment kind: {config.experiment.kind}"
                 )
+        if scenario_input is not None:
+            summary = {
+                **summary,
+                "scenario_catalog": scenario_input,
+            }
+        if conversation_bank is not None:
+            summary = {
+                **summary,
+                "conversation_templates": {
+                    "bank_id": conversation_bank.bank_id,
+                    "source": conversation_bank.source,
+                    "scenario_count": len(
+                        conversation_bank.templates
+                    ),
+                    "runtime_mode": (
+                        "mathematical_choice_with_frozen_llm_dialogue"
+                    ),
+                },
+            }
         run.finalize(summary)
     except Exception as exc:
         manifest_path = run.path / "manifest.json"

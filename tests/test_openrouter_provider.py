@@ -82,6 +82,7 @@ def response_body(
     response_id: str = "gen_test",
     *,
     model: str = MODEL,
+    beliefs: Mapping[str, Mapping[str, float]] = BELIEFS,
     requested_model: str | None = None,
     routing_strategy: str = "direct",
     routing_attempt: int = 1,
@@ -131,7 +132,7 @@ def response_body(
                 "message": {
                     "role": "assistant",
                     "content": json.dumps(
-                        {"beliefs": BELIEFS},
+                        {"beliefs": beliefs},
                         separators=(",", ":"),
                     ),
                 },
@@ -371,6 +372,41 @@ class OpenRouterConfigAndRequestTests(unittest.TestCase):
 
 
 class OpenRouterTransportAndParsingTests(unittest.TestCase):
+    def test_accepted_rounded_beliefs_are_resume_equivalent(self) -> None:
+        request = build_request("rounded")
+        rounded = {
+            **BELIEFS,
+            "attribute_1": {
+                "-2": 0.440232,
+                "-1": 0.316871,
+                "+1": 0.148197,
+                "+2": 0.094701,
+            },
+        }
+        provider = OpenRouterChatProvider(
+            live_config(),
+            transport=lambda **_: HTTPResult(
+                200,
+                {"X-OpenRouter-Cache-Status": "MISS"},
+                response_body(beliefs=rounded),
+            ),
+        )
+        with patch.dict(
+            "os.environ",
+            {TEST_KEY_ENV: "test"},
+            clear=True,
+        ):
+            result = provider.complete(request)
+        audit = result.to_audit_record()
+        retained = result.response.beliefs["attribute_1"]
+        self.assertAlmostEqual(sum(retained.values()), 1.0)
+        self.assertNotEqual(retained, rounded["attribute_1"])
+        provider.validate_resumed_audit(
+            audit,
+            request=request,
+            prepared=provider.prepare(request),
+        )
+
     def test_claude_unbounded_wire_schema_still_rejects_invalid_vectors(
         self,
     ) -> None:

@@ -13,6 +13,10 @@ import sys
 import tempfile
 
 from . import __version__
+from .analysis_export import (
+    export_compact_analysis,
+    verify_compact_analysis,
+)
 from .artifacts import file_sha256, verify_run
 from .config import ConfigError, load_config
 from .control_study import (
@@ -79,7 +83,15 @@ from .gate_review import (
     import_native_gate_review,
     verify_gate_review,
 )
-from .llm_exchange import ReplayProvider, read_responses
+from .conversation_surfaces import load_conversation_bank
+from .experiments.provenance import default_audit_users
+from .llm_exchange import (
+    CompletionProvider,
+    LLMRequest,
+    ReplayProvider,
+    read_responses,
+)
+from .one_scenario import run_one_scenario
 from .openai_provider import (
     DEFAULT_OPENAI_MODEL_ROLES,
     OpenAIProviderConfig,
@@ -97,6 +109,11 @@ from .openrouter_provider import (
     OpenRouterProviderError,
     ResumableOpenRouterCompletionProvider,
     execute_openrouter_jsonl,
+)
+from .openrouter_conversation_provider import (
+    OpenRouterConversationConfig,
+    OpenRouterConversationProvider,
+    generate_conversation_bank,
 )
 from .openrouter_decoder_collection import (
     OPENROUTER_COLLECTION_LOCKS,
@@ -125,6 +142,7 @@ from .robustness_review import (
 )
 from .schema_export import export_schemas
 from .schema_export import SCHEMAS
+from .scenarios import load_scenario_catalog
 
 
 class _ExternalCollectionDirAction(argparse.Action):
@@ -395,6 +413,192 @@ def _doctor(_: argparse.Namespace) -> int:
     return 0 if checks["python_supported"] and checks["domain_registry_ok"] else 1
 
 
+class _SingleRequestJournal:
+    """Write the one model-visible request before delegating its live call."""
+
+    def __init__(
+        self,
+        provider: CompletionProvider,
+        *,
+        request_path: Path,
+    ) -> None:
+        self.provider = provider
+        self.request_path = request_path
+        self.call_count = 0
+
+    def complete(self, request: LLMRequest):
+        if self.call_count:
+            raise RuntimeError(
+                "one-scenario request journal received more than one call"
+            )
+        self.call_count += 1
+        serialized = json.dumps(
+            request.to_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        _atomic_write_new_text(self.request_path, serialized + "\n")
+        return self.provider.complete(request)
+
+
+def _demo_one_scenario(args: argparse.Namespace) -> int:
+    """Execute one explanatory scenario with one physical OpenRouter attempt."""
+
+    if not args.execute_live:
+        raise ValueError(
+            "one-scenario OpenRouter execution requires the explicit "
+            "--execute-live flag"
+        )
+
+    loaded = load_scenario_catalog(
+        args.scenario_catalog,
+        expected_sha256=file_sha256(args.scenario_catalog),
+    )
+    conversation_bank = load_conversation_bank(args.conversation_bank)
+    conversation_bank.validate_catalog(loaded.catalog)
+    loaded.catalog.scenario(args.scenario_id)
+
+    output = args.output_dir.absolute()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.parent.is_symlink():
+        raise ValueError("one-scenario output parent cannot be a symlink")
+    try:
+        output.mkdir()
+    except FileExistsError as exc:
+        raise FileExistsError(
+            "one-scenario output must be a new directory so this command "
+            f"cannot silently resume zero calls: {output}"
+        ) from exc
+    llm_dir = output / "llm"
+    llm_dir.mkdir()
+
+    raw_provider = OpenRouterChatProvider(
+        OpenRouterProviderConfig(
+            model=args.model,
+            reasoning_effort=args.reasoning_effort,
+            api_key_env=args.api_key_env,
+            upstream_provider=args.upstream_provider,
+            allow_fallbacks=False,
+            require_parameters=True,
+            data_collection="deny",
+            zdr=args.zdr,
+            timeout_seconds=args.timeout_seconds,
+            max_retries=0,
+            max_output_tokens=2048,
+            max_requests=1,
+            max_total_tokens=10_000,
+            live_execution=True,
+        )
+    )
+    adapter = ResumableOpenRouterCompletionProvider(
+        raw_provider,
+        responses_path=llm_dir / "responses.jsonl",
+        audit_path=llm_dir / "provider-audit.jsonl",
+        attempts_path=llm_dir / "provider-attempts.jsonl",
+    )
+    journaled_provider = _SingleRequestJournal(
+        adapter,
+        request_path=llm_dir / "requests.jsonl",
+    )
+    result = run_one_scenario(
+        catalog=loaded.catalog,
+        conversation_bank=conversation_bank,
+        scenario_id=args.scenario_id,
+        user=default_audit_users()[0],
+        provider=journaled_provider,
+        mechanism=args.mechanism,
+        seed=args.seed,
+    )
+
+    provider_manifest = adapter.to_manifest()
+    expected_execution = {
+        "requests_used": 1,
+        "requests_executed": 1,
+        "requests_resumed": 0,
+        "transport_attempt_count": 1,
+    }
+    mismatches = {
+        key: {
+            "expected": expected,
+            "observed": provider_manifest.get(key),
+        }
+        for key, expected in expected_execution.items()
+        if provider_manifest.get(key) != expected
+    }
+    if journaled_provider.call_count != 1:
+        mismatches["request_journal_call_count"] = {
+            "expected": 1,
+            "observed": journaled_provider.call_count,
+        }
+    if mismatches:
+        raise RuntimeError(
+            "one-scenario physical-call invariant failed: "
+            + json.dumps(mismatches, sort_keys=True)
+        )
+
+    result_path = output / "result.json"
+    conversation_path = output / "conversation.jsonl"
+    readable_path = output / "conversation.md"
+    provider_manifest_path = llm_dir / "provider-manifest.json"
+    _atomic_write_new_text(
+        result_path,
+        _json(result.to_dict()) + "\n",
+    )
+    _atomic_write_new_text(
+        conversation_path,
+        "".join(
+            json.dumps(
+                record,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            + "\n"
+            for record in result.jsonl_records()
+        ),
+    )
+    _atomic_write_new_text(
+        readable_path,
+        result.render_markdown(),
+    )
+    _atomic_write_new_text(
+        provider_manifest_path,
+        _json(provider_manifest) + "\n",
+    )
+
+    audit = adapter.used_audit_records[0]
+    print(
+        _json(
+            {
+                "status": "completed",
+                "scope": "one_scenario_diagnostic_demo",
+                "paper_eligible": False,
+                "claim_eligible": False,
+                "provider": "openrouter",
+                "model_requested": args.model,
+                "model_returned": result.model_id,
+                "upstream_provider_returned": audit.get(
+                    "upstream_provider"
+                ),
+                "physical_openrouter_calls": 1,
+                "scenario_id": result.scenario_id,
+                "mechanism": result.mechanism,
+                "selected_option": result.selected_option_label,
+                "metrics": dict(result.metrics),
+                "readable_log": str(readable_path),
+                "machine_result": str(result_path),
+                "provider_audit": str(
+                    llm_dir / "provider-audit.jsonl"
+                ),
+            }
+        )
+    )
+    return 0
+
+
 def _config_validate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     from .llm_preflight import require_live_llm_budget
@@ -464,6 +668,94 @@ def _gate_review_verify(args: argparse.Namespace) -> int:
 def _schema_export(args: argparse.Namespace) -> int:
     written = export_schemas(args.destination)
     print(_json({"written": [str(path) for path in written]}))
+    return 0
+
+
+def _conversations_generate_openrouter(
+    args: argparse.Namespace,
+) -> int:
+    if args.output.exists():
+        raise FileExistsError(
+            f"conversation bank already exists: {args.output}"
+        )
+    log_path = (
+        args.log
+        if args.log is not None
+        else args.output.with_name(
+            args.output.stem + ".generation.jsonl"
+        )
+    )
+    if log_path.exists():
+        raise FileExistsError(
+            f"conversation generation log already exists: {log_path}"
+        )
+    loaded = load_scenario_catalog(
+        args.catalog,
+        expected_sha256=file_sha256(args.catalog),
+    )
+    provider = OpenRouterConversationProvider(
+        OpenRouterConversationConfig(
+            model=args.model,
+            timeout_seconds=args.timeout_seconds,
+            max_output_tokens=args.max_output_tokens,
+            max_requests=args.max_requests,
+            max_total_tokens=args.max_total_tokens,
+            upstream_provider=args.upstream_provider,
+            live_execution=args.execute_live,
+        )
+    )
+    bank = None
+    try:
+        bank = generate_conversation_bank(
+            loaded.catalog,
+            provider,
+            bank_id=args.bank_id,
+        )
+    finally:
+        logs = [
+            *provider.request_logs,
+            *provider.result_logs,
+        ]
+        if logs:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open(
+                "w",
+                encoding="utf-8",
+                newline="\n",
+            ) as handle:
+                for record in logs:
+                    handle.write(
+                        json.dumps(
+                            record,
+                            sort_keys=True,
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+    assert bank is not None
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(
+            bank.to_dict(),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(
+        _json(
+            {
+                "output": str(args.output),
+                "generation_log": str(log_path),
+                "bank_id": bank.bank_id,
+                "scenario_count": len(bank.templates),
+                "model": args.model,
+                "runtime_choice_source": "mathematical_simulator",
+                "runtime_language_source": "frozen_llm_templates",
+            }
+        )
+    )
     return 0
 
 
@@ -2168,6 +2460,32 @@ def _artifact_verify(args: argparse.Namespace) -> int:
     return 0 if valid else 1
 
 
+def _artifact_compact(args: argparse.Namespace) -> int:
+    print(
+        _json(
+            export_compact_analysis(
+                args.run_dir,
+                args.output_dir,
+            ).to_dict()
+        )
+    )
+    return 0
+
+
+def _artifact_verify_compact(args: argparse.Namespace) -> int:
+    valid, errors = verify_compact_analysis(args.bundle_dir)
+    print(
+        _json(
+            {
+                "bundle_dir": str(args.bundle_dir),
+                "valid": valid,
+                "errors": list(errors),
+            }
+        )
+    )
+    return 0 if valid else 1
+
+
 def _experiment_c_decoder_import(args: argparse.Namespace) -> int:
     result = import_experiment_c_external_rescore(
         run_dir=args.run_dir,
@@ -2409,6 +2727,95 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", help="check the local offline runtime")
     doctor.set_defaults(handler=_doctor)
+
+    demo = commands.add_parser(
+        "demo",
+        help="small explanatory workflows that are not paper evidence",
+    )
+    demo_commands = demo.add_subparsers(
+        dest="demo_command",
+        required=True,
+    )
+    one_scenario = demo_commands.add_parser(
+        "one-scenario",
+        help=(
+            "run one frozen scenario and exactly one physical OpenRouter "
+            "profile-update attempt"
+        ),
+    )
+    one_scenario.add_argument(
+        "output_dir",
+        type=Path,
+        help="new directory for the readable log and provider journals",
+    )
+    one_scenario.add_argument(
+        "--scenario-catalog",
+        type=Path,
+        default=Path("data/scenarios/scenario-catalog-v1.json"),
+    )
+    one_scenario.add_argument(
+        "--conversation-bank",
+        type=Path,
+        default=Path("data/scenarios/conversation-templates-v1.json"),
+    )
+    one_scenario.add_argument(
+        "--scenario-id",
+        default="travel-scenario-atlas-lodging-price-01",
+        help="one exact frozen scenario ID",
+    )
+    one_scenario.add_argument(
+        "--mechanism",
+        choices=("balanced", "restricted", "default", "suggested"),
+        default="balanced",
+    )
+    one_scenario.add_argument("--seed", type=int, default=1729)
+    one_scenario.add_argument(
+        "--model",
+        default=OPENROUTER_EXAMPLE_MODEL,
+        help=(
+            "exact OpenRouter author/model slug; change only this value to "
+            "test another model"
+        ),
+    )
+    one_scenario.add_argument(
+        "--reasoning-effort",
+        choices=(
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ),
+        default="",
+    )
+    one_scenario.add_argument(
+        "--upstream-provider",
+        default="",
+        help="optional exact OpenRouter upstream provider constraint",
+    )
+    one_scenario.add_argument(
+        "--api-key-env",
+        default="OPENROUTER_API_KEY",
+    )
+    one_scenario.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=120.0,
+    )
+    one_scenario.add_argument(
+        "--zdr",
+        action="store_true",
+        help="require an OpenRouter zero-data-retention endpoint",
+    )
+    one_scenario.add_argument(
+        "--execute-live",
+        action="store_true",
+        help="authorize this one paid OpenRouter attempt",
+    )
+    one_scenario.set_defaults(handler=_demo_one_scenario)
 
     config = commands.add_parser("config", help="configuration commands")
     config_commands = config.add_subparsers(dest="config_command", required=True)
@@ -2677,6 +3084,73 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("destination", type=Path, nargs="?", default=Path("schemas"))
     export.set_defaults(handler=_schema_export)
 
+    conversations = commands.add_parser(
+        "conversations",
+        help="author and validate frozen hybrid conversation templates",
+    )
+    conversation_commands = conversations.add_subparsers(
+        dest="conversation_command",
+        required=True,
+    )
+    generate_conversations = conversation_commands.add_parser(
+        "generate-openrouter",
+        help=(
+            "make one OpenRouter authoring call per scenario; the model "
+            "writes language templates but never chooses user actions"
+        ),
+    )
+    generate_conversations.add_argument("catalog", type=Path)
+    generate_conversations.add_argument("output", type=Path)
+    generate_conversations.add_argument(
+        "--log",
+        type=Path,
+        help=(
+            "readable JSONL request/result log; defaults beside OUTPUT"
+        ),
+    )
+    generate_conversations.add_argument(
+        "--bank-id",
+        default="cape-loop-conversation-templates-v1",
+    )
+    generate_conversations.add_argument(
+        "--model",
+        default="anthropic/claude-sonnet-5",
+        help="one pinned OpenRouter author/model slug",
+    )
+    generate_conversations.add_argument(
+        "--upstream-provider",
+        default="",
+        help="optional exact OpenRouter provider route",
+    )
+    generate_conversations.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=60.0,
+    )
+    generate_conversations.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=1200,
+    )
+    generate_conversations.add_argument(
+        "--max-requests",
+        type=int,
+        default=32,
+    )
+    generate_conversations.add_argument(
+        "--max-total-tokens",
+        type=int,
+        default=500_000,
+    )
+    generate_conversations.add_argument(
+        "--execute-live",
+        action="store_true",
+        help="authorize the paid OpenRouter authoring calls",
+    )
+    generate_conversations.set_defaults(
+        handler=_conversations_generate_openrouter
+    )
+
     llm = commands.add_parser("llm", help="provider-neutral LLM exchange")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
     models = llm_commands.add_parser(
@@ -2883,7 +3357,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_suite.set_defaults(handler=_llm_evaluation_suite)
 
     artifact = commands.add_parser(
-        "artifact", help="freeze and verify paper-facing run archives"
+        "artifact",
+        help="freeze, compact, and verify run-derived artifacts",
     )
     artifact_commands = artifact.add_subparsers(
         dest="artifact_command", required=True
@@ -2899,6 +3374,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_artifact.add_argument("archive", type=Path)
     verify_artifact.set_defaults(handler=_artifact_verify)
+    compact = artifact_commands.add_parser(
+        "compact",
+        help=(
+            "export checksum-bound row-level analysis data without changing "
+            "the completed source run"
+        ),
+    )
+    compact.add_argument("run_dir", type=Path)
+    compact.add_argument("output_dir", type=Path)
+    compact.set_defaults(handler=_artifact_compact)
+    verify_compact = artifact_commands.add_parser(
+        "verify-compact",
+        help="verify a compact analysis bundle",
+    )
+    verify_compact.add_argument("bundle_dir", type=Path)
+    verify_compact.set_defaults(handler=_artifact_verify_compact)
 
     decoder = commands.add_parser(
         "decoder-study",

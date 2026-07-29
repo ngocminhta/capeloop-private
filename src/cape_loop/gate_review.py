@@ -2298,12 +2298,26 @@ def _validate_external_provider_audit(
         raise ValueError(
             "external decoder audit raw response is not valid provider output"
         ) from exc
+    try:
+        canonical_raw_beliefs = LLMResponse.parse(
+            {
+                "schema_version": 1,
+                "request_id": llm_response.request_id,
+                "prompt_sha256": llm_response.prompt_sha256,
+                "model_id": returned_model,
+                "beliefs": payload.get("beliefs"),
+            }
+        ).beliefs
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "external decoder raw beliefs are not valid provider output"
+        ) from exc
     if (
         audit.get("model_returned") != returned_model
         or audit.get("provider_response_id") != response_id
         or dict(usage) != dict(parsed_usage)
         or llm_response.model_id != returned_model
-        or payload.get("beliefs") != llm_response.beliefs
+        or canonical_raw_beliefs != llm_response.beliefs
     ):
         raise ValueError(
             "external decoder audit response identity, usage, or beliefs "

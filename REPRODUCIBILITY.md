@@ -342,8 +342,8 @@ same verified source run byte-reproducible. Freezing authenticates artifact
 identity; it does not establish scientific adequacy.
 
 The repository must not present generated placeholder values as results. See
-[artifacts/README.md](artifacts/README.md) and
-[paper/README.md](paper/README.md).
+[artifacts/README.md](artifacts/README.md) and the
+[paper proposal](docs/proposal.md).
 
 ## Reproducibility audit
 

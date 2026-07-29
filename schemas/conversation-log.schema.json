@@ -1,0 +1,452 @@
+{
+  "$id": "urn:cape-loop:schema:conversation-log:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A compact reporting view that stores visible dialogue once and groups the evaluated updater outcomes beside it. It intentionally excludes latent user state, option feature vectors, beliefs, native memory, and provider prompts or responses.",
+  "properties": {
+    "assessments": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "attribute": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "clause_results": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "minProperties": 1,
+            "type": "object"
+          }
+        },
+        "required": [
+          "attribute",
+          "metrics",
+          "clause_results"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "comparisons": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "minProperties": 1,
+            "type": "object"
+          }
+        },
+        "required": [
+          "comparison_id",
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "conditions": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          },
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "type": "object"
+    },
+    "conversation_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "conversation_kind": {
+      "enum": [
+        "single_turn",
+        "closed_loop",
+        "fixed_history"
+      ]
+    },
+    "dialogue": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "assistant": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "choice_source": {
+            "const": "mathematical_user_simulator"
+          },
+          "event_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "presentation_mechanism": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "scenario_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selected_option_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "selected_option_label": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "surface_available": {
+            "type": "boolean"
+          },
+          "surface_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "surface_source": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "turn": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "turn_metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "turn",
+          "event_id",
+          "scenario_id",
+          "surface_id",
+          "surface_available",
+          "assistant",
+          "user",
+          "selected_option_id",
+          "selected_option_label",
+          "presentation_mechanism",
+          "choice_source",
+          "surface_source",
+          "turn_metrics"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "domain_id": {
+      "enum": [
+        "travel",
+        "writing"
+      ]
+    },
+    "experiment": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "sensitivity",
+        "demo"
+      ]
+    },
+    "outcomes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "model_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "updater_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "updater_view": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "updater_id",
+          "updater_view",
+          "model_ids",
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "record_kind": {
+      "const": "conversation_trace"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "user_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "record_kind",
+    "experiment",
+    "conversation_id",
+    "conversation_kind",
+    "source_id",
+    "user_id",
+    "domain_id",
+    "conditions",
+    "dialogue",
+    "outcomes",
+    "assessments",
+    "comparisons"
+  ],
+  "title": "CAPE-Loop natural-language conversation and metric trace",
+  "type": "object"
+}

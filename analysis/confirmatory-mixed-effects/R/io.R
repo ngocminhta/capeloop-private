@@ -39,6 +39,32 @@ require_scalar_integer <- function(value, label, minimum = NULL) {
   as.integer(numeric_value)
 }
 
+require_scalar_logical <- function(value, label) {
+  if (!is.logical(value) || length(value) != 1L || is.na(value)) {
+    abort_analysis(label, " must be one boolean")
+  }
+  value
+}
+
+assert_exact_fields <- function(value, expected, label) {
+  if (!is.list(value) || is.null(names(value))) {
+    abort_analysis(label, " must be one JSON object")
+  }
+  missing <- setdiff(expected, names(value))
+  extra <- setdiff(names(value), expected)
+  if (length(missing) || length(extra) || anyDuplicated(names(value))) {
+    abort_analysis(
+      label,
+      " has an invalid field set; missing=[",
+      paste(missing, collapse = ", "),
+      "], extra=[",
+      paste(extra, collapse = ", "),
+      "]"
+    )
+  }
+  invisible(TRUE)
+}
+
 sha256_file <- function(path) {
   digest::digest(file = path, algo = "sha256", serialize = FALSE)
 }
@@ -163,7 +189,11 @@ listed_run_files <- function(run_dir) {
   sort(setdiff(gsub("\\\\", "/", files), "SHA256SUMS"))
 }
 
-verify_source_run <- function(run_dir, experiment_spec) {
+verify_source_run <- function(
+  run_dir,
+  experiment_spec,
+  use_legacy_input = FALSE
+) {
   run_dir <- normalizePath(run_dir, mustWork = TRUE)
   if (!dir.exists(run_dir)) {
     abort_analysis("source run is not a directory: ", run_dir)
@@ -209,14 +239,32 @@ verify_source_run <- function(run_dir, experiment_spec) {
     }
   }
 
+  resolved_legacy_input <- if (is.null(use_legacy_input)) {
+    !(experiment_spec$input_file %in% names(checksums))
+  } else {
+    isTRUE(use_legacy_input)
+  }
+  input_relative <- if (resolved_legacy_input) {
+    require_scalar_character(
+      experiment_spec$legacy_input_file,
+      "analysis specification legacy_input_file"
+    )
+  } else {
+    experiment_spec$input_file
+  }
+  exclusion_relative <- if (resolved_legacy_input) {
+    experiment_spec$legacy_exclusion_file %||% NULL
+  } else {
+    experiment_spec$exclusion_file %||% NULL
+  }
   required_common <- c(
     "manifest.json",
     "config.resolved.json",
     "metrics/summary.json",
-    experiment_spec$input_file
+    input_relative
   )
-  if (!is.null(experiment_spec$exclusion_file)) {
-    required_common <- c(required_common, experiment_spec$exclusion_file)
+  if (!is.null(exclusion_relative)) {
+    required_common <- c(required_common, exclusion_relative)
   }
   absent <- setdiff(required_common, names(checksums))
   if (length(absent)) {
@@ -272,16 +320,25 @@ verify_source_run <- function(run_dir, experiment_spec) {
   if (!identical(summary$scientific_claim_status, "not_claimed")) {
     abort_analysis("source summary claim status is not not_claimed for ", run_id)
   }
-  if (!isTRUE(config$artifacts$retain_events)) {
-    abort_analysis("source run did not declare artifacts.retain_events=true")
+  if (
+    !resolved_legacy_input &&
+    !is.null(exclusion_relative) &&
+    !identical(
+      summary$analysis_exclusion_artifact,
+      exclusion_relative
+    )
+  ) {
+    abort_analysis(
+      "source summary compact exclusion declaration differs for ",
+      run_id
+    )
   }
-
-  input_path <- file.path(run_dir, experiment_spec$input_file)
+  input_path <- file.path(run_dir, input_relative)
   exclusion_path <- NULL
   exclusion_digest <- NULL
   exclusion_count <- 0L
-  if (!is.null(experiment_spec$exclusion_file)) {
-    relative <- experiment_spec$exclusion_file
+  if (!is.null(exclusion_relative)) {
+    relative <- exclusion_relative
     exclusion_path <- file.path(run_dir, relative)
     exclusion_digest <- unname(checksums[[relative]])
     exclusion_lines <- readLines(
@@ -314,13 +371,11 @@ verify_source_run <- function(run_dir, experiment_spec) {
           "minimum_probability",
           "choice_probabilities"
         )
-        if (!setequal(names(value), expected_fields)) {
-          abort_analysis(
-            "Experiment A exclusion row ",
-            index,
-            " has unexpected fields"
-          )
-        }
+        assert_exact_fields(
+          value,
+          expected_fields,
+          paste0("Experiment A exclusion row ", index)
+        )
         if (require_scalar_integer(
           value$schema_version,
           "exclusion.schema_version"
@@ -416,11 +471,380 @@ verify_source_run <- function(run_dir, experiment_spec) {
     summary = summary,
     checksums = checksums,
     checksum_manifest_sha256 = sha256_file(checksum_path),
+    input_relative = input_relative,
     input_path = input_path,
-    input_sha256 = unname(checksums[[experiment_spec$input_file]]),
+    input_sha256 = unname(checksums[[input_relative]]),
+    input_is_legacy = resolved_legacy_input,
+    analysis_input_path = input_path,
+    analysis_input_sha256 = unname(checksums[[input_relative]]),
+    compact_bundle = NULL,
+    exclusion_relative = exclusion_relative,
     exclusion_path = exclusion_path,
     exclusion_sha256 = exclusion_digest,
     exclusion_count = exclusion_count
+  )
+}
+
+verify_compact_bundle <- function(
+  bundle_dir,
+  source,
+  experiment,
+  experiment_spec
+) {
+  supplied <- path.expand(bundle_dir)
+  supplied_link <- Sys.readlink(supplied)
+  if (
+    length(supplied_link) != 1L || is.na(supplied_link) ||
+    nzchar(supplied_link)
+  ) {
+    abort_analysis("compact bundle must be a non-symlink directory")
+  }
+  bundle_dir <- normalizePath(supplied, mustWork = TRUE)
+  if (!dir.exists(bundle_dir)) {
+    abort_analysis("compact bundle is not a directory: ", bundle_dir)
+  }
+  source_prefix <- paste0(source$path, .Platform$file.sep)
+  if (
+    identical(bundle_dir, source$path) ||
+    startsWith(bundle_dir, source_prefix)
+  ) {
+    abort_analysis("compact bundle cannot be inside its immutable source run")
+  }
+  bundle_entries <- list.files(
+    bundle_dir,
+    recursive = TRUE,
+    all.files = TRUE,
+    full.names = TRUE,
+    include.dirs = TRUE,
+    no.. = TRUE
+  )
+  if (length(bundle_entries)) {
+    entry_info <- file.info(bundle_entries)
+    if (any(is.na(entry_info$isdir)) || any(entry_info$isdir)) {
+      abort_analysis("compact bundle cannot contain subdirectories")
+    }
+  }
+
+  expected_files <- sort(c(
+    "SHA256SUMS",
+    "analysis-rows.jsonl",
+    "manifest.json"
+  ))
+  actual_files <- sort(c(
+    listed_run_files(bundle_dir),
+    if (file.exists(file.path(bundle_dir, "SHA256SUMS"))) {
+      "SHA256SUMS"
+    } else {
+      character()
+    }
+  ))
+  if (!identical(actual_files, expected_files)) {
+    abort_analysis(
+      "compact bundle inventory must be exactly ",
+      paste(expected_files, collapse = ", ")
+    )
+  }
+  for (relative in expected_files) {
+    path <- file.path(bundle_dir, relative)
+    link <- Sys.readlink(path)
+    if (
+      length(link) != 1L || is.na(link) || nzchar(link) ||
+      !file.exists(path) || dir.exists(path)
+    ) {
+      abort_analysis(
+        "compact bundle entry must be one regular non-symlink file: ",
+        relative
+      )
+    }
+  }
+
+  checksum_path <- file.path(bundle_dir, "SHA256SUMS")
+  checksums <- parse_checksum_manifest(checksum_path)
+  expected_checksum_names <- sort(c(
+    "analysis-rows.jsonl",
+    "manifest.json"
+  ))
+  if (!identical(sort(names(checksums)), expected_checksum_names)) {
+    abort_analysis(
+      "compact bundle SHA256SUMS must list exactly analysis-rows.jsonl and manifest.json"
+    )
+  }
+  for (relative in names(checksums)) {
+    observed <- sha256_file(file.path(bundle_dir, relative))
+    if (!identical(observed, unname(checksums[[relative]]))) {
+      abort_analysis("compact bundle checksum mismatch for ", relative)
+    }
+  }
+
+  manifest_path <- file.path(bundle_dir, "manifest.json")
+  rows_path <- file.path(bundle_dir, "analysis-rows.jsonl")
+  manifest <- read_json_object(manifest_path, "compact manifest.json")
+  base_fields <- c(
+    "schema_version",
+    "artifact_kind",
+    "status",
+    "claim_status",
+    "experiment",
+    "analysis_unit",
+    "row_schema_version",
+    "row_count",
+    "source_record_count",
+    "configured_turns",
+    "analysis_rows_file",
+    "analysis_rows_sha256",
+    "source_run_id",
+    "source_manifest_sha256",
+    "source_checksums_sha256",
+    "source_config_file_sha256",
+    "source_summary_file_sha256",
+    "source_config_sha256",
+    "source_tree_sha256",
+    "source_input_file",
+    "source_input_sha256",
+    "source_input_is_runner_compact",
+    "exporter_version",
+    "exporter_source_sha256",
+    "outcome_derivation"
+  )
+  expected_manifest_fields <- if (identical(experiment, "A")) {
+    c(
+      base_fields,
+      "source_exclusion_file",
+      "source_exclusion_sha256"
+    )
+  } else {
+    base_fields
+  }
+  assert_exact_fields(
+    manifest,
+    expected_manifest_fields,
+    "compact manifest.json"
+  )
+  if (require_scalar_integer(
+    manifest$schema_version,
+    "compact manifest.schema_version"
+  ) != 1L) {
+    abort_analysis("unsupported compact manifest schema_version")
+  }
+  if (!identical(
+    manifest$artifact_kind,
+    "cape-loop-compact-analysis-bundle"
+  )) {
+    abort_analysis("compact manifest has an unexpected artifact_kind")
+  }
+  if (!identical(manifest$status, "complete")) {
+    abort_analysis("compact manifest status is not complete")
+  }
+  if (!identical(manifest$claim_status, "not_claimed")) {
+    abort_analysis("compact manifest claim_status is not not_claimed")
+  }
+  if (!identical(manifest$experiment, experiment)) {
+    abort_analysis("compact manifest experiment differs from requested analysis")
+  }
+  if (!identical(
+    manifest$analysis_unit,
+    experiment_spec$bundle_analysis_unit
+  )) {
+    abort_analysis("compact manifest analysis_unit differs from the protocol")
+  }
+  if (require_scalar_integer(
+    manifest$row_schema_version,
+    "compact manifest.row_schema_version"
+  ) != 1L) {
+    abort_analysis("unsupported compact analysis row schema_version")
+  }
+  if (!identical(manifest$analysis_rows_file, "analysis-rows.jsonl")) {
+    abort_analysis("compact manifest analysis_rows_file is not canonical")
+  }
+  if (!identical(
+    manifest$outcome_derivation,
+    experiment_spec$bundle_outcome_derivation
+  )) {
+    abort_analysis(
+      "compact manifest outcome_derivation differs from the protocol"
+    )
+  }
+  require_scalar_character(
+    manifest$exporter_version,
+    "compact manifest.exporter_version"
+  )
+
+  digest_fields <- c(
+    "analysis_rows_sha256",
+    "source_manifest_sha256",
+    "source_checksums_sha256",
+    "source_config_file_sha256",
+    "source_summary_file_sha256",
+    "source_config_sha256",
+    "source_tree_sha256",
+    "source_input_sha256",
+    "exporter_source_sha256"
+  )
+  if (identical(experiment, "A")) {
+    digest_fields <- c(digest_fields, "source_exclusion_sha256")
+  }
+  for (field in digest_fields) {
+    value <- manifest[[field]]
+    if (
+      !is_scalar_character(value) ||
+      !grepl("^[0-9a-f]{64}$", value)
+    ) {
+      abort_analysis(
+        "compact manifest.",
+        field,
+        " is not a lowercase SHA-256"
+      )
+    }
+  }
+
+  if (!identical(manifest$source_run_id, source$run_id)) {
+    abort_analysis("compact bundle source_run_id differs from paired --run")
+  }
+  if (!identical(
+    manifest$source_manifest_sha256,
+    sha256_file(file.path(source$path, "manifest.json"))
+  )) {
+    abort_analysis("compact bundle source manifest digest mismatch")
+  }
+  if (!identical(
+    manifest$source_checksums_sha256,
+    sha256_file(file.path(source$path, "SHA256SUMS"))
+  )) {
+    abort_analysis("compact bundle source SHA256SUMS digest mismatch")
+  }
+  if (!identical(
+    manifest$source_config_file_sha256,
+    sha256_file(file.path(source$path, "config.resolved.json"))
+  )) {
+    abort_analysis("compact bundle source config file digest mismatch")
+  }
+  if (!identical(
+    manifest$source_summary_file_sha256,
+    sha256_file(file.path(source$path, "metrics", "summary.json"))
+  )) {
+    abort_analysis("compact bundle source summary file digest mismatch")
+  }
+  if (!identical(
+    manifest$source_config_sha256,
+    source$manifest$config_sha256
+  )) {
+    abort_analysis("compact bundle source config digest mismatch")
+  }
+  if (!identical(
+    manifest$source_tree_sha256,
+    source$manifest$source_sha256
+  )) {
+    abort_analysis("compact bundle source tree digest mismatch")
+  }
+  source_input_is_runner_compact <- require_scalar_logical(
+    manifest$source_input_is_runner_compact,
+    "compact manifest.source_input_is_runner_compact"
+  )
+  if (
+    !identical(manifest$source_input_file, source$input_relative) ||
+    !identical(manifest$source_input_sha256, source$input_sha256) ||
+    !identical(source_input_is_runner_compact, !source$input_is_legacy)
+  ) {
+    abort_analysis("compact bundle source input binding mismatch")
+  }
+
+  if (identical(experiment, "A")) {
+    if (
+      !identical(
+        manifest$source_exclusion_file,
+        source$exclusion_relative
+      ) ||
+      !identical(
+        manifest$source_exclusion_sha256,
+        sha256_file(source$exclusion_path)
+      )
+    ) {
+      abort_analysis("compact bundle source exclusion binding mismatch")
+    }
+  }
+
+  rows_sha256 <- sha256_file(rows_path)
+  if (
+    !identical(
+      rows_sha256,
+      unname(checksums[["analysis-rows.jsonl"]])
+    ) ||
+    !identical(rows_sha256, manifest$analysis_rows_sha256)
+  ) {
+    abort_analysis("compact bundle analysis row digest mismatch")
+  }
+  row_lines <- readLines(rows_path, warn = FALSE, encoding = "UTF-8")
+  if (!length(row_lines) || any(!nzchar(row_lines))) {
+    abort_analysis("compact bundle analysis rows are empty or contain blanks")
+  }
+  row_count <- require_scalar_integer(
+    manifest$row_count,
+    "compact manifest.row_count",
+    minimum = 1L
+  )
+  if (row_count != length(row_lines)) {
+    abort_analysis("compact bundle row count differs from analysis-rows.jsonl")
+  }
+  source_record_count <- require_scalar_integer(
+    manifest$source_record_count,
+    "compact manifest.source_record_count",
+    minimum = 1L
+  )
+  expected_source_count <- if (identical(experiment, "A")) {
+    require_scalar_integer(
+      source$summary$row_count,
+      "summary.row_count",
+      minimum = 1L
+    )
+  } else {
+    require_scalar_integer(
+      source$summary$trajectories,
+      "summary.trajectories",
+      minimum = 1L
+    )
+  }
+  if (source_record_count != expected_source_count) {
+    abort_analysis(
+      "compact bundle source_record_count differs from source summary"
+    )
+  }
+  if (identical(experiment, "A")) {
+    if (!is.null(manifest$configured_turns)) {
+      abort_analysis("compact Experiment A configured_turns must be null")
+    }
+    if (row_count != source_record_count) {
+      abort_analysis("compact Experiment A row_count differs from source rows")
+    }
+  } else {
+    configured_turns <- require_scalar_integer(
+      manifest$configured_turns,
+      "compact manifest.configured_turns",
+      minimum = 1L
+    )
+    source_turns <- require_scalar_integer(
+      source$config$experiment$turns,
+      "config.experiment.turns",
+      minimum = 1L
+    )
+    if (
+      configured_turns != source_turns ||
+      row_count != source_record_count * source_turns
+    ) {
+      abort_analysis(
+        "compact Experiment B row or turn count differs from source design"
+      )
+    }
+  }
+
+  list(
+    path = bundle_dir,
+    manifest = manifest,
+    manifest_sha256 = sha256_file(manifest_path),
+    checksum_manifest_sha256 = sha256_file(checksum_path),
+    rows_path = rows_path,
+    rows_sha256 = rows_sha256,
+    row_count = row_count,
+    source_record_count = source_record_count
   )
 }
 
@@ -469,326 +893,393 @@ assert_same_design <- function(source_runs, experiment) {
 
 normalize_experiment_a <- function(source) {
   records <- read_jsonl_objects(
-    source$input_path,
-    paste0(source$run_id, " Experiment A events")
+    source$analysis_input_path,
+    paste0(source$run_id, " compact Experiment A rows")
   )
-  invisible(lapply(seq_along(records), function(index) {
+  expected_fields <- c(
+    "schema_version",
+    "source_record_index",
+    "trial_id",
+    "user_id",
+    "domain_id",
+    "scenario_id",
+    "updater_id",
+    "mechanism",
+    "prior_strength",
+    "response_mode",
+    "update_error"
+  )
+  rows <- lapply(seq_along(records), function(index) {
     row <- records[[index]]
+    label <- paste0("Experiment A compact row ", index)
+    assert_exact_fields(row, expected_fields, label)
     if (require_scalar_integer(
       row$schema_version,
-      paste0("Experiment A row ", index, " schema_version")
+      paste0(label, ".schema_version")
     ) != 1L) {
-      abort_analysis("unsupported Experiment A event schema version")
+      abort_analysis("unsupported compact Experiment A row schema version")
     }
+    source_record_index <- require_scalar_integer(
+      row$source_record_index,
+      paste0(label, ".source_record_index"),
+      minimum = 1L
+    )
     mode <- require_scalar_character(
       row$response_mode,
-      paste0("Experiment A row ", index, " response_mode")
+      paste0(label, ".response_mode")
     )
     if (!(mode %in% c("controlled_anchor", "naturally_sampled"))) {
-      abort_analysis("unknown Experiment A response_mode: ", mode)
+      abort_analysis("unknown compact Experiment A response_mode: ", mode)
     }
-    NULL
-  }))
-  selected_indexes <- which(vapply(records, function(row) {
-    identical(row$response_mode, "naturally_sampled")
-  }, logical(1)))
-  selected <- records[selected_indexes]
-  if (!length(selected)) {
-    abort_analysis(source$run_id, " has no naturally sampled Experiment A rows")
+    data.frame(
+      source_run_id = source$run_id,
+      source_record_index = source_record_index,
+      trial_id = require_scalar_character(row$trial_id, paste0(label, ".trial_id")),
+      user = paste(
+        source$run_id,
+        require_scalar_character(row$user_id, paste0(label, ".user_id")),
+        sep = "::"
+      ),
+      domain = require_scalar_character(
+        row$domain_id,
+        paste0(label, ".domain_id")
+      ),
+      scenario = paste(
+        source$run_id,
+        require_scalar_character(
+          row$scenario_id,
+          paste0(label, ".scenario_id")
+        ),
+        sep = "::"
+      ),
+      updater = require_scalar_character(
+        row$updater_id,
+        paste0(label, ".updater_id")
+      ),
+      mechanism = require_scalar_character(
+        row$mechanism,
+        paste0(label, ".mechanism")
+      ),
+      prior_strength = require_scalar_number(
+        row$prior_strength,
+        paste0(label, ".prior_strength")
+      ),
+      update_error = require_scalar_number(
+        row$update_error,
+        paste0(label, ".update_error")
+      ),
+      response_mode = mode,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  })
+  all_rows <- do.call(rbind, rows)
+  if (!identical(
+    all_rows$source_record_index,
+    seq_len(nrow(all_rows))
+  )) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment A source_record_index values must cover 1..row_count in order"
+    )
   }
+  native_declaration_valid <- (
+    !is.null(source$compact_bundle) ||
+    (
+      require_scalar_integer(
+        source$summary$analysis_row_count,
+        "summary.analysis_row_count",
+        minimum = 1L
+      ) == nrow(all_rows) &&
+      identical(
+        source$summary$analysis_artifact,
+        "analysis/experiment-a-rows.jsonl"
+      )
+    )
+  )
   if (
     require_scalar_integer(
       source$summary$row_count,
       "summary.row_count",
       minimum = 1L
-    ) != length(records) ||
+    ) != nrow(all_rows) ||
+    !native_declaration_valid
+  ) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment A source declaration differs from metrics/summary.json"
+    )
+  }
+  normalized <- all_rows[
+    all_rows$response_mode == "naturally_sampled",
+    ,
+    drop = FALSE
+  ]
+  normalized$response_mode <- NULL
+  if (
     require_scalar_integer(
       source$summary$natural_row_count,
       "summary.natural_row_count",
       minimum = 1L
-    ) != length(selected)
+    ) != nrow(normalized)
   ) {
     abort_analysis(
       source$run_id,
-      " Experiment A event counts differ from metrics/summary.json"
+      " compact Experiment A row count differs from metrics/summary.json"
     )
   }
-  data.frame(
-    source_run_id = rep(source$run_id, length(selected)),
-    source_record_index = selected_indexes,
-    trial_id = vapply(
-      selected,
-      function(row) require_scalar_character(row$trial_id, "trial_id"),
-      character(1)
-    ),
-    user = vapply(selected, function(row) {
-      paste(
-        source$run_id,
-        require_scalar_character(row$user_id, "user_id"),
-        sep = "::"
-      )
-    }, character(1)),
-    domain = vapply(
-      selected,
-      function(row) require_scalar_character(row$domain_id, "domain_id"),
-      character(1)
-    ),
-    scenario = vapply(selected, function(row) {
-      paste(
-        source$run_id,
-        require_scalar_character(
-          row$context$scenario_id,
-          "context.scenario_id"
-        ),
-        sep = "::"
-      )
-    }, character(1)),
-    updater = vapply(
-      selected,
-      function(row) require_scalar_character(row$updater_id, "updater_id"),
-      character(1)
-    ),
-    mechanism = vapply(
-      selected,
-      function(row) require_scalar_character(row$mechanism, "mechanism"),
-      character(1)
-    ),
-    prior_strength = vapply(
-      selected,
-      function(row) require_scalar_number(
-        row$prior_strength,
-        "prior_strength"
-      ),
-      numeric(1)
-    ),
-    update_error = vapply(
-      selected,
-      function(row) require_scalar_number(row$metrics$acue, "metrics.acue"),
-      numeric(1)
-    ),
-    stringsAsFactors = FALSE,
-    check.names = FALSE
-  )
-}
-
-validate_theta_values <- function(theta, label) {
-  if (!is.list(theta) || length(theta) != 3L) {
-    abort_analysis(label, " must contain three latent preference values")
-  }
-  values <- vapply(seq_along(theta), function(index) {
-    require_scalar_integer(theta[[index]], paste0(label, "[", index, "]"))
-  }, integer(1))
-  if (any(!(values %in% c(-2L, -1L, 1L, 2L)))) {
-    abort_analysis(label, " values must lie in {-2, -1, 1, 2}")
-  }
-  values
-}
-
-marginal_brier_from_retained_belief <- function(belief, theta, label) {
-  if (!is.list(belief) || is.null(names(belief))) {
-    abort_analysis(label, " must be a retained belief object")
-  }
-  marginals <- belief$marginals
-  if (!is.list(marginals) || length(marginals) != 3L) {
-    abort_analysis(label, ".marginals must contain three rows")
-  }
-  theta_values <- c(-2L, -1L, 1L, 2L)
-  attribute_scores <- vapply(seq_along(marginals), function(attribute) {
-    probabilities <- marginals[[attribute]]
-    if (!is.list(probabilities) || length(probabilities) != 4L) {
-      abort_analysis(
-        label,
-        ".marginals[",
-        attribute,
-        "] must contain four probabilities"
-      )
-    }
-    numeric_probabilities <- vapply(
-      seq_along(probabilities),
-      function(index) require_scalar_number(
-        probabilities[[index]],
-        paste0(
-          label,
-          ".marginals[",
-          attribute,
-          "][",
-          index,
-          "]"
-        )
-      ),
-      numeric(1)
+  if (!identical(
+    sha256_file(source$analysis_input_path),
+    source$analysis_input_sha256
+  )) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment A rows changed while being normalized"
     )
-    if (
-      any(numeric_probabilities < 0 | numeric_probabilities > 1) ||
-      abs(sum(numeric_probabilities) - 1) > 1e-9
-    ) {
-      abort_analysis(
-        label,
-        ".marginals[",
-        attribute,
-        "] is not a probability vector"
-      )
-    }
-    expected <- as.numeric(theta_values == theta[[attribute]])
-    sum((numeric_probabilities - expected)^2)
-  }, numeric(1))
-  sum(attribute_scores) / 3
-}
-
-normalize_turn_errors <- function(turns, theta, trajectory_id) {
-  if (!is.list(turns) || !length(turns)) {
-    abort_analysis(trajectory_id, " has no turns")
   }
-  observed <- vapply(seq_along(turns), function(index) {
-    value <- turns[[index]]$turn
-    numeric_value <- require_scalar_number(
-      value,
-      paste0(trajectory_id, ".turns[", index, "].turn")
-    )
-    if (numeric_value != floor(numeric_value)) {
-      abort_analysis(trajectory_id, " has a non-integer turn index")
-    }
-    as.integer(numeric_value)
-  }, integer(1))
-  expected <- seq.int(0L, length(turns) - 1L)
-  if (!identical(observed, expected)) {
-    abort_analysis(trajectory_id, " turn indexes are not contiguous from zero")
-  }
-  errors <- vapply(seq_along(turns), function(index) {
-    turn <- turns[[index]]
-    if (!is.null(turn$theta_snapshot)) {
-      snapshot <- validate_theta_values(
-        turn$theta_snapshot,
-        paste0(trajectory_id, ".turns[", index, "].theta_snapshot")
-      )
-      if (!identical(snapshot, theta)) {
-        abort_analysis(trajectory_id, " changes latent theta within a trajectory")
-      }
-    }
-    marginal_brier_from_retained_belief(
-      turn$belief_after,
-      theta,
-      paste0(trajectory_id, ".turns[", index, "].belief_after")
-    )
-  }, numeric(1))
-  list(
-    source_turn_index = observed,
-    turn = observed + 1L,
-    terminal_error = errors
-  )
+  normalized
 }
 
 normalize_experiment_b <- function(source) {
   records <- read_jsonl_objects(
-    source$input_path,
-    paste0(source$run_id, " Experiment B trajectories")
+    source$analysis_input_path,
+    paste0(source$run_id, " compact Experiment B turns")
   )
-  if (
-    require_scalar_integer(
-      source$summary$trajectories,
-      "summary.trajectories",
-      minimum = 1L
-    ) != length(records)
-  ) {
-    abort_analysis(
-      source$run_id,
-      " Experiment B trajectory count differs from metrics/summary.json"
-    )
-  }
+  expected_fields <- c(
+    "schema_version",
+    "source_record_index",
+    "source_turn_index",
+    "trajectory_id",
+    "user_id",
+    "domain_id",
+    "crn_key",
+    "updater_id",
+    "policy_id",
+    "initial_profile_condition",
+    "turn",
+    "terminal_error",
+    "retained_terminal_error",
+    "same_history_shadow"
+  )
+  trajectory_count <- require_scalar_integer(
+    source$summary$trajectories,
+    "summary.trajectories",
+    minimum = 1L
+  )
   configured_turns <- require_scalar_integer(
     source$config$experiment$turns,
     "config.experiment.turns",
     minimum = 1L
   )
+  expected_row_count <- trajectory_count * configured_turns
+  native_declaration_valid <- (
+    !is.null(source$compact_bundle) ||
+    (
+      require_scalar_integer(
+        source$summary$analysis_row_count,
+        "summary.analysis_row_count",
+        minimum = 1L
+      ) == expected_row_count &&
+      identical(
+        source$summary$analysis_artifact,
+        "analysis/experiment-b-turns.jsonl"
+      )
+    )
+  )
+  if (
+    length(records) != expected_row_count ||
+    !native_declaration_valid
+  ) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment B declaration or turn count differs from metrics/summary.json"
+    )
+  }
   rows <- lapply(seq_along(records), function(index) {
     row <- records[[index]]
+    label <- paste0("Experiment B compact row ", index)
+    assert_exact_fields(row, expected_fields, label)
     if (require_scalar_integer(
       row$schema_version,
-      paste0("Experiment B row ", index, " schema_version")
+      paste0(label, ".schema_version")
     ) != 1L) {
-      abort_analysis("unsupported Experiment B trajectory schema version")
+      abort_analysis("unsupported compact Experiment B row schema version")
     }
     trajectory_id <- require_scalar_character(
       row$trajectory_id,
-      "trajectory_id"
+      paste0(label, ".trajectory_id")
     )
-    if (!isTRUE(row$same_history_shadow)) {
+    if (!isTRUE(require_scalar_logical(
+      row$same_history_shadow,
+      paste0(label, ".same_history_shadow")
+    ))) {
       abort_analysis(trajectory_id, " does not retain a same-history shadow")
     }
-    theta <- validate_theta_values(row$theta, paste0(trajectory_id, ".theta"))
-    turn_values <- normalize_turn_errors(row$turns, theta, trajectory_id)
-    if (length(turn_values$turn) != configured_turns) {
-      abort_analysis(
-        trajectory_id,
-        " retained turn count differs from config.experiment.turns"
-      )
-    }
-    retained_terminal_error <- require_scalar_number(
-      row$terminal_error,
-      paste0(trajectory_id, ".terminal_error")
-    )
-    reconstructed_terminal_error <- tail(
-      turn_values$terminal_error,
-      1L
-    )
-    terminal_tolerance <- 1e-12 + 1e-9 * abs(retained_terminal_error)
-    if (
-      abs(reconstructed_terminal_error - retained_terminal_error) >
-        terminal_tolerance
-    ) {
-      abort_analysis(
-        trajectory_id,
-        " final turn Brier error differs from retained terminal_error"
-      )
-    }
-    turn_count <- length(turn_values$turn)
     data.frame(
-      source_run_id = rep(source$run_id, turn_count),
-      source_record_index = rep(index, turn_count),
-      source_turn_index = turn_values$source_turn_index,
-      trajectory_id = rep(trajectory_id, turn_count),
-      user = rep(
-        paste(
-          source$run_id,
-          require_scalar_character(row$user_id, "user_id"),
-          sep = "::"
-        ),
-        turn_count
+      source_run_id = source$run_id,
+      source_record_index = require_scalar_integer(
+        row$source_record_index,
+        paste0(label, ".source_record_index"),
+        minimum = 1L
       ),
-      domain = rep(
-        require_scalar_character(row$domain_id, "domain_id"),
-        turn_count
+      source_turn_index = require_scalar_integer(
+        row$source_turn_index,
+        paste0(label, ".source_turn_index"),
+        minimum = 0L
       ),
-      scenario = rep(
-        paste(
-          source$run_id,
-          require_scalar_character(row$crn_key, "crn_key"),
-          sep = "::"
-        ),
-        turn_count
+      trajectory_id = trajectory_id,
+      user = paste(
+        source$run_id,
+        require_scalar_character(row$user_id, paste0(label, ".user_id")),
+        sep = "::"
       ),
-      updater = rep(
-        require_scalar_character(row$updater_id, "updater_id"),
-        turn_count
+      domain = require_scalar_character(
+        row$domain_id,
+        paste0(label, ".domain_id")
       ),
-      policy = rep(
-        require_scalar_character(row$policy_id, "policy_id"),
-        turn_count
+      scenario = paste(
+        source$run_id,
+        require_scalar_character(row$crn_key, paste0(label, ".crn_key")),
+        sep = "::"
       ),
-      initial_profile = rep(
-        require_scalar_character(
-          row$initial_profile_condition,
-          "initial_profile_condition"
-        ),
-        turn_count
+      updater = require_scalar_character(
+        row$updater_id,
+        paste0(label, ".updater_id")
       ),
-      turn = turn_values$turn,
-      terminal_error = turn_values$terminal_error,
+      policy = require_scalar_character(
+        row$policy_id,
+        paste0(label, ".policy_id")
+      ),
+      initial_profile = require_scalar_character(
+        row$initial_profile_condition,
+        paste0(label, ".initial_profile_condition")
+      ),
+      turn = require_scalar_integer(
+        row$turn,
+        paste0(label, ".turn"),
+        minimum = 1L
+      ),
+      terminal_error = require_scalar_number(
+        row$terminal_error,
+        paste0(label, ".terminal_error")
+      ),
+      retained_terminal_error = require_scalar_number(
+        row$retained_terminal_error,
+        paste0(label, ".retained_terminal_error")
+      ),
+      same_history_shadow = TRUE,
       stringsAsFactors = FALSE,
       check.names = FALSE
     )
   })
-  do.call(rbind, rows)
+  normalized <- do.call(rbind, rows)
+  expected_source_indexes <- seq_len(trajectory_count)
+  if (!identical(
+    sort(unique(normalized$source_record_index)),
+    expected_source_indexes
+  )) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment B source_record_index values must cover 1..trajectories"
+    )
+  }
+  if (
+    !identical(
+      normalized$source_record_index,
+      rep(expected_source_indexes, each = configured_turns)
+    ) ||
+    !identical(
+      normalized$source_turn_index,
+      rep(
+        seq.int(0L, configured_turns - 1L),
+        times = trajectory_count
+      )
+    )
+  ) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment B rows are not in canonical source/turn order"
+    )
+  }
+  groups <- split(
+    normalized,
+    normalized$source_record_index,
+    drop = TRUE
+  )
+  invariant_fields <- c(
+    "trajectory_id",
+    "user",
+    "domain",
+    "scenario",
+    "updater",
+    "policy",
+    "initial_profile",
+    "retained_terminal_error",
+    "same_history_shadow"
+  )
+  for (group in groups) {
+    trajectory_id <- group$trajectory_id[[1L]]
+    for (field in invariant_fields) {
+      if (length(unique(group[[field]])) != 1L) {
+        abort_analysis(
+          trajectory_id,
+          " changes compact trajectory field ",
+          field
+        )
+      }
+    }
+    ordering <- order(group$source_turn_index, method = "radix")
+    group <- group[ordering, , drop = FALSE]
+    expected_source_turns <- seq.int(0L, configured_turns - 1L)
+    if (!identical(group$source_turn_index, expected_source_turns)) {
+      abort_analysis(
+        trajectory_id,
+        " compact turn indexes are not contiguous from zero"
+      )
+    }
+    if (!identical(group$turn, expected_source_turns + 1L)) {
+      abort_analysis(
+        trajectory_id,
+        " compact turn must equal source_turn_index + 1"
+      )
+    }
+    retained_terminal_error <- group$retained_terminal_error[[1L]]
+    terminal_tolerance <- 1e-12 + 1e-9 * abs(retained_terminal_error)
+    if (
+      abs(tail(group$terminal_error, 1L) - retained_terminal_error) >
+        terminal_tolerance
+    ) {
+      abort_analysis(
+        trajectory_id,
+        " final compact turn error differs from retained_terminal_error"
+      )
+    }
+  }
+  if (anyDuplicated(normalized$trajectory_id) != 0L) {
+    trajectory_sources <- tapply(
+      normalized$source_record_index,
+      normalized$trajectory_id,
+      function(values) length(unique(values))
+    )
+    if (any(trajectory_sources != 1L)) {
+      abort_analysis(
+        source$run_id,
+        " compact trajectory_id maps to multiple source records"
+      )
+    }
+  }
+  normalized$retained_terminal_error <- NULL
+  normalized$same_history_shadow <- NULL
+  if (!identical(
+    sha256_file(source$analysis_input_path),
+    source$analysis_input_sha256
+  )) {
+    abort_analysis(
+      source$run_id,
+      " compact Experiment B rows changed while being normalized"
+    )
+  }
+  normalized
 }
 
 all_cells_positive <- function(data, group, first, second) {

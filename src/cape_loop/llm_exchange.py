@@ -17,8 +17,11 @@ ATTRIBUTES = ("attribute_1", "attribute_2", "attribute_3")
 
 BASE_INSTRUCTION = """\
 Return JSON only. Infer a persistent preference profile from the supplied prior
-and interaction. For each attribute, return probabilities for -2, -1, +1, +2.
-Do not use information that is absent from the request.
+and natural-language interaction. The payload's profile_schema explains the
+meaning of attribute_1, attribute_2, and attribute_3 in this domain. For each
+attribute, return probabilities for -2, -1, +1, +2. Treat a local selection as
+evidence, not as a direct statement of a permanent preference. Do not use
+information that is absent from the request.
 """
 
 PROVENANCE_INSTRUCTION = """\
@@ -159,9 +162,24 @@ class LLMResponse:
                 for p in parsed.values()
             ):
                 raise ValueError(f"{attribute} contains probability outside [0, 1]")
-            if abs(sum(parsed.values()) - 1.0) > 1e-6:
+            total = math.fsum(parsed.values())
+            if abs(total - 1.0) > 1e-6:
                 raise ValueError(f"{attribute} probabilities do not sum to one")
-            validated[attribute] = parsed
+            # Provider decimals can be within the public response tolerance
+            # while still exceeding the tighter invariant used by the belief
+            # objects. Canonicalize accepted vectors here so validation and
+            # downstream execution cannot disagree.
+            if math.isclose(
+                total,
+                1.0,
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            ):
+                validated[attribute] = parsed
+            else:
+                validated[attribute] = {
+                    value: parsed[value] / total for value in VALUES
+                }
         raw_response_sha256 = raw.get("raw_response_sha256")
         if (
             raw_response_sha256 is not None

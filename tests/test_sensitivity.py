@@ -615,6 +615,56 @@ class SensitivityTests(unittest.TestCase):
                 (run.path / "events" / "sensitivity-trajectories.jsonl")
                 .is_file()
             )
+            conversation_rows = [
+                json.loads(line)
+                for line in (
+                    run.path / "conversations" / "sensitivity.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                summary["conversation_log_artifact"],
+                "conversations/sensitivity.jsonl",
+            )
+            self.assertEqual(
+                summary["conversation_log_markdown_artifact"],
+                "conversations/sensitivity.md",
+            )
+            self.assertEqual(
+                len(conversation_rows),
+                summary["conversation_record_count"],
+            )
+            self.assertEqual(
+                sum(len(row["dialogue"]) for row in conversation_rows),
+                summary["conversation_turn_count"],
+            )
+            self.assertEqual(
+                sum(len(row["outcomes"]) for row in conversation_rows),
+                summary["conversation_outcome_count"],
+            )
+            self.assertTrue(
+                all(
+                    "sensitivity_point_id" in row["conditions"]
+                    and "point_id" not in row["conditions"]
+                    for row in conversation_rows
+                )
+            )
+            self.assertEqual(
+                {
+                    model_id
+                    for row in conversation_rows
+                    for outcome in row["outcomes"]
+                    for model_id in outcome["model_ids"]
+                },
+                {"deterministic-uniform-fixture"},
+            )
+            readable_conversations = (
+                run.path / "conversations" / "sensitivity.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("Scenario presenter (assistant)", readable_conversations)
+            self.assertIn(
+                "profile error after this turn",
+                readable_conversations.lower(),
+            )
             self.assertTrue(
                 (run.path / "llm" / "provider-audit.jsonl").is_file()
             )
