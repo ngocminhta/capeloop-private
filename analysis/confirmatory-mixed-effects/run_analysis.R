@@ -35,15 +35,27 @@ for (package in names(lock$Packages)) {
   if (!requireNamespace(package, quietly = TRUE)) {
     stop("locked package is not installed: ", package, call. = FALSE)
   }
-  observed <- as.character(utils::packageVersion(package))
-  if (!identical(observed, expected)) {
+  expected_version <- tryCatch(
+    base::package_version(expected),
+    error = function(error) {
+      stop(
+        "invalid locked package version for ",
+        package,
+        ": ",
+        expected,
+        call. = FALSE
+      )
+    }
+  )
+  observed_version <- utils::packageVersion(package)
+  if (!isTRUE(observed_version == expected_version)) {
     stop(
       "package version mismatch for ",
       package,
       ": expected ",
       expected,
       ", observed ",
-      observed,
+      as.character(observed_version),
       call. = FALSE
     )
   }

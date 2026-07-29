@@ -415,6 +415,8 @@ def validate() -> None:
     runner = _read_text("run_analysis.R")
     _require_anchors("run_analysis.R", runner, (
         "analysis-spec.json",
+        "base::package_version(expected)",
+        "if (!isTRUE(observed_version == expected_version))",
         "verify_source_run",
         "validate_analysis_rows",
         "fit_confirmatory_model",

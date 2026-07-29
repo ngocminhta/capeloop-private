@@ -404,6 +404,20 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
                 self.assertEqual(record["Source"], "Repository")
                 self.assertEqual(record["Repository"], "CRAN")
 
+    def test_runtime_version_check_uses_r_package_version_semantics(
+        self,
+    ) -> None:
+        runner = self.read_r_source("run_analysis.R")
+        self.assertIn("base::package_version(expected)", runner)
+        self.assertIn(
+            "if (!isTRUE(observed_version == expected_version))",
+            runner,
+        )
+        self.assertNotIn(
+            "if (!identical(observed, expected))",
+            runner,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

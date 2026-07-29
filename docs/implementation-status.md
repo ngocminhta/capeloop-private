@@ -5,7 +5,7 @@ boundary between executable repository software and evidence that still has to
 be collected. No checked-in artifact establishes a paper hypothesis or claims
 that a scientific gate has passed.
 
-**Last reconciled:** 2026-07-28 against the source tree, command-line interface,
+**Last reconciled:** 2026-07-29 against the source tree, command-line interface,
 public configurations, generated schemas, tests, CI workflow, and available
 machine-local diagnostics.
 
@@ -39,7 +39,7 @@ gate result proves only that the coded conditions evaluated as recorded.
 The current tree passes:
 
 - `make check`, including compilation, runtime diagnosis, all public TOML
-  validation, the static mixed-effects contract, and 373 offline tests across
+  validation, the static mixed-effects contract, and 374 offline tests across
   38 test modules;
 - byte-for-byte parity for 31 generated JSON Schemas;
 - Ruff, `git diff --check`, and resolution of all relative Markdown file
