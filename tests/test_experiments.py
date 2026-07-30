@@ -822,6 +822,7 @@ class ClosedLoopTests(unittest.TestCase):
         policies = {
             "balanced": BalancedPolicy(),
             "soft_profile_conditioned": SoftProfileConditionedPolicy(),
+            "exploratory": ExploratoryPolicy(),
         }
         result = run_experiment_b(
             users=(user_fixture(),),
@@ -833,9 +834,9 @@ class ClosedLoopTests(unittest.TestCase):
             trajectories_per_cell=1,
             seed=31,
         )
-        self.assertEqual(len(result.trajectories), 4)
+        self.assertEqual(len(result.trajectories), 6)
         self.assertEqual(len(result.decompositions), 2)
-        self.assertEqual(len(result.self_confirmation_assessments), 12)
+        self.assertEqual(len(result.self_confirmation_assessments), 18)
         for trajectory in result.trajectories:
             self.assertTrue(trajectory.same_history_shadow)
             self.assertGreaterEqual(
@@ -857,6 +858,26 @@ class ClosedLoopTests(unittest.TestCase):
             self.assertGreaterEqual(
                 trajectory.presentation_mechanism_evenness,
                 0.0,
+            )
+            self.assertAlmostEqual(
+                trajectory.error_amplification_ratio,
+                trajectory.terminal_error / trajectory.initial_error,
+            )
+            self.assertEqual(
+                len(trajectory.reinforcement_event_flags()),
+                len(trajectory.turns),
+            )
+            self.assertGreaterEqual(
+                trajectory.profile_aligned_treatment_opportunities,
+                trajectory.reinforcement_event_count,
+            )
+        for row in result.decompositions:
+            self.assertIsNotNone(row.exploratory_trajectory_id)
+            self.assertIsNotNone(
+                row.action_aware_information_gain_deficit
+            )
+            self.assertIsNotNone(
+                row.disconfirmation_evidence_deficit_log_odds
             )
         for reported in result.reportable_self_confirming:
             self.assertTrue(all(reported.evidence.clauses().values()))

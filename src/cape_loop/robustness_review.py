@@ -833,6 +833,9 @@ def _expected_sensitivity_points(config: AppConfig) -> tuple[Any, ...]:
         design=config.sensitivity.design,
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=config.sensitivity.presentation_multipliers,
+        profile_conditioning_strength_values=(
+            config.sensitivity.profile_conditioning_strength_values
+        ),
         rank_multipliers=config.sensitivity.rank_multipliers,
         default_multipliers=config.sensitivity.default_multipliers,
         suggestion_multipliers=config.sensitivity.suggestion_multipliers,

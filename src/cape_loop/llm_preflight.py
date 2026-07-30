@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from .config import AppConfig
-from .experiments.closed_loop import INITIAL_PROFILE_CONDITIONS
 from .experiments.evaluation import ALL_REGIMES
 from .heldout import build_default_paraphrase_suite
 from .sensitivity import sensitivity_grid
@@ -75,7 +74,7 @@ def _closed_loop_requests(
     return (
         config.experiment.users
         * len(config.experiment.domains)
-        * len(INITIAL_PROFILE_CONDITIONS)
+        * len(config.experiment.initial_profile_conditions)
         * config.experiment.trajectories_per_cell
         * len(config.experiment.policies)
         * config.experiment.turns
@@ -107,6 +106,9 @@ def _sensitivity_requests(
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=(
             config.sensitivity.presentation_multipliers
+        ),
+        profile_conditioning_strength_values=(
+            config.sensitivity.profile_conditioning_strength_values
         ),
         rank_multipliers=config.sensitivity.rank_multipliers,
         default_multipliers=config.sensitivity.default_multipliers,

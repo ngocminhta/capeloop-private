@@ -364,7 +364,13 @@ class CanonicalScenarioCatalogTests(unittest.TestCase):
     def test_checked_in_configs_bind_catalog_and_cover_fitted_cells(
         self,
     ) -> None:
-        paths = sorted((REPOSITORY_ROOT / "configs").glob("**/*.toml"))
+        paths = sorted(
+            path
+            for path in (REPOSITORY_ROOT / "configs").glob("**/*.toml")
+            if "local" not in path.relative_to(
+                REPOSITORY_ROOT / "configs"
+            ).parts
+        )
         paths.append(
             REPOSITORY_ROOT
             / "analysis"

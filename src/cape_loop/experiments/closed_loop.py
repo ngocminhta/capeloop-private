@@ -112,6 +112,7 @@ class ClosedLoopTurn:
     profile_influenced_action: bool
     profile_attribute_influenced_action: tuple[bool, bool, bool]
     action_signature: tuple[object, ...]
+    balanced_action_signature: tuple[object, ...]
     unstrengthened_action_signatures: tuple[
         tuple[object, ...],
         tuple[object, ...],
@@ -146,6 +147,10 @@ class ClosedLoopTurn:
                 self.profile_attribute_influenced_action
             ),
             "action_signature": self.action_signature,
+            "balanced_action_signature": self.balanced_action_signature,
+            "visible_action_diverged_from_balanced": (
+                self.action_signature != self.balanced_action_signature
+            ),
             "unstrengthened_action_signatures": list(
                 self.unstrengthened_action_signatures
             ),
@@ -217,6 +222,22 @@ class ClosedLoopTrajectory:
     @property
     def terminal_error(self) -> float:
         return marginal_brier(self.terminal_belief, self.theta)
+
+    @property
+    def initial_error(self) -> float:
+        return marginal_brier(self.initial_belief, self.theta)
+
+    @property
+    def error_amplification_ratio(self) -> float | None:
+        """Terminal error divided by initial error.
+
+        The ratio is undefined for an exactly correct point-mass seed. Keeping
+        that case null avoids manufacturing an infinite value.
+        """
+
+        if self.initial_error <= 1e-15:
+            return None
+        return self.terminal_error / self.initial_error
 
     @property
     def terminal_shadow_error(self) -> float:
@@ -325,6 +346,134 @@ class ClosedLoopTrajectory:
         return math.fsum(turn.action_aware_information_gain for turn in self.turns)
 
     @property
+    def initially_false_attributes(self) -> tuple[int, ...]:
+        """Attributes whose seed assigns majority mass to the wrong sign."""
+
+        wrong = wrong_directions(self.theta)
+        return tuple(
+            attribute
+            for attribute in range(3)
+            if self.initial_belief.sign_mass(
+                attribute,
+                wrong[attribute],
+            )
+            > 0.5 + 1e-9
+        )
+
+    @property
+    def mean_cumulative_excess_confidence_log_odds(
+        self,
+    ) -> float | None:
+        """Mean cumulative LCG over attributes initially seeded false."""
+
+        attributes = self.initially_false_attributes
+        if not attributes:
+            return None
+        cumulative = self.cumulative_lcg
+        return math.fsum(cumulative[attribute] for attribute in attributes) / len(
+            attributes
+        )
+
+    @property
+    def action_aware_disconfirmation_gain_log_odds(self) -> float | None:
+        """Mean exact-shadow evidence against initially false attributes."""
+
+        attributes = self.initially_false_attributes
+        if not attributes:
+            return None
+        return math.fsum(
+            -math.fsum(
+                turn.shadow_false_confidence_gain[attribute]
+                for turn in self.turns
+            )
+            for attribute in attributes
+        ) / len(attributes)
+
+    def profile_aligned_treatment_flags(self) -> tuple[bool, ...]:
+        """Whether each visible treatment promoted the initially false sign."""
+
+        wrong = wrong_directions(self.theta)
+        false_attributes = set(self.initially_false_attributes)
+        flags = []
+        for turn, interaction in zip(
+            self.turns,
+            self.audit_record.interactions,
+        ):
+            attribute = turn.target_attribute
+            provenance = interaction.provenance
+            context = interaction.context
+            promoted_option_id: str | None = None
+            if (
+                attribute in false_attributes
+                and provenance.profile_conditioned
+                and turn.action_signature
+                != turn.balanced_action_signature
+            ):
+                if provenance.presentation_mechanism == "ranking":
+                    promoted_option_id = context.ranking[0]
+                elif provenance.presentation_mechanism == "default":
+                    promoted_option_id = context.default_option_id
+                elif provenance.presentation_mechanism == "suggestion":
+                    promoted_option_id = context.suggested_option_id
+            if promoted_option_id is None:
+                flags.append(False)
+                continue
+            promoted_value = context.option(
+                promoted_option_id
+            ).features[attribute]
+            promoted_direction = (
+                1 if promoted_value > 0.0 else -1 if promoted_value < 0.0 else 0
+            )
+            flags.append(promoted_direction == wrong[attribute])
+        return tuple(flags)
+
+    def reinforcement_event_flags(
+        self,
+        *,
+        tolerance: float = 1e-9,
+    ) -> tuple[bool, ...]:
+        """Partial-loop events under the review's four-clause definition."""
+
+        if tolerance < 0:
+            raise ValueError("reinforcement-event tolerance must be non-negative")
+        wrong = wrong_directions(self.theta)
+        treatment_flags = self.profile_aligned_treatment_flags()
+        events = []
+        for treatment_applied, turn, interaction in zip(
+            treatment_flags,
+            self.turns,
+            self.audit_record.interactions,
+        ):
+            attribute = turn.target_attribute
+            selected_value = interaction.context.option(
+                turn.selected_option_id
+            ).features[attribute]
+            selected_direction = (
+                1 if selected_value > 0.0 else -1 if selected_value < 0.0 else 0
+            )
+            events.append(
+                treatment_applied
+                and selected_direction == wrong[attribute]
+                and turn.system_false_confidence_gain[attribute] > tolerance
+                and turn.laundered_confidence_gain[attribute] > tolerance
+            )
+        return tuple(events)
+
+    @property
+    def reinforcement_event_count(self) -> int:
+        return sum(self.reinforcement_event_flags())
+
+    @property
+    def profile_aligned_treatment_opportunities(self) -> int:
+        return sum(self.profile_aligned_treatment_flags())
+
+    @property
+    def reinforcement_event_rate(self) -> float | None:
+        if not self.initially_false_attributes:
+            return None
+        return self.reinforcement_event_count / len(self.turns)
+
+    @property
     def total_regret(self) -> float:
         return math.fsum(turn.intrinsic_regret for turn in self.turns)
 
@@ -359,7 +508,9 @@ class ClosedLoopTrajectory:
                 else self.terminal_shadow_joint_belief.to_dict()
             ),
             "terminal_native_state": _opaque_state_payload(self.terminal_opaque_state),
+            "initial_error": self.initial_error,
             "terminal_error": self.terminal_error,
+            "error_amplification_ratio": self.error_amplification_ratio,
             "terminal_shadow_error": self.terminal_shadow_error,
             "terminal_shadow_to_system_marginal_kl": (
                 self.terminal_shadow_to_system_marginal_kl
@@ -377,6 +528,20 @@ class ClosedLoopTrajectory:
             "presentation_mechanism_evenness": (self.presentation_mechanism_evenness),
             "cumulative_lcg": list(self.cumulative_lcg),
             "cumulative_information_gain": self.cumulative_information_gain,
+            "initially_false_attributes": list(
+                self.initially_false_attributes
+            ),
+            "mean_cumulative_excess_confidence_log_odds": (
+                self.mean_cumulative_excess_confidence_log_odds
+            ),
+            "action_aware_disconfirmation_gain_log_odds": (
+                self.action_aware_disconfirmation_gain_log_odds
+            ),
+            "profile_aligned_treatment_opportunities": (
+                self.profile_aligned_treatment_opportunities
+            ),
+            "reinforcement_event_count": self.reinforcement_event_count,
+            "reinforcement_event_rate": self.reinforcement_event_rate,
             "total_regret": self.total_regret,
             "same_history_shadow": self.same_history_shadow,
             "turns": [turn.to_dict(include_truth=include_truth) for turn in self.turns],
@@ -569,6 +734,21 @@ def run_trajectory(
             for attribute in range(3)
         )
         action_signature = action.signature()
+        balanced_counterfactual_action = with_catalog(
+            BalancedPolicy().action(
+                domain,
+                evaluated_state.belief,
+                turn=turn,
+                master_seed=seed,
+                trajectory_id=common_key,
+                target_counts=counts_before,
+            ),
+            advance=False,
+            preferred_scenario=actual_scenario,
+        )
+        balanced_action_signature = (
+            balanced_counterfactual_action.signature()
+        )
         counterfactual_signatures = tuple(
             candidate.signature() for candidate in counterfactual_actions
         )
@@ -727,6 +907,7 @@ def run_trajectory(
                 profile_influenced_action=profile_influenced,
                 profile_attribute_influenced_action=attribute_influence,
                 action_signature=action_signature,
+                balanced_action_signature=balanced_action_signature,
                 unstrengthened_action_signatures=counterfactual_signatures,
                 native_state_before=native_before,
                 native_state_after=native_after,
@@ -927,6 +1108,11 @@ class DecompositionRow:
     profile_attribution_cost: float
     balanced_attribution_cost: float
     self_confirmation_interaction: float
+    visible_action_divergence_rate: float = 0.0
+    observed_choice_divergence_rate: float = 0.0
+    exploratory_trajectory_id: str | None = None
+    action_aware_information_gain_deficit: float | None = None
+    disconfirmation_evidence_deficit_log_odds: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -937,10 +1123,23 @@ class DecompositionRow:
             "replicate": self.replicate,
             "profile_trajectory_id": self.profile_trajectory_id,
             "balanced_trajectory_id": self.balanced_trajectory_id,
+            "exploratory_trajectory_id": self.exploratory_trajectory_id,
             "evidence_selection_cost": self.evidence_selection_cost,
             "profile_attribution_cost": self.profile_attribution_cost,
             "balanced_attribution_cost": self.balanced_attribution_cost,
             "self_confirmation_interaction": (self.self_confirmation_interaction),
+            "visible_action_divergence_rate": (
+                self.visible_action_divergence_rate
+            ),
+            "observed_choice_divergence_rate": (
+                self.observed_choice_divergence_rate
+            ),
+            "action_aware_information_gain_deficit": (
+                self.action_aware_information_gain_deficit
+            ),
+            "disconfirmation_evidence_deficit_log_odds": (
+                self.disconfirmation_evidence_deficit_log_odds
+            ),
         }
 
 
@@ -1163,6 +1362,27 @@ def run_experiment_b(
                                 balanced.terminal_error,
                                 balanced.terminal_shadow_error,
                             )
+                            exploratory = indexed.get(
+                                (
+                                    domain.domain_id,
+                                    user.user_id,
+                                    condition,
+                                    "exploratory",
+                                    updater_id,
+                                    replicate,
+                                )
+                            )
+                            profile_disconfirmation = (
+                                profile.action_aware_disconfirmation_gain_log_odds
+                            )
+                            exploratory_disconfirmation = (
+                                None
+                                if exploratory is None
+                                else (
+                                    exploratory
+                                    .action_aware_disconfirmation_gain_log_odds
+                                )
+                            )
                             decompositions.append(
                                 DecompositionRow(
                                     domain_id=domain.domain_id,
@@ -1185,6 +1405,59 @@ def run_experiment_b(
                                             balanced.terminal_error,
                                             balanced.terminal_shadow_error,
                                         )
+                                    ),
+                                    visible_action_divergence_rate=(
+                                        sum(
+                                            profile_turn.action_signature
+                                            != balanced_turn.action_signature
+                                            for (
+                                                profile_turn,
+                                                balanced_turn,
+                                            ) in zip(
+                                                profile.turns,
+                                                balanced.turns,
+                                            )
+                                        )
+                                        / len(profile.turns)
+                                    ),
+                                    observed_choice_divergence_rate=(
+                                        sum(
+                                            profile_turn.selected_option_id
+                                            != balanced_turn.selected_option_id
+                                            for (
+                                                profile_turn,
+                                                balanced_turn,
+                                            ) in zip(
+                                                profile.turns,
+                                                balanced.turns,
+                                            )
+                                        )
+                                        / len(profile.turns)
+                                    ),
+                                    exploratory_trajectory_id=(
+                                        None
+                                        if exploratory is None
+                                        else exploratory.trajectory_id
+                                    ),
+                                    action_aware_information_gain_deficit=(
+                                        None
+                                        if exploratory is None
+                                        else (
+                                            exploratory
+                                            .cumulative_information_gain
+                                            - profile
+                                            .cumulative_information_gain
+                                        )
+                                    ),
+                                    disconfirmation_evidence_deficit_log_odds=(
+                                        (
+                                            exploratory_disconfirmation
+                                            - profile_disconfirmation
+                                        )
+                                        if exploratory_disconfirmation
+                                        is not None
+                                        and profile_disconfirmation is not None
+                                        else None
                                     ),
                                 )
                             )

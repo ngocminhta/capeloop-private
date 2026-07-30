@@ -711,7 +711,14 @@ def _experiment_b_diagnostic_live_provider(
         )
 
     model = args.model or OPENROUTER_EXAMPLE_MODEL
-    reasoning_effort = args.reasoning_effort or "minimal"
+    if args.reasoning_effort:
+        reasoning_effort = args.reasoning_effort
+    elif args.model:
+        # A caller-selected OpenRouter model may not expose reasoning controls.
+        # Preserve the empty value so the provider omits the parameter.
+        reasoning_effort = ""
+    else:
+        reasoning_effort = "minimal"
     api_key_env = args.api_key_env or "OPENROUTER_API_KEY"
     upstream_provider = args.upstream_provider
     if model == OPENROUTER_EXAMPLE_MODEL and not upstream_provider:

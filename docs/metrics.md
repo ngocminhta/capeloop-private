@@ -86,6 +86,11 @@ ACUE measures the evidence increment rather than only terminal agreement. The
 L1 norm is taken over all 12 attribute/value marginal components, matching the
 proposal definition; it is not divided by \(J\).
 
+The registered version-1 field `acue` uses the fitted action-aware reference.
+`exact_acue` applies the same formula with the posterior under the known
+generating response model. It is a separately labeled controlled diagnostic,
+not a silent replacement for `acue` or the registered mixed-effects outcome.
+
 ### Update-direction accuracy
 
 For each attribute/value component whose aware-reference change exceeds a
@@ -116,15 +121,30 @@ q_j^+ = q_j(+1)+q_j(+2),\qquad
 Boundary probabilities use a declared clipping constant for numerical reporting.
 The raw probability remains retained.
 
-The oracle-update slope regression is:
+The retained version-1 fitted-aware update-calibration regression is:
 
 \[
 \widehat{\Delta\ell}
 =\alpha+\beta\Delta\ell^A+\varepsilon.
 \]
 
-Mechanism-specific residuals and uncertainty matter alongside whether
-\(\beta\) is near one.
+The artifact retains both a pooled updater-level curve and separate
+within-mechanism curves. Each mechanism curve has its own \(\alpha\), \(\beta\),
+residual error, user-cluster count, and complete-user bootstrap interval.
+When a mechanism slice has no reference-update variation, its slope and
+interval are null and its status is `not_estimable`; the software does not
+manufacture a calibration coefficient from a constant predictor.
+Mechanism-specific residuals from the pooled fit remain available as a compact
+misspecification diagnostic; they are not substitutes for the
+within-mechanism slopes.
+
+`metrics/experiment-a-exact-oracle-slopes.jsonl` applies the same pooled and
+mechanism-specific regressions and complete-user bootstraps with the exact
+generating-model log-odds update on the right-hand side. Each slope row records
+`reference_basis` so fitted and exact curves cannot be confused. The exact
+curve is a controlled diagnostic;
+the version-1 registered H1/H2 and mixed-effects outcomes remain fitted-aware
+unless a future analysis version explicitly migrates them.
 
 ACUE, direction accuracy, magnitude, and the oracle slope are general-purpose
 diagnostics. The paper hypotheses use additional frozen contrasts: H1 compares
@@ -479,6 +499,74 @@ For incorrect initial profiles:
 where \(\pi_p\) is profile-conditioned and \(\pi_b\) balanced. A positive value
 means the attribution gap is larger under profile-conditioned collection.
 
+## Continuous closed-loop diagnostics
+
+These diagnostics detect partial loop formation without changing the strict
+five-clause definition.
+
+### Error amplification ratio
+
+\[
+\operatorname{EAR}
+=
+\frac{\operatorname{BS}(q_T,\theta)}
+{\operatorname{BS}(q_0,\theta)}.
+\]
+
+`initial_error` retains the denominator and `error_amplification_ratio` retains
+the ratio. A value above one means the trajectory worsened its own seed; below
+one means it improved. The ratio is null when initial error is numerically zero
+and should be interpreted primarily for incorrect seeds. It complements the
+paired SelectionCost: a soft policy may be worse than balanced while both
+branches still improve an intentionally bad initial profile.
+
+### Exploratory disconfirmation deficit
+
+For initially false attribute \(j\), the exact shadow's evidence against the
+false sign is
+
+\[
+D_{\pi,j}
+=
+-\sum_t \operatorname{FCG}^{\mathrm{shadow}}_{t,j}.
+\]
+
+The paired trajectory measure is
+
+\[
+\operatorname{DD}
+=
+\frac{1}{|J_{\mathrm{false}}|}
+\sum_{j\in J_{\mathrm{false}}}
+\left(D_{\mathrm{exploratory},j}-D_{\mathrm{profile},j}\right).
+\]
+
+The field is `disconfirmation_evidence_deficit_log_odds`. Positive values mean
+the exploratory policy collected more action-aware evidence against the false
+seed. `action_aware_information_gain_deficit` separately stores exploratory
+minus profile-conditioned realized whole-state entropy reduction. It is not
+called hypothesis-specific expected information gain: that quantity would
+require predictive integration before observing the response.
+
+### Partial reinforcement-event rate
+
+A turn is a reinforcement event only when:
+
+1. the assigned profile-conditioned treatment produces a visible action that
+   differs from its balanced counterfactual and promotes an initially false
+   direction;
+2. the simulated user selects that direction;
+3. the evaluated updater increases false-direction confidence; and
+4. that increase exceeds the exact same-history shadow increase.
+
+`reinforcement_event_count / number_of_turns` is retained as
+`reinforcement_event_rate`; turns without an initially false attribute make
+the trajectory rate null. This is a continuous/partial-loop diagnostic and
+must not be called self-confirmation. The paired decomposition additionally
+retains `visible_action_divergence_rate` and
+`observed_choice_divergence_rate`, separating an assigned/visible intervention
+from a changed simulated response.
+
 ## False-profile confidence
 
 For a dimension with seeded wrong direction \(W_j\):
@@ -511,6 +599,10 @@ q_t^{\text{wrong},j}
 
 Cumulative LCG is the sum over turns under the metric’s declared aggregation.
 Boundary clipping is declared and applied identically to system and shadow.
+For initially false attributes this is exactly cumulative excess confidence
+(CEC) in clipped log-odds units. The raw per-attribute vector remains
+`cumulative_lcg`; `mean_cumulative_excess_confidence_log_odds` is its mean over
+attributes whose initial seed places majority mass on the wrong sign.
 
 ### False stable and self-confirming rates
 

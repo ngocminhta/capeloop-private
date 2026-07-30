@@ -70,7 +70,7 @@ class BudgetBoundedPilotConfigTests(unittest.TestCase):
                 )
         self.assertEqual(designs[0], designs[1])
 
-    def test_b_live_configs_freeze_the_same_864_attempt_design(self) -> None:
+    def test_b_live_configs_freeze_the_same_624_attempt_design(self) -> None:
         designs = []
         for config_path, mode in (
             (
@@ -96,10 +96,18 @@ class BudgetBoundedPilotConfigTests(unittest.TestCase):
                 self.assertEqual(config.experiment.kind, "closed_loop")
                 self.assertEqual(config.llm.mode, mode)
                 self.assertEqual(config.experiment.users, 8)
-                self.assertEqual(config.experiment.turns, 3)
+                self.assertEqual(config.experiment.turns, 6)
+                self.assertEqual(
+                    config.experiment.initial_profile_conditions,
+                    ("correct", "incorrect"),
+                )
                 self.assertEqual(
                     config.experiment.policies,
-                    ("balanced", "soft_profile_conditioned"),
+                    (
+                        "balanced",
+                        "soft_profile_conditioned",
+                        "exploratory",
+                    ),
                 )
                 self.assertEqual(config.llm.max_retries, 0)
                 self.assertEqual(config.llm.max_requests, 900)
@@ -109,20 +117,20 @@ class BudgetBoundedPilotConfigTests(unittest.TestCase):
                 assert preflight is not None
                 self.assertEqual(
                     preflight["experiment_request_upper_bound"],
-                    768,
+                    576,
                 )
                 self.assertEqual(
                     preflight["calibration_request_count"],
-                    96,
+                    48,
                 )
                 self.assertEqual(
                     preflight["physical_http_attempt_upper_bound"],
-                    864,
+                    624,
                 )
-                self.assertEqual(preflight["request_headroom"], 36)
+                self.assertEqual(preflight["request_headroom"], 276)
                 self.assertEqual(
                     preflight["maximum_output_token_allocation"],
-                    1_769_472,
+                    1_277_952,
                 )
                 self.assertTrue(
                     preflight["within_declared_retry_expanded_bounds"]
@@ -220,7 +228,7 @@ class BudgetBoundedPilotConfigTests(unittest.TestCase):
                 )
         self.assertEqual(designs[0], designs[1])
 
-    def test_gate6_oat_pair_has_exact_576_attempt_bound(self) -> None:
+    def test_gate6_oat_pair_has_exact_720_attempt_bound(self) -> None:
         designs = []
         for config_path, mode in (
             (LIVE_CONFIG_ROOT / "sensitivity_openai.toml", "openai"),
@@ -245,20 +253,20 @@ class BudgetBoundedPilotConfigTests(unittest.TestCase):
                 self.assertEqual(config.sensitivity.design, "one_at_a_time")
                 preflight = require_live_llm_budget(config)
                 assert preflight is not None
-                self.assertEqual(preflight["grid_points"], 11)
+                self.assertEqual(preflight["grid_points"], 14)
                 self.assertEqual(
                     preflight["sum_trajectory_lengths_over_points"],
-                    36,
+                    45,
                 )
                 self.assertEqual(
                     preflight["physical_http_attempt_upper_bound"],
-                    576,
+                    720,
                 )
                 self.assertEqual(
                     preflight["maximum_output_token_allocation"],
-                    1_179_648,
+                    1_474_560,
                 )
-                self.assertEqual(preflight["request_headroom"], 324)
+                self.assertEqual(preflight["request_headroom"], 180)
                 self.assertTrue(
                     preflight["within_declared_retry_expanded_bounds"]
                 )

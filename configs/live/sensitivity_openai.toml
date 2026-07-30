@@ -63,6 +63,7 @@ ranking_tie_tolerance = 1e-6
 design = "one_at_a_time"
 decision_noise_values = [1.0, 0.6]
 presentation_multipliers = [1.0, 0.5]
+profile_conditioning_strength_values = [1.0, 0.0, 0.33, 0.67]
 rank_multipliers = [1.0, 0.5]
 default_multipliers = [1.0, 0.5]
 suggestion_multipliers = [1.0, 0.5]
@@ -88,7 +89,7 @@ api_key_env = "OPENAI_API_KEY"
 base_url = "https://api.openai.com"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-# Eleven OAT grid points sum to 36 turns, yielding a 576-attempt upper bound. The
+# Fourteen OAT grid points sum to 45 turns, yielding a 720-attempt upper bound. The
 # adaptive smoke observed valid responses above 1,024 output tokens, so this
 # pilot retains the tested 2,048-token allowance.
 max_retries = 0

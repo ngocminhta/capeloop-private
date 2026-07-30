@@ -63,6 +63,7 @@ ranking_tie_tolerance = 1e-6
 design = "one_at_a_time"
 decision_noise_values = [1.0, 0.6]
 presentation_multipliers = [1.0, 0.5]
+profile_conditioning_strength_values = [1.0, 0.0, 0.33, 0.67]
 rank_multipliers = [1.0, 0.5]
 default_multipliers = [1.0, 0.5]
 suggestion_multipliers = [1.0, 0.5]
@@ -90,7 +91,7 @@ api_key_env = "OPENROUTER_API_KEY"
 base_url = "https://openrouter.ai/api"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-# Eleven OAT grid points sum to 36 turns, yielding a 576-attempt upper bound.
+# Fourteen OAT grid points sum to 45 turns, yielding a 720-attempt upper bound.
 max_retries = 0
 max_output_tokens = 2048
 max_requests = 900

@@ -35,12 +35,12 @@ The 18 public presets are intentionally split by responsibility:
 | `configs/offline/experiment_c_seed_271828.toml` | C | Matched robustness seed 271828 |
 | `configs/offline/experiment_c_seed_314159.toml` | C | Matched robustness seed 314159 |
 | `configs/offline/experiment_c_rescore_source.toml` | C | External-rescore source: 360 decoder requests/source |
-| `configs/offline/sensitivity.toml` | sensitivity | Baseline-first 19-point OAT robustness design |
+| `configs/offline/sensitivity.toml` | sensitivity | Baseline-first 22-point OAT robustness design |
 | `configs/live/experiment_a_openai.toml` | A | Direct-OpenAI primary pilot |
 | `configs/live/experiment_a_openai_replication.toml` | A | Matched GPT-5.6 model-variant replication |
 | `configs/live/experiment_a_openrouter.toml` | A | Matched OpenRouter/Gemini pilot |
-| `configs/live/experiment_b_openai.toml` | B | Bounded direct-OpenAI pilot |
-| `configs/live/experiment_b_openrouter.toml` | B | Matched OpenRouter pilot |
+| `configs/live/experiment_b_openai.toml` | B | Six-turn, one-model-at-a-time direct-OpenAI pilot |
+| `configs/live/experiment_b_openrouter.toml` | B | Matched six-turn OpenRouter pilot |
 | `configs/live/experiment_c_openai.toml` | C | Bounded direct-OpenAI pilot |
 | `configs/live/experiment_c_openrouter.toml` | C | Matched OpenRouter pilot |
 | `configs/live/sensitivity_openai.toml` | sensitivity | Direct-OpenAI Gate 6 OAT pilot |
@@ -65,9 +65,9 @@ The live pilot counts are whole-design bounds, not expected call counts:
 | Pilot | Experiment calls | Calibration | A paraphrases | Physical bound | Maximum output allocation |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A primary/replication/OpenRouter | 768 | 48 | 32 | 848 | 1,736,704 |
-| B pair | 768 | 96 | 0 | 864 | 1,769,472 |
+| B pair | 576 | 48 | 0 | 624 | 1,277,952 |
 | C pair | 768 | 48 | 0 | 816 | 1,671,168 |
-| Gate 6 OAT pair | 576 | 0 | 0 | 576 | 1,179,648 |
+| Gate 6 OAT pair | 720 | 0 | 0 | 720 | 1,474,560 |
 
 The offline Gate 4 and Experiment C external-rescore source configs do not call
 models. They are sized so their later selected OpenRouter or optional direct
@@ -93,9 +93,12 @@ local TOML configuration for any pilot or paper experiment.
 
 For Experiment B, three turns are a transport check only: each of the three
 attributes normally appears once, leaving no later same-attribute action for
-the stored update to influence. Use at least six turns for a mechanism
-diagnostic. The current public live B TOMLs still use three turns and require a
-ceiling-safe scientific redesign before collection.
+the stored update to influence. The public live B TOMLs therefore use six turns
+and one evaluated LLM arm at a time. They select the `correct` and `incorrect`
+seeds and cross balanced, soft, and exploratory policies. This revisits every
+attribute, preserves eight independent user clusters across two domains,
+supports the disconfirmation-deficit comparison, and stays below the approved
+request ceiling. Repeat the frozen config separately for each model family.
 
 ## Root schema
 
@@ -312,6 +315,7 @@ sparse.
 | `mechanisms` | nonempty string array | `["balanced", "restricted", "default", "suggested"]` |
 | `response_modes` | nonempty string array | `["controlled_anchor", "naturally_sampled"]` |
 | `prior_strengths` | nonempty numeric array | `[0.0]` |
+| `initial_profile_conditions` | nonempty string array | `["correct", "incorrect", "uncertain", "empty"]` |
 | `policies` | nonempty string array | `["balanced"]` |
 | `updaters` | nonempty string array | baseline set shown below |
 | `users` | integer | `8` (test user/cluster count) |
@@ -348,6 +352,14 @@ same prior. The default `[0.0]` preserves the original uniform-prior pilot.
 Use, for example, `[0.0, 0.35, 0.70]` for a crossed confirmatory run and account
 for the proportional increase in LLM requests. B, C, and sensitivity reject
 any value other than `[0.0]`.
+
+`initial_profile_conditions` is an Experiment B factor. It accepts a unique
+nonempty subset of `correct`, `incorrect`, `uncertain`, and `empty`; other run
+kinds require all four defaults because they do not consume this field. The
+offline reference keeps the full crossing. The bounded live B presets keep
+`correct` as a control and `incorrect` as the primary false-seed condition,
+omitting `uncertain` and `empty` to fund the exploratory policy without reducing
+the independent-user count.
 
 The two suggestion labels are deliberately scoped: `suggested` is Experiment
 A's matched-context condition name, while `suggestion` is the causal
@@ -555,6 +567,7 @@ paper-intended test set.
 | `design` | `"cartesian"` | `"cartesian"` or `"one_at_a_time"` |
 | `decision_noise_values` | `[0.6, 1.0, 1.6]` | nonempty; finite, positive, and unique |
 | `presentation_multipliers` | `[0.5, 1.0, 1.5]` | nonempty; finite, nonnegative, and unique |
+| `profile_conditioning_strength_values` | `[1.0]` | nonempty; finite, unique policy-propensity doses in `[0, 1]`; `1` preserves legacy soft conditioning and `0` is the balanced-action negative control |
 | `rank_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
 | `default_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
 | `suggestion_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
@@ -575,11 +588,17 @@ response-model family define the baseline; each later value is varied
 separately. Alternate response families are evaluated at the numeric baseline,
 with every declared rule-noise value for a rule-based alternative.
 
-The canonical `configs/offline/sensitivity.toml` declaration is a 19-point OAT
+The canonical `configs/offline/sensitivity.toml` declaration is a 22-point OAT
 design. It covers every declared axis efficiently but cannot estimate
 interactions among axes; artifacts record
 `interaction_effects_estimable = false`. The two live Gate 6 OAT pilots contain
-11 points whose trajectory lengths sum to 36. The suggestion rejection rate
+14 points whose trajectory lengths sum to 45. The first value on the policy
+dose axis is `1.0` so the baseline point is byte-for-byte compatible with the
+legacy soft-policy propensity; `0.0`, `0.33`, and `0.67` are separate OAT
+departures. The dose participates in grid completion, manipulation summaries,
+and phase-boundary inference but does not silently change the version-1
+Gate 6 broad-simulator-parameter clause. In particular, the null point is a
+negative control rather than a level at which harm should persist. The suggestion rejection rate
 counts only profile-conditioned suggestions where the counter-profile option
 remains displayed; selecting that alternative is a rejection.
 
@@ -736,7 +755,7 @@ the same credential-free preflight:
 
 ```text
 A = matched experiment cells + temperature calibration + held-out paraphrases
-B = users × domains × four initial profiles × repeats × policies × turns
+B = users × domains × configured initial profiles × repeats × policies × turns
     × LLM updater count + calibration
 C = (max(8, users) development users + users test users) × domains
     × repeats × three regimes × turns × LLM updater count + calibration
@@ -968,7 +987,7 @@ Configuration validation does not establish:
 - successful convergence or identifiability in a new setting;
 - real held-out paraphrase transfer;
 - fitted-aware superiority on a paper test set;
-- causal-provenance blindness or self-confirmation;
+- universal causal-provenance miscalibration or self-confirmation;
 - a ranking reversal;
 - passage of any stage gate; or
 - reproducibility of an external provider call.

@@ -14,6 +14,7 @@ import json
 import math
 import tomllib
 
+from .population import INITIAL_PROFILE_KINDS
 from .splits import (
     LEGACY_THETA_POLICY,
     LEGACY_SUSCEPTIBILITY_POLICY,
@@ -239,6 +240,7 @@ class ExperimentSection:
     mechanisms: tuple[str, ...] = ("balanced", "restricted", "default", "suggested")
     response_modes: tuple[str, ...] = ("controlled_anchor", "naturally_sampled")
     prior_strengths: tuple[float, ...] = (0.0,)
+    initial_profile_conditions: tuple[str, ...] = INITIAL_PROFILE_KINDS
     policies: tuple[str, ...] = ("balanced",)
     updaters: tuple[str, ...] = (
         "no_update",
@@ -260,6 +262,7 @@ class ExperimentSection:
             "mechanisms",
             "response_modes",
             "prior_strengths",
+            "initial_profile_conditions",
             "policies",
             "updaters",
             "users",
@@ -269,7 +272,14 @@ class ExperimentSection:
         }
         _only_keys("experiment", raw, allowed)
         prepared = dict(raw)
-        for name in ("domains", "mechanisms", "response_modes", "policies", "updaters"):
+        for name in (
+            "domains",
+            "mechanisms",
+            "response_modes",
+            "initial_profile_conditions",
+            "policies",
+            "updaters",
+        ):
             if name in prepared:
                 prepared[name] = _tuple_of_strings(prepared[name], f"experiment.{name}")
         if "prior_strengths" in prepared:
@@ -296,6 +306,11 @@ class ExperimentSection:
             ("domains", result.domains, KNOWN_DOMAINS),
             ("mechanisms", result.mechanisms, KNOWN_MECHANISMS),
             ("response_modes", result.response_modes, KNOWN_RESPONSE_MODES),
+            (
+                "initial_profile_conditions",
+                result.initial_profile_conditions,
+                frozenset(INITIAL_PROFILE_KINDS),
+            ),
             ("policies", result.policies, KNOWN_POLICIES),
             ("updaters", result.updaters, KNOWN_UPDATERS),
         )
@@ -326,6 +341,10 @@ class ExperimentSection:
         _reject_duplicates(
             result.prior_strengths,
             "experiment.prior_strengths",
+        )
+        _reject_duplicates(
+            result.initial_profile_conditions,
+            "experiment.initial_profile_conditions",
         )
         return result
 
@@ -509,6 +528,7 @@ class SensitivitySection:
     design: str = "cartesian"
     decision_noise_values: tuple[float, ...] = (0.6, 1.0, 1.6)
     presentation_multipliers: tuple[float, ...] = (0.5, 1.0, 1.5)
+    profile_conditioning_strength_values: tuple[float, ...] = (1.0,)
     rank_multipliers: tuple[float, ...] = (1.0,)
     default_multipliers: tuple[float, ...] = (1.0,)
     suggestion_multipliers: tuple[float, ...] = (1.0,)
@@ -529,6 +549,7 @@ class SensitivitySection:
             "design",
             "decision_noise_values",
             "presentation_multipliers",
+            "profile_conditioning_strength_values",
             "rank_multipliers",
             "default_multipliers",
             "suggestion_multipliers",
@@ -548,6 +569,7 @@ class SensitivitySection:
         for name in (
             "decision_noise_values",
             "presentation_multipliers",
+            "profile_conditioning_strength_values",
             "rank_multipliers",
             "default_multipliers",
             "suggestion_multipliers",
@@ -598,6 +620,13 @@ class SensitivitySection:
             raise ConfigError("decision noise values must be positive")
         if any(value < 0 for value in result.presentation_multipliers):
             raise ConfigError("presentation multipliers must be non-negative")
+        if any(
+            not 0.0 <= value <= 1.0
+            for value in result.profile_conditioning_strength_values
+        ):
+            raise ConfigError(
+                "profile conditioning strength values must lie in [0, 1]"
+            )
         for name in (
             "rank_multipliers",
             "default_multipliers",
@@ -650,6 +679,7 @@ class SensitivitySection:
         for name in (
             "decision_noise_values",
             "presentation_multipliers",
+            "profile_conditioning_strength_values",
             "rank_multipliers",
             "default_multipliers",
             "suggestion_multipliers",
@@ -1072,6 +1102,15 @@ class AppConfig:
         """Reject generic TOML fields that a selected runner would ignore."""
 
         experiment = self.experiment
+        if (
+            experiment.kind != "closed_loop"
+            and experiment.initial_profile_conditions
+            != INITIAL_PROFILE_KINDS
+        ):
+            raise ConfigError(
+                "experiment.initial_profile_conditions is an Experiment B "
+                "factor; other experiment kinds require all four defaults"
+            )
         if experiment.kind == "provenance_audit":
             allowed_mechanisms = {"balanced", "restricted", "default", "suggested"}
             if not set(experiment.mechanisms) <= allowed_mechanisms:

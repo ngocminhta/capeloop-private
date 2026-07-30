@@ -1,12 +1,12 @@
 # Final Paper Proposal
 
-## **You Chose What I Showed You: Causal Provenance and Self-Confirming User Profiles in LLM Agents**
+## **You Chose What I Showed You: Policy-Dependent Evidence and Causal-Provenance Miscalibration in LLM User Profiles**
 
 ### **CAPE-Loop: Causal Attribution of Preference Evidence in Closed-Loop Agents**
 
 **Paper type:** Analysis and evaluation paper
 **Target:** ACL main conference
-**Primary contribution:** Causal diagnosis of persistent-profile updating
+**Primary contribution:** Joint evaluation of persistent-profile updaters and the interaction policies that generate their evidence
 **Not a contribution:** A new recommendation algorithm, memory architecture, user simulator, or personalization controller
 
 > **Document status.** This is the scientific proposal and claim plan, not a
@@ -18,13 +18,23 @@
 
 ## One-sentence pitch
 
-A user's acceptance of an agent-selected option is not independent evidence of preference; CAPE-Loop tests whether persistent LLM profile writers nevertheless treat restricted choices, defaults, rankings, and agent suggestions as if the user had freely revealed an intrinsic preference—and whether this error makes initially false profiles reinforce themselves.
+CAPE-Loop tests whether persistent-profile quality depends on the interaction
+policy that generated its evidence, and whether LLM profile writers calibrate
+each update to that evidence's causal provenance.
 
 # Abstract
 
 Personalized LLM agents increasingly update persistent user profiles from interaction outcomes such as choices, revisions, acceptances, and implicit feedback. These observations are not exogenous: the agent's current profile influences which alternatives are displayed, how they are ranked, what default is selected, and which option the agent recommends. A profile may therefore shape the evidence subsequently used to update that same profile.
 
-We study **causal-provenance blindness**, in which a persistent profile writer assigns more evidential weight to a policy-conditioned user response than its elicitation context justifies. For example, selecting an inexpensive hotel from a balanced premium-versus-budget choice provides stronger evidence of a general price preference than accepting the same hotel when it was preselected, explicitly recommended, or presented alongside only other inexpensive options. Nevertheless, both interactions may be stored as “the user prefers inexpensive hotels.”
+We study **causal-provenance miscalibration**: a mismatch between the update a
+profile writer applies and the evidential weight warranted by the context that
+elicited the response. Miscalibration may be over-weighting, under-weighting,
+or wrong-direction updating, and may differ by mechanism and model; it does
+not require the writer to ignore context. For example, selecting an
+inexpensive hotel from a balanced premium-versus-budget choice provides
+stronger evidence of a general price preference than accepting the same hotel
+when it was preselected, explicitly recommended, or presented alongside only
+other inexpensive options.
 
 We introduce **CAPE-Loop**, a controlled evaluation of action-conditioned preference inference and closed-loop profile formation. CAPE-Loop maintains a fixed latent user, explicitly logs the option set, ranking, default, recommendation, wording, and policy provenance that generated each response, and provides three inference references: a Bayes-optimal posterior under the declared response model, a fitted action-aware updater that learns the response model from training interactions, and a capacity-matched fitted action-unaware updater. Controlled anchor-option sets hold the selected item and response constant while varying only their causal provenance, while naturally sampled interactions evaluate average proper-score performance under the response distribution.
 
@@ -56,7 +66,21 @@ $$
 
 The precise claim is:
 
-> **Personalized agents partly determine the evidence from which they subsequently infer the user, and current persistent-profile writers may fail to condition their updates on how that evidence was elicited.**
+> **Persistent-profile performance is a property of the
+> updater–interaction-policy pair. Profile-conditioned actions can change the
+> informativeness of later user evidence, and profile writers may assign that
+> evidence mechanism- and model-specific weight that differs from action-aware
+> inference.**
+
+The claim hierarchy is:
+
+1. **Primary:** profile-conditioned interaction changes evidence quality and
+   can change evaluation or system selection.
+2. **Secondary mechanism:** LLM profile writers may be imperfectly calibrated
+   to causal provenance.
+3. **Conditional downstream:** repeated profile-conditioned interaction may
+   make a false profile self-reinforcing, but only when the registered
+   five-clause definition is satisfied.
 
 This is different from merely observing that recommendation policies create feedback loops. LLM recommender feedback loops, interactive preference elicitation, response-conditioned user feedback, and memory–action coupling already exist as research areas. Echoes in the Loop studies accumulated bias and self-reinforcing exposure in LLM recommender pipelines; PEPPER evaluates interactive preference elicitation; IEvoAgent models dependence between an agent response and subsequent user feedback; and PersonaAgent explicitly couples personalized memory, persona-mediated actions, and memory refinement. ([arXiv][1])
 
@@ -302,11 +326,13 @@ This comparison answers:
 
 > Is causal-provenance adjustment learnable from the available interaction data even without knowing the true simulator coefficients?
 
-The central one-step finding should be:
-
-> Full-context LLM profile writers remain closer to fitted action-unaware inference than fitted action-aware inference, despite receiving the complete elicitation context.
-
-That is substantially stronger than “the LLM differs from an omniscient simulator oracle.”
+The central one-step analysis estimates signed, mechanism-specific calibration
+relative to fitted action-aware inference. Registered H1 tests directional
+over-update, while registered H2 tests the stronger action-unaware-proximity
+pattern. Neither is a binary test of whether a model “uses context.” The exact
+generating-model posterior is retained as an additional controlled diagnostic;
+promoting it to a different confirmatory target requires a versioned analysis
+specification.
 
 # 5. Two Evaluation Tracks
 
@@ -499,11 +525,13 @@ Purpose:
 * verify that the finding persists under realistic response frequencies;
 * prevent conclusions from depending on selected identical-response cases.
 
-# 9. Experiment A: Does the Profile Writer Understand Causal Provenance?
+# 9. Experiment A: How Is the Profile Writer Calibrated to Causal Provenance?
 
 ## Objective
 
-Test whether seeing the full interaction context changes the profile update by the amount justified by action-aware inference.
+Estimate how the applied profile update differs from the action-aware warranted
+update across provenance mechanisms, including over-, under-, and
+wrong-direction updating.
 
 ## Systems
 
@@ -512,7 +540,7 @@ Test whether seeing the full interaction context changes the profile update by t
 | Prior/no update                   | Conservative lower reference                            |
 | Exact action-aware oracle         | Reference under declared simulator                      |
 | Fitted action-aware updater       | Learnable causal reference                              |
-| Fitted action-unaware updater     | Exact model of provenance blindness                     |
+| Fitted action-unaware updater     | Diagnostic baseline that omits provenance-bearing context |
 | Rule-based provenance discounting | Simple non-LLM baseline                                 |
 | Response-only LLM                 | Tests surface-response inference                        |
 | Full-context LLM                  | Tests whether ordinary dialogue context is sufficient   |
@@ -533,6 +561,11 @@ $$
 $$
 
 This measures whether the updater applies the correct evidence increment, rather than merely ending at a similar posterior.
+
+The registered version-1 `ACUE` uses the fitted action-aware reference. Runs
+also retain `exact_acue`, computed against the known generating response model,
+as a separately labeled controlled diagnostic. These fields must not be pooled
+or silently substituted.
 
 ### Posterior divergence
 
@@ -558,7 +591,7 @@ $$
 
 Did each attribute probability move in the correct direction?
 
-### Oracle-update slope
+### Fitted-aware and exact-oracle update-calibration slopes
 
 Regress system log-odds updates on action-aware updates:
 
@@ -574,6 +607,18 @@ A provenance-sensitive updater should have:
 * $\beta$ near one;
 * low mechanism-specific residuals;
 * different update magnitude across matched contexts.
+
+Curves are reported separately by evaluated model and mechanism whenever the
+reference update varies within that mechanism; a constant-reference slice is
+retained explicitly as not estimable rather than assigned an artificial
+slope. Model heterogeneity is an outcome: a model that under-weights one
+mechanism is not collapsed with another model that over-weights it.
+
+The version-1 registered curve uses fitted action-aware
+\(\Delta\ell^A\). Controlled runs additionally emit a parallel curve using the
+known generating-model posterior. Every row names its reference basis; the
+exact curve diagnoses reference misspecification without silently changing the
+registered H1/H2 estimands.
 
 ### Evidence-strength ranking
 
@@ -591,7 +636,7 @@ $$
 
 The exact middle ordering is derived from the fitted model and human judgments rather than assumed universally.
 
-# 10. Experiment B: Can False Profiles Become Self-Confirming?
+# 10. Experiment B: Does Profile-Conditioned Interaction Degrade Evidence Quality or Reinforce False Profiles?
 
 ## 10.1 Factorial design
 
@@ -658,6 +703,12 @@ $$
 The shadow updater observes exactly the same actions and responses but does not control the policy.
 
 This yields a turn-level decomposition.
+
+Evidence-selection cost and cumulative action-aware information gain
+characterize policy-induced evidence quality. Evidential-attribution cost
+measures additional same-history updater error. SCI and the five-clause
+predicate are stronger downstream diagnostics, not prerequisites for an
+evidence-selection result.
 
 ### Evidence-selection cost
 
@@ -730,7 +781,8 @@ p_T^{A,\pi_{\text{balanced}}},
 \end{aligned}
 $$
 
-A positive value means that updater blindness amplifies profile-conditioned evidence selection.
+A positive value means that the updater's same-history attribution gap is
+larger under profile-conditioned evidence collection.
 
 ## 10.4 False self-confirmation definition
 
@@ -776,19 +828,31 @@ This excludes inert false memories.
 
 ## 10.5 Additional outcomes
 
+* initial profile Brier score and terminal/initial error-amplification ratio;
 * terminal profile Brier score;
 * terminal posterior divergence;
 * false stable-profile rate;
 * false self-confirming-profile rate;
 * cumulative action-aware information gain;
+* cumulative excess confidence, retained as cumulative LCG in wrong-direction
+  log odds;
+* exploratory-minus-profile-conditioned disconfirmation-evidence deficit;
+* partial reinforcement-event rate, requiring a visible profile-aligned
+  action, a profile-consistent response, increased false confidence, and a
+  larger system than exact-shadow gain;
+* paired visible-action and realized-choice divergence from balanced policy;
 * preference-dimension coverage;
 * option diversity;
 * intrinsic user regret;
 * terminal behavioral accuracy.
 
-# 11. Experiment C: Does Open-Loop Evaluation Select the Wrong Updater?
+# 11. Experiment C: Is Updater Evaluation Logging-Policy-Dependent?
 
 This is the experiment with the highest strong-accept ceiling.
+
+Experiment C treats performance as
+\(\operatorname{Score}(U,\pi_{\mathrm{log}})\), rather than as a
+policy-independent property \(\operatorname{Score}(U)\).
 
 ## 11.1 Three evidence-collection regimes
 
@@ -805,6 +869,12 @@ Every updater receives the same trajectory generated from a fixed reference prof
 Each updater's profile controls future actions through the common policy function.
 
 The first two test sensitivity to the logging distribution. The third tests genuine endogeneity.
+
+The current executable v1 design implements balanced and fixed-bias logging
+plus soft endogenous deployment. Generalizing it to arbitrary adaptive
+logging-policy × logger-updater pairs, including exploratory and separately
+randomized loggers, requires a versioned Experiment C regime and review-schema
+migration; it is not implied by the existing three-regime artifacts.
 
 ## 11.2 Realistic updater configurations
 
@@ -958,7 +1028,7 @@ held-out suite to OpenAI `gpt-5.6-sol` and requires one content-bound action per
 item. Local deterministic projections are diagnostics and cannot satisfy the
 native-action requirement.
 
-The native experiment asks whether causal-provenance blindness observed in
+The native experiment asks whether causal-provenance miscalibration observed in
 Track A also appears in an inspectable persistent state loop. The protocol is
 implemented; no eligible paper-scale external-decoder or native-action corpus
 is checked in.
@@ -1070,6 +1140,7 @@ Generated language is rejected if it adds unsupported claims such as:
 
 Sweep:
 
+* visible profile-conditioning propensity \(\lambda\);
 * decision noise;
 * default susceptibility;
 * ranking susceptibility;
@@ -1077,6 +1148,36 @@ Sweep:
 * profile strength;
 * prior uncertainty;
 * trajectory length.
+
+The direct policy intervention is
+
+$$
+P(\text{apply profile treatment at }t)
+=
+\lambda
+\left[
+0.15+0.80\,
+\operatorname{clip}
+\left(
+\frac{\operatorname{Conf}_t-0.5}{0.5},
+0,1
+\right)
+\right],
+$$
+
+with \(\lambda\in\{0,.33,.67,1\}\), labeled none, weak, moderate,
+and full soft-conditioning propensity. This is a multiplier, not an additive
+term. At zero, the soft-policy action is visibly neutral and matches the
+balanced action under the paired semantic draw. At one, it reproduces the
+ordinary adaptive soft policy. Intermediate values produce nested assigned
+treatments under common random numbers. Applied ranking, default, and
+suggestion treatments change the assistant turn the evaluated LLM sees;
+assignment rate and actual paired visible-action divergence are both retained.
+
+`presentation_multiplier` is a separate user-susceptibility robustness axis.
+It can change simulated choices and hence the realized conversation, but does
+not directly assign a different assistant action. It must not be interpreted
+as the policy dose.
 
 The main paper should include a phase diagram showing where:
 
@@ -1086,10 +1187,16 @@ The main paper should include a phase diagram showing where:
 4. wrong profiles become self-confirming.
 
 The headline result must hold over a meaningful region, including settings where users often reject profile-consistent suggestions.
+The null \(\lambda=0\) point is a negative control and is not required to pass
+the harmful-region criterion. It is included in grid completion and
+phase-boundary inference instead. Loop formation additionally requires a
+horizon that revisits an attribute after updating it; three-turn sensitivity
+grids are manipulation/transport smokes, while the public Experiment B pilot
+uses six turns and nine turns remains a useful longer-horizon calibration.
 
 # 18. Statistical Plan
 
-## Primary Experiment A model
+## Registered Experiment A mechanism model
 
 $$
 \operatorname{UpdateError}
@@ -1109,7 +1216,7 @@ Mechanism, response-mode, prior-strength, and updater comparisons retain the
 same scenario/order assignment; the deterministic cycle balances scenario use
 within direction across users.
 
-## Primary closed-loop model
+## Registered Experiment B interaction model
 
 $$
 \begin{aligned}
@@ -1135,6 +1242,12 @@ retained turn. `CRNSet` is the common-random-number twin set shared across
 counterfactual policy/updater branches. They are distinct random effects:
 branches can share a CRN set while endogenous target divergence makes them
 display different scenarios.
+
+These version-1 registered models remain unchanged. SelectionCost, cumulative
+action-aware information gain, and Experiment C's logging-regime comparisons
+support the broader paper-level claim. Declaring a different confirmatory
+primary contrast requires a versioned analysis specification rather than
+relabeling the existing model.
 
 ## Common random numbers
 
@@ -1302,23 +1415,26 @@ Before the first large run:
 
 # 22. Hypotheses
 
-### H1 — Causal-provenance blindness
+### H1 — Directional provenance over-update
 
 Full-context LLM profile writers assign larger updates than fitted action-aware inference after restricted, defaulted, or suggested choices.
 
-### H2 — Context visibility is insufficient
+### H2 — Action-unaware proximity
 
 Full-context LLM writers remain closer to fitted action-unaware inference than fitted action-aware inference on at least two provenance mechanisms.
 
-### H3 — Soft self-confirmation
+### H3 — Conditional soft self-confirmation
 
 Under soft profile conditioning, incorrect initial profiles gain excess confidence beyond the shadow action-aware posterior.
 
-### H4 — Selection and attribution are distinct
+### H4 — Policy-dependent evidence quality
 
-Profile-conditioned policies reduce information even with an action-aware updater, while LLM updaters add further error on the same trajectories.
+Profile-conditioned policies reduce action-aware information or increase
+shadow terminal error relative to balanced or exploratory policies.
+Same-history attribution cost is analyzed separately and need not have the
+same sign.
 
-### H5 — The channels interact
+### H5 — Selection–attribution interaction
 
 The attribution gap is larger under profile-conditioned policies than balanced policies for initially wrong profiles:
 
@@ -1326,9 +1442,11 @@ $$
 \operatorname{SCI}_{\text{wrong}}>0.
 $$
 
-### H6 — Static evaluation can be optimistic
+### H6 — Logging-policy-dependent system selection
 
-At least some practical updaters have worse common-terminal performance closed loop than predicted by fixed-history evaluation.
+Fixed-history logging can change system rankings, inferential top tiers, or
+held-out closed-loop selection regret. This does not require absolute
+closed-loop error to exceed every fixed-history error.
 
 ### H7 — Causal provenance is actionable
 
@@ -1453,7 +1571,9 @@ Proceed beyond Experiment A only when:
 
 When fitted aware and unaware systems perform similarly, the environment is not sufficiently identifying.
 
-When LLMs closely track fitted aware inference, the core failure is weak and the paper should stop or reframe.
+When LLMs closely track fitted-aware inference, omit the mechanism-level
+miscalibration claim. This gate does not stop Experiments B/C from testing
+policy-dependent evidence quality and evaluation validity.
 
 ## Gate 2: Nontrivial soft self-confirmation
 
@@ -1470,12 +1590,13 @@ An effect found only under fully restricted options is insufficient.
 
 The LLM updater must perform worse than the shadow action-aware updater on the **same profile-conditioned trajectories**.
 
-Otherwise, the paper is primarily about recommendation exposure rather than profile inference.
+If this gate is not met, retain any supported policy-induced evidence-quality
+result and report that no additional LLM attribution penalty was established.
 
 ## Gate 4: Native-system validity
 
 At least one inspectable persistent memory–action loop must exhibit the same
-causal-provenance failure under the matched, equal-strength contrast. Every
+causal-provenance miscalibration under the matched, equal-strength contrast. Every
 eligible state must also have:
 
 * blind judgments from at least two responsibly reviewed, genuinely distinct
@@ -1508,7 +1629,9 @@ the stronger preregisterable rules below:
 Kendall rank agreement, marginal rank intervals, and raw pairwise reversal
 probabilities remain descriptive and cannot pass Gate 5 by themselves.
 
-When rankings remain stable, retain the causal-provenance paper but remove the claim that static evaluation selects the wrong system.
+Gate 5 is the principal test of evaluation validity. When rankings remain
+stable, remove the system-selection claim while retaining any separately
+supported evidence-quality or provenance-calibration results.
 
 ## Gate 6: Robustness
 
@@ -1523,17 +1646,20 @@ The main effect must survive:
 
 # 27. Expected Contributions
 
-## 1. Causal provenance as a memory-evaluation object
+## 1. Updater–logging-policy pairs as the evaluation object
 
-The paper formalizes the complete elicitation process under which a user response is generated, rather than treating the response alone as independent evidence.
+The paper evaluates an updater jointly with the interaction/logging policy that
+generated its evidence, rather than assigning it one policy-independent score.
 
-## 2. A controlled audit of evidential weight
+## 2. A controlled audit of causal-provenance calibration
 
 CAPE-Loop combines anchor-option provenance pairs, naturally sampled interactions, exact inference, and learned action-aware and action-unaware baselines.
 
-## 3. A decomposition of self-confirming profiles
+## 3. Selection–attribution decomposition with conditional self-confirmation
 
-The crossed design and shadow posterior separate information starvation from excessive evidential attribution and measure their interaction.
+The crossed design and shadow posterior separate information loss from
+same-history evidential attribution. Strict self-confirmation is reported only
+when every registered clause holds.
 
 ## 4. A validity test for static personalization evaluation
 
@@ -1572,20 +1698,28 @@ CAPE-Loop is the empirical diagnosis that motivates eventually making CMC policy
 
 # 29. Strong-Accept Narrative
 
-The strongest final paper would establish the following connected results:
+The strongest final paper would establish the following connected results,
+while a valid paper need not establish every downstream item:
 
 1. **Identical user responses warrant substantially different updates under different elicitation contexts.**
-2. **Full-context LLM profile writers often fail to express those differences and behave more like action-unaware inference.**
-3. **Initially false profiles gain excess confidence under soft profile-conditioned interaction.**
-4. **Evidence selection and evidential attribution make separable contributions and interact.**
+2. **Updater evaluation and selection change with the evidence-logging policy.**
+3. **Full-context LLM profile writers show mechanism- and model-specific
+   provenance miscalibration.**
+4. **Evidence selection and evidential attribution make separable
+   contributions; under some conditions false profiles also reinforce.**
 5. **The failure appears in an inspectable persistent memory–action loop.**
 6. **Humans show greater pragmatic provenance sensitivity than ordinary LLM profile writers.**
 7. **Explicit provenance metadata reduces the loop without preventing valid learning.**
 8. **A system selected as best under fixed histories is not the best system closed loop.**
 
-The final conclusion would be:
+The stable final conclusion would be:
 
-> **A persistent personalized agent can mistake compliance with its own interaction policy for independent evidence about the user. Once stored, that evidence changes later interactions and can make an initially false profile appear increasingly well supported.**
+> **A user-profile updater cannot be evaluated independently of the policy that
+> generated its evidence, and current LLM memory systems may not consistently
+> calibrate profile updates to that evidence's causal provenance.**
+
+A stronger self-reinforcement conclusion is conditional on the five-clause
+trajectory result and is not required for the primary contribution.
 
 The implementation now covers the anchor audit, fitted references, closed-loop
 decomposition, structured/native tracks, evaluation-validity analysis,

@@ -198,8 +198,10 @@ PYTHONPATH=src python -m cape_loop demo experiment-b-case \
 This is one **simulated-user case**, not one repeated frozen scenario. At six
 or more turns, each branch revisits attributes so a later-action effect is
 possible. The command is marked diagnostic-only, paper-ineligible, and
-claim-ineligible; the full Experiment B pilot still requires a revised,
-reviewed TOML design, adequate users, calibration, and inference.
+claim-ineligible. The public Experiment B TOMLs now supply the reviewed
+six-turn software design, eight users, correct/incorrect seeds, balanced/soft/
+exploratory policies, calibration, and inference; scenario approval and
+paid-run admission remain separate researcher decisions.
 
 ## Validate a configuration
 
@@ -443,9 +445,10 @@ Generate the broader offline simulator robustness artifact separately:
 PYTHONPATH=src python -m cape_loop run configs/offline/sensitivity.toml
 ```
 
-It is a 19-point baseline-first one-at-a-time design. It measures marginal
-departures from the baseline and explicitly does not estimate interactions
-among sensitivity axes.
+It is a 22-point baseline-first one-at-a-time design. It includes a
+behaviorally active soft-policy dose (`0`, `0.33`, `0.67`, `1`) in addition to
+simulator and horizon axes. It measures marginal departures from the baseline
+and explicitly does not estimate interactions among sensitivity axes.
 
 ## Inspect a run
 
@@ -551,7 +554,7 @@ offline validate and keyless plan
 | Conversation authoring | Create a candidate frozen bank; separate from experiments | Explicit OpenRouter calls |
 | Static smoke | Endpoint, schema, identity, audit, replay conversion | 6 attempts |
 | Adaptive smoke | Provider/runner integration | 6 logical updates |
-| Bounded pilot | Reviewed A/B/C or Gate 6 design | 576–864 attempts/provider |
+| Bounded pilot | Reviewed A/B/C or Gate 6 design | 624–848 attempts/provider |
 | Paper collection | Frozen design and release plan | Separately approved |
 
 The approved pilot ceiling is 900 physical attempts and 6,000,000

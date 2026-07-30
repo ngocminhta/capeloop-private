@@ -5,7 +5,7 @@ boundary between executable repository software and evidence that still has to
 be collected. No checked-in artifact establishes a paper hypothesis or claims
 that a scientific gate has passed.
 
-**Last reconciled:** 2026-07-29 against the source tree, command-line interface,
+**Last reconciled:** 2026-07-30 against the source tree, command-line interface,
 public configurations, generated schemas, tests, CI workflow, and available
 machine-local diagnostics.
 
@@ -20,7 +20,7 @@ machine-local diagnostics.
 | Can a researcher read conversations beside their metrics? | **Yes.** Each A/B/C/sensitivity run writes exhaustive deduplicated JSONL plus a deterministic diverse Markdown preview of at most 100 trace records by default, with exact complete conversation, turn, and outcome counts and readable metric guidance. Hybrid runs contain the natural exchange; non-surface fixtures are marked unavailable. |
 | Can a researcher inspect one complete live example first? | **Yes, as diagnostics.** `demo one-scenario` shows one frozen scenario and one live update; `demo experiment-b-case` shows matched balanced/profile-conditioned branches using 3, 6, 9, or 12 turns, with one logical update per turn in each of two policy branches. Both write natural-language metrics plus complete request/audit files, and neither can support a paper claim. |
 | Can it call real models? | **Yes, with explicit authorization.** Direct OpenAI and OpenRouter adaptive execution, replay, selected decoder collection, and native-action collection are implemented and budget checked. |
-| Is it ready for a bounded live pilot? | **Partly.** The transport, replay, audit, and analysis software is ready for bounded pilots, but the current public Experiment B live presets use only three turns. The multi-model diagnostic showed that this is too short to exercise the declared later-action mechanism; redesign B before collecting its pilot. |
+| Is it ready for a bounded live pilot? | **Technically yes, after operator and scenario-surface review.** The public Experiment B presets now run one LLM at a time for six turns over correct/incorrect seeds and balanced/soft/exploratory policies, revisiting all three preference dimensions while preserving eight user clusters and the approved request ceiling. This is a calibration pilot design, not paper evidence or permission to use the provisional scenarios unchanged. |
 | Is the paper study complete? | **No.** No eligible provider corpus, Gate 4 collection, human response dataset, confirmatory study fit, or paper result is checked in. |
 | Has any scientific gate passed? | **No claim is made.** Generated gate artifacts always retain `claim_status = "not_claimed"`. |
 
@@ -38,6 +38,13 @@ machine-local diagnostics.
 An implemented component is not an empirical finding. A transport smoke proves
 connectivity, a verified run proves artifact integrity, and a computational
 gate result proves only that the coded conditions evaluated as recorded.
+
+The repository now follows a three-level claim hierarchy. The primary object is
+the updater–logging-policy pair and policy-dependent evidence quality.
+Causal-provenance miscalibration is the mechanism-level secondary claim.
+Strict five-clause self-confirmation remains a strong conditional downstream
+claim that requires longer, active trajectories and is not assumed to occur
+universally.
 
 ## Verified repository snapshot
 
@@ -129,13 +136,13 @@ latent synthetic user
 
 | Component | Status | Current boundary |
 | --- | --- | --- |
-| Experiment A | Implemented | Matched provenance anchors, paired scenario and opposite physical-order assignment across anchor directions, controlled and sampled modes, prior-strength strata, exact/fitted/LLM updater comparisons, H1/H2/H7 estimands, held-out paraphrases, clustered inference, Holm adjustment, and pilot-power diagnostics. |
+| Experiment A | Implemented | Matched provenance anchors, paired scenario and opposite physical-order assignment across anchor directions, controlled and sampled modes, prior-strength strata, exact/fitted/LLM updater comparisons, registered fitted-reference H1/H2/H7 estimands, pooled and mechanism-specific fitted/exact calibration slopes with complete-user bootstrap intervals, descriptive exact-oracle ACUE/KL diagnostics, held-out paraphrases, clustered inference, Holm adjustment, and pilot-power diagnostics. |
 | A six-control exchange | Implemented tooling / external-evidence-dependent | Content-bound positive and negative controls, reference/no-update diagnostics, provider request exchange, immutable review, and scoring exist; no external control corpus is checked in. |
 | H7 volunteered-statement review | Implemented tooling / external-evidence-dependent | Complete planning, provider-audit binding, accepted-update conversion, and source-safe recomputation exist; no accepted provider evidence is checked in. |
-| Experiment B | Implemented core / live-design revision required | Crossed initial profiles, policies, and updaters; endogenous trajectories; block-balanced entropy-guided exploratory coverage; same-history action-aware shadows; terminal error, learning-confidence gain, decomposition, and pilot-power analysis are implemented. The 12-turn offline reference exercises repeated attributes, but the current three-turn live presets do not and must be revised before a scientifically informative B pilot. |
-| Experiment C | Implemented | Fixed balanced, fixed biased, and endogenous regimes; common terminal battery; complete-user paired ranking, reversal, top-tier, and evaluation-selection-regret analysis. |
+| Experiment B | Implemented / bounded calibration design ready | Crossed initial profiles, policies, and updaters; endogenous trajectories; block-balanced entropy-guided exploratory coverage; same-history action-aware shadows; direct balanced-action counterfactual signatures; EAR, CEC, disconfirmation deficit, reinforcement-event rate, strict self-confirmation, decomposition, and pilot-power analysis are implemented. The offline reference uses 12 turns; the live presets now use six turns and one evaluated LLM at a time, giving each attribute a later revisit. |
+| Experiment C | Implemented v1 | Fixed balanced, fixed biased, and endogenous regimes; common terminal battery; complete-user paired ranking, reversal, top-tier, and evaluation-selection-regret analysis. Scores are explicitly properties of updater–logging-policy pairs. A fully crossed balanced/exploratory/randomized/profile-conditioned fixed-logger design remains a future version rather than an implicit claim of v1. |
 | Experiment C multi-seed review | Implemented diagnostic | Verifies 2–32 completed matched-source runs and records agreement and disagreements without selecting a favorable seed. |
-| Sensitivity runner | Implemented | Cartesian and baseline-first one-at-a-time construction, phase classification, and observed-grid boundaries; public presets use the smaller OAT design and explicitly deny interaction estimability. |
+| Sensitivity runner | Implemented | Cartesian and baseline-first one-at-a-time construction, a behaviorally active profile-conditioning dose from null through legacy/full strength, phase classification, continuous B diagnostics, and observed-grid boundaries; public presets use the smaller OAT design and explicitly deny interaction estimability. The dose is a manipulation/boundary analysis and does not silently alter the version-1 Gate 6 breadth formula. |
 | Calibration | Implemented | Development-only temperature calibration for fitted and LLM probability outputs, raw/active retention, test reliability diagnostics, and an explicit uncalibrated ablation. |
 | Common terminal evaluation | Implemented | Held-out terminal-v2 battery shared by B/C structured and native systems; native representation diagnostics use two fixed blinded projections. |
 | External native-state decoding | Implemented tooling / external-evidence-dependent | Blinded packets, source audit, development-only per-family calibration, held-out scoring, and agreement analysis exist; deterministic local projections are not independent external decoders. |
@@ -187,17 +194,18 @@ They are transport and estimability pilots, not powered confirmatory designs.
 | Adaptive live pilot | Experiment calls | Calibration | A paraphrases | Physical-attempt bound | Maximum output allocation |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Experiment A | 768 | 48 | 32 | 848 | 1,736,704 |
-| Experiment B | 768 | 96 | 0 | 864 | 1,769,472 |
+| Experiment B | 576 | 48 | 0 | 624 | 1,277,952 |
 | Experiment C | 768 | 48 | 0 | 816 | 1,671,168 |
-| Gate 6 OAT | 576 | 0 | 0 | 576 | 1,179,648 |
+| Gate 6 OAT | 720 | 0 | 0 | 720 | 1,474,560 |
 
 Each uses zero automatic retries and remains below the approved per-provider
 ceiling of 900 physical attempts and 6,000,000 conservatively allocated tokens.
-The B entries are valid transport bounds, not an endorsement of their current
-three-turn horizon. A six-turn, one-domain, `llm_full_context`-only development
-pilot with eight users, four initial-profile conditions, two policies, and one
-trajectory uses 384 experiment calls plus 24 calibration calls per model. A
-matched two-domain form uses 768 plus 48, or 816 calls per model.
+The B pair is the two-domain, eight-user, six-turn,
+`llm_full_context`-only paid design over correct/incorrect seeds and balanced,
+soft, and exploratory policies: 576 trajectory calls plus 48 calibration
+calls, or 624 per model. Local reference updaters run in the same experiment
+without provider calls. Repeat this frozen design separately for each selected
+model family.
 
 The offline Gate 4 source produces 640 decoder requests per model and 80
 native-action requests. The offline Experiment C rescore source produces 360
@@ -219,6 +227,18 @@ Sol versus Terra is a model-variant replication, not distinct-family
 robustness. Claude and Gemini are declared distinct model families, but their
 selected requests share OpenRouter and therefore do not establish independent
 transport or errors.
+
+For the next bounded Experiment B calibration, the repository recommendation
+is three behaviorally distinct OpenRouter runs:
+`google/gemini-3.6-flash` (minimal reasoning),
+`openai/gpt-5.6-luna` (low reasoning), and
+`mistralai/mistral-large-2512` (reasoning control omitted because the observed
+route does not support the same parameter). Gemini showed consistent
+suggested-choice over-update, Luna was the contrasting conservative H1 case,
+and Mistral produced the clearest completed Experiment C selection reversal.
+Claude Sonnet 5 remains a useful fourth family only after a route without the
+currently rejected moderation pipeline is prospectively selected and
+validated.
 
 ## Scenario calibration snapshot
 
@@ -296,6 +316,23 @@ nonempty passed-moderation pipeline under the current strict route-integrity
 rule. No retry occurred. Any revised treatment of pass-through moderation must
 be defined prospectively and followed by a fresh complete run.
 
+On 2026-07-30, a broader ignored cross-model calibration used one simulated
+travel user, one replicate, and five OpenRouter model families where endpoints
+completed. In Experiment A, the registered suggested-choice H1 contrast had the
+expected sign in four of five model means and 21 of 30 cases, while H2 had the
+opposite sign in all five model means: models were closer to the fitted-aware
+than fitted-unaware reference. In Experiment B, terminal error, selection cost,
+and regret worsened under soft conditioning in all four complete model runs,
+but attribution cost was negative and no strict self-confirming trajectory
+appeared (`0/8`). In Experiment C, biased fixed logs reversed the selected
+system relative to closed-loop development evaluation in all three complete
+model/reference comparisons. The old presentation-multiplier-only sensitivity
+slice did not change LLM terminal states. These are the observations that
+motivated the claim reframe, exact-oracle diagnostics, active policy-dose axis,
+continuous B metrics, and six-turn live B presets in the current source. The
+pilot remains one-user, incomplete across endpoints, ignored, and
+claim-ineligible.
+
 All of these artifacts are machine-local, diagnostic-only, source-unfrozen,
 paper-ineligible, and claim-ineligible. They cannot support Gates 2 or 3, a
 power decision, or a paper result.
@@ -325,8 +362,9 @@ Schema bounds. The compatible wire-schema subset and strict local finite-range
 and vector-normalization checks are now covered by the offline suite.
 
 Additional ignored diagnostics include verified Gate 4 and Experiment C source
-packets, a three-seed Experiment C review, and a complete 19-point simulator
-OAT run. They all retain `not_claimed` and are not distributed evidence. The
+packets, a three-seed Experiment C review, and a complete historical 19-point
+simulator OAT run collected before the active policy-dose axis was added. They
+all retain `not_claimed` and are not distributed evidence. The
 complete Gate 4 decoder/native-action collections and Experiment C external
 rescore collection have not been executed.
 
@@ -373,7 +411,7 @@ incomplete.
 | Gate 3 — attribution beyond evidence selection | The same eligible `llm_full_context` trajectories must perform worse than their same-history action-aware shadows, with an adequate clustered interval above zero. No passage is claimed. |
 | Gate 4 — native-system validity | Requires external blinded-decoder judgments and genuine hash-bound native end-to-end actions. The selected path requires complete Claude/Gemini OpenRouter evidence, complete OpenAI native actions, and responsible source review; optional direct-first-party and explicitly reviewed-generic modes also exist. No complete live collection has been imported. |
 | Gate 5 — evaluation implication | Experiment C uses joint-paired complete-user differences and difference-of-differences for credible reversals, or interval-supported development tiers plus a conservative held-out ESR envelope. Descriptive correlations or rank bands cannot pass it alone. |
-| Gate 6 — robustness | Sensitivity artifacts check declared-grid completion and phase boundaries; a separate immutable review binds qualifying live sensitivity/A runs and recomputes model-family and paraphrase clauses. No qualifying paper-scale review is checked in. |
+| Gate 6 — robustness | Sensitivity artifacts check declared-grid completion, the active profile-conditioning dose, and observed phase boundaries; a separate immutable review binds qualifying live sensitivity/A runs and recomputes model-family and paraphrase clauses. The dose remains outside the version-1 broad-simulator-parameter clause, and its null is a negative control. No qualifying paper-scale review is checked in. |
 
 `computed_status = "meets_computational_checks"` means only that every coded
 Boolean available to that artifact evaluated true. It never changes
@@ -391,13 +429,21 @@ Boolean available to that artifact evaluated true. It never changes
   confirmatory collection.
 - Freeze the preregistration, estimands, model identities, provider routes,
   budgets, and release policy.
-- Replace the three-turn Experiment B live presets with a ceiling-safe design
-  that repeats attributes, preserves at least eight independent user clusters,
-  and defines the OpenRouter moderation policy prospectively.
+- Decide whether the confirmatory Experiment A version should add a distinct
+  profile-consistent ranking arm. Volunteered preference already has a separate
+  six-control execution path; ranking is currently counterbalanced as physical
+  order rather than estimated as a fifth A mechanism, so adding it would
+  require a versioned design and a new bounded workload.
+- Review and freeze the six-turn Experiment B calibration design and its
+  recommended Gemini/Luna/Mistral model trio, and define the OpenRouter
+  moderation policy prospectively before paid collection.
 - Execute and admit eligible live Experiment A–C and Gate 6 collections.
 - Collect the complete Gate 4 Claude/Gemini judgments and OpenAI native actions,
   then complete the responsible-researcher source review.
 - Run the external Experiment C rescore and the declared multi-seed review.
+- Decide before preregistration whether Experiment C v1's fixed-balanced,
+  fixed-bias, and endogenous regimes are sufficient or whether to version a
+  larger crossed fixed-logger design with exploratory/randomized histories.
 - Obtain the required ethics determination before the deferred human study,
   then collect and analyze eligible responses if that study proceeds.
 - Fit the confirmatory R models on frozen eligible runs and review diagnostics;

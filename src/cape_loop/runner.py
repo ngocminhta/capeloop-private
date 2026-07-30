@@ -126,7 +126,7 @@ from .openrouter_provider import (
     OpenRouterProviderConfig,
     ResumableOpenRouterCompletionProvider,
 )
-from .policies import build_policy
+from .policies import SoftProfileConditionedPolicy, build_policy
 from .population import (
     generate_users,
     susceptibility_grid,
@@ -1908,6 +1908,10 @@ def _run_a(
         replicates=analysis_replicates,
         seed=config.run.seed,
     )
+    exact_oracle_slopes = result.exact_oracle_update_slopes(
+        replicates=analysis_replicates,
+        seed=config.run.seed,
+    )
     evidence_strength = result.evidence_strength_analysis()
     control_battery = build_experiment_a_control_battery()
     run.write_json(
@@ -2010,6 +2014,11 @@ def _run_a(
             "anchor rows or presented as external evidence."
         ),
         (
+            "The retained version-1 slope uses the fitted action-aware "
+            "reference. The parallel exact-oracle slope is a separately "
+            "labeled controlled diagnostic and does not replace H1/H2."
+        ),
+        (
             f"Bootstrap analyses used {analysis_replicates} replicates; a "
             "zero configured value selects the documented smoke fallback of 200."
         ),
@@ -2028,6 +2037,7 @@ def _run_a(
     confirmatory = ExperimentAConfirmatoryResult(
         oracle_update_slopes=oracle_slopes,
         evidence_strength=evidence_strength,
+        exact_oracle_update_slopes=exact_oracle_slopes,
         mechanism_contrasts=mechanism_contrasts,
         updater_mechanism_interactions=tuple(interaction_rows),
         marginal_regression=marginal_regression,
@@ -2051,6 +2061,10 @@ def _run_a(
     run.write_jsonl(
         "metrics/experiment-a-oracle-slopes.jsonl",
         (row.to_dict() for row in oracle_slopes),
+    )
+    run.write_jsonl(
+        "metrics/experiment-a-exact-oracle-slopes.jsonl",
+        (row.to_dict() for row in exact_oracle_slopes),
     )
     run.write_json(
         "metrics/experiment-a-evidence-strength.json",
@@ -2148,7 +2162,9 @@ def _run_a(
             "fitted_aware_brier": row.fitted_aware_brier,
             "excess_brier": row.excess_brier,
             "acue": row.acue,
+            "exact_acue": row.exact_acue,
             "marginal_kl": row.fitted_aware_kl,
+            "exact_marginal_kl": row.exact_kl,
             "update_direction_accuracy": row.update_direction_accuracy,
             "update_direction_evaluated_components": (
                 row.update_direction_evaluated_components
@@ -2162,6 +2178,7 @@ def _run_a(
             "fitted_aware_log_odds_update": (
                 row.fitted_aware_log_odds_update
             ),
+            "exact_log_odds_update": row.exact_log_odds_update,
             "fitted_evidence_strength": row.fitted_evidence_strength,
         }
         for row in result.rows
@@ -2291,6 +2308,7 @@ def _run_a(
         "updater_views": updater_views(registry),
         "held_out_response_diagnostics": dict(prepared.held_out_diagnostics),
         "oracle_update_slope_rows": len(oracle_slopes),
+        "exact_oracle_update_slope_rows": len(exact_oracle_slopes),
         "evidence_strength_volunteered_control_status": (
             evidence_strength.volunteered_control_status
         ),
@@ -2770,6 +2788,9 @@ def _run_b(
         domains=prepared.domains,
         updaters=registry,
         policies=policies,
+        initial_profile_conditions=(
+            config.experiment.initial_profile_conditions
+        ),
         turns=config.experiment.turns,
         trajectories_per_cell=config.experiment.trajectories_per_cell,
         response_model=prepared.response_model,
@@ -3029,8 +3050,17 @@ def _run_b(
                 "trajectory_id": trajectory.trajectory_id,
                 "domain_id": trajectory.domain_id,
                 "updater_id": trajectory.updater_id,
+                "policy_id": trajectory.policy_id,
+                "initial_profile_condition": (
+                    trajectory.initial_profile_condition
+                ),
                 "battery_id": battery.battery_id,
                 "battery_digest": battery.battery_digest,
+                "initial_error": trajectory.initial_error,
+                "terminal_error": trajectory.terminal_error,
+                "error_amplification_ratio": (
+                    trajectory.error_amplification_ratio
+                ),
                 "terminal_shadow_to_system_marginal_kl": (
                     trajectory.terminal_shadow_to_system_marginal_kl
                 ),
@@ -3055,6 +3085,22 @@ def _run_b(
                 ),
                 "cumulative_action_aware_information_gain": (
                     trajectory.cumulative_information_gain
+                ),
+                "cumulative_lcg": list(trajectory.cumulative_lcg),
+                "mean_cumulative_excess_confidence_log_odds": (
+                    trajectory.mean_cumulative_excess_confidence_log_odds
+                ),
+                "action_aware_disconfirmation_gain_log_odds": (
+                    trajectory.action_aware_disconfirmation_gain_log_odds
+                ),
+                "profile_aligned_treatment_opportunities": (
+                    trajectory.profile_aligned_treatment_opportunities
+                ),
+                "reinforcement_event_count": (
+                    trajectory.reinforcement_event_count
+                ),
+                "reinforcement_event_rate": (
+                    trajectory.reinforcement_event_rate
                 ),
                 "total_intrinsic_regret": trajectory.total_regret,
                 "false_stable_attribute_rate": (
@@ -3444,6 +3490,16 @@ def _run_b(
         ),
         "mean_terminal_error": mean_or_nan(
             trajectory.terminal_error for trajectory in result.trajectories
+        ),
+        "mean_error_amplification_ratio": mean_or_nan(
+            trajectory.error_amplification_ratio
+            for trajectory in result.trajectories
+            if trajectory.error_amplification_ratio is not None
+        ),
+        "mean_reinforcement_event_rate": mean_or_nan(
+            trajectory.reinforcement_event_rate
+            for trajectory in result.trajectories
+            if trajectory.reinforcement_event_rate is not None
         ),
         "mean_shadow_error": mean_or_nan(
             trajectory.terminal_shadow_error for trajectory in result.trajectories
@@ -3980,6 +4036,9 @@ def _run_sensitivity(
         design=config.sensitivity.design,
         decision_noise_values=config.sensitivity.decision_noise_values,
         presentation_multipliers=config.sensitivity.presentation_multipliers,
+        profile_conditioning_strength_values=(
+            config.sensitivity.profile_conditioning_strength_values
+        ),
         rank_multipliers=config.sensitivity.rank_multipliers,
         default_multipliers=config.sensitivity.default_multipliers,
         suggestion_multipliers=(
@@ -4043,7 +4102,18 @@ def _run_sensitivity(
             for policy_id in config.experiment.policies
             if policy_id in {"balanced", "soft_profile_conditioned"}
         )
-        policies = {policy_id: build_policy(policy_id) for policy_id in policy_ids}
+        policies = {
+            policy_id: (
+                SoftProfileConditionedPolicy(
+                    conditioning_strength=(
+                        point.profile_conditioning_strength
+                    )
+                )
+                if policy_id == "soft_profile_conditioned"
+                else build_policy(policy_id)
+            )
+            for policy_id in policy_ids
+        }
         shadow = ExactActionAwareUpdater(
             model,
             susceptibility_grid(config.response_model.susceptibility_levels),
@@ -4160,6 +4230,11 @@ def _run_sensitivity(
             for trajectory in result.trajectories
             if trajectory.trajectory_id in phase_target_trajectory_ids
         )
+        phase_target_soft_trajectories = tuple(
+            trajectory
+            for trajectory in phase_target_trajectories
+            if trajectory.policy_id == "soft_profile_conditioned"
+        )
         phase_target_assessments = tuple(
             assessment
             for assessment in result.self_confirmation_assessments
@@ -4212,6 +4287,11 @@ def _run_sensitivity(
                 "mean_terminal_error": mean_or_nan(
                     trajectory.terminal_error for trajectory in result.trajectories
                 ),
+                "mean_error_amplification_ratio": mean_or_nan(
+                    trajectory.error_amplification_ratio
+                    for trajectory in result.trajectories
+                    if trajectory.error_amplification_ratio is not None
+                ),
                 "mean_shadow_error": mean_or_nan(
                     trajectory.terminal_shadow_error
                     for trajectory in result.trajectories
@@ -4251,6 +4331,20 @@ def _run_sensitivity(
                     trajectory.total_regret / len(trajectory.turns)
                     for trajectory in result.trajectories
                 ),
+                "mean_cumulative_excess_confidence_log_odds": mean_or_nan(
+                    trajectory.mean_cumulative_excess_confidence_log_odds
+                    for trajectory in result.trajectories
+                    if (
+                        trajectory
+                        .mean_cumulative_excess_confidence_log_odds
+                        is not None
+                    )
+                ),
+                "mean_reinforcement_event_rate": mean_or_nan(
+                    trajectory.reinforcement_event_rate
+                    for trajectory in result.trajectories
+                    if trajectory.reinforcement_event_rate is not None
+                ),
                 "self_confirming_attribute_rate": (
                     len(result.reportable_self_confirming)
                     / max(len(result.self_confirmation_assessments), 1)
@@ -4277,6 +4371,41 @@ def _run_sensitivity(
                     row.profile_attribution_cost
                     for row in phase_target_decompositions
                 ),
+                "phase_soft_profile_conditioned_exposure_rate": mean_or_nan(
+                    trajectory.profile_conditioned_exposure_rate
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_terminal_error": mean_or_nan(
+                    trajectory.terminal_error
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_information_gain": mean_or_nan(
+                    trajectory.cumulative_information_gain
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_cumulative_excess_confidence_log_odds": (
+                    mean_or_nan(
+                        (
+                            trajectory
+                            .mean_cumulative_excess_confidence_log_odds
+                        )
+                        for trajectory in phase_target_soft_trajectories
+                        if (
+                            trajectory
+                            .mean_cumulative_excess_confidence_log_odds
+                            is not None
+                        )
+                    )
+                ),
+                "phase_soft_regret": mean_or_nan(
+                    trajectory.total_regret
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_reinforcement_event_rate": mean_or_nan(
+                    trajectory.reinforcement_event_rate
+                    for trajectory in phase_target_soft_trajectories
+                    if trajectory.reinforcement_event_rate is not None
+                ),
                 "phase_self_confirming_profile_rate": (
                     len(phase_target_reportable_ids)
                     / len(phase_target_eligible_ids)
@@ -4290,6 +4419,11 @@ def _run_sensitivity(
                 trajectory
                 for trajectory in phase_target_trajectories
                 if trajectory.domain_id == domain.domain_id
+            )
+            domain_target_soft_trajectories = tuple(
+                trajectory
+                for trajectory in domain_target_trajectories
+                if trajectory.policy_id == "soft_profile_conditioned"
             )
             domain_target_ids = {
                 trajectory.trajectory_id
@@ -4352,6 +4486,12 @@ def _run_sensitivity(
                         row.profile_attribution_cost
                         for row in domain_target_decompositions
                     ),
+                    "phase_soft_profile_conditioned_exposure_rate": (
+                        mean_or_nan(
+                            trajectory.profile_conditioned_exposure_rate
+                            for trajectory in domain_target_soft_trajectories
+                        )
+                    ),
                     "phase_self_confirming_profile_rate": (
                         len(domain_reportable_ids)
                         / len(domain_eligible_ids)
@@ -4411,6 +4551,14 @@ def _run_sensitivity(
                                 trajectory.terminal_error
                                 for trajectory in group
                             ),
+                            "mean_error_amplification_ratio": mean_or_nan(
+                                trajectory.error_amplification_ratio
+                                for trajectory in group
+                                if (
+                                    trajectory.error_amplification_ratio
+                                    is not None
+                                )
+                            ),
                             "mean_shadow_error": mean_or_nan(
                                 trajectory.terminal_shadow_error
                                 for trajectory in group
@@ -4432,6 +4580,34 @@ def _run_sensitivity(
                                 trajectory.total_regret
                                 / len(trajectory.turns)
                                 for trajectory in group
+                            ),
+                            "mean_profile_conditioned_exposure_rate": (
+                                mean_or_nan(
+                                    trajectory.profile_conditioned_exposure_rate
+                                    for trajectory in group
+                                )
+                            ),
+                            "mean_cumulative_excess_confidence_log_odds": (
+                                mean_or_nan(
+                                    (
+                                        trajectory
+                                        .mean_cumulative_excess_confidence_log_odds
+                                    )
+                                    for trajectory in group
+                                    if (
+                                        trajectory
+                                        .mean_cumulative_excess_confidence_log_odds
+                                        is not None
+                                    )
+                                )
+                            ),
+                            "mean_reinforcement_event_rate": mean_or_nan(
+                                trajectory.reinforcement_event_rate
+                                for trajectory in group
+                                if (
+                                    trajectory.reinforcement_event_rate
+                                    is not None
+                                )
                             ),
                             "self_confirming_attribute_rate": (
                                 sum(
@@ -4487,6 +4663,14 @@ def _run_sensitivity(
                         ),
                         "mean_self_confirmation_interaction": mean_or_nan(
                             row.self_confirmation_interaction for row in paired
+                        ),
+                        "mean_visible_action_divergence_rate": mean_or_nan(
+                            row.visible_action_divergence_rate
+                            for row in paired
+                        ),
+                        "mean_observed_choice_divergence_rate": mean_or_nan(
+                            row.observed_choice_divergence_rate
+                            for row in paired
                         ),
                     }
                 )
@@ -4547,6 +4731,7 @@ def _run_sensitivity(
                         "point_id",
                         "decision_noise",
                         "presentation_multiplier",
+                        "profile_conditioning_strength",
                         "rank_multiplier",
                         "default_multiplier",
                         "suggestion_multiplier",
@@ -4559,6 +4744,15 @@ def _run_sensitivity(
                         "phase_target_is_llm",
                         "phase_target_is_live_llm",
                         "llm_execution_mode",
+                        "phase_soft_profile_conditioned_exposure_rate",
+                        "phase_soft_terminal_error",
+                        "phase_soft_information_gain",
+                        (
+                            "phase_soft_cumulative_excess_"
+                            "confidence_log_odds"
+                        ),
+                        "phase_soft_regret",
+                        "phase_soft_reinforcement_event_rate",
                         (
                             "phase_profile_consistent_"
                             "suggestion_opportunities"
@@ -4604,6 +4798,7 @@ def _run_sensitivity(
         for axis in (
             "decision_noise",
             "presentation_multiplier",
+            "profile_conditioning_strength",
             "rank_multiplier",
             "default_multiplier",
             "suggestion_multiplier",

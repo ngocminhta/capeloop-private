@@ -19,6 +19,9 @@ from cape_loop.config import (
 )
 from cape_loop.llm_exchange import ATTRIBUTES, VALUES, LLMRequest, LLMResponse
 from cape_loop.population import add_prior_uncertainty
+from cape_loop.population import initial_profile_belief
+from cape_loop.domains import TRAVEL
+from cape_loop.policies import BalancedPolicy, SoftProfileConditionedPolicy
 from cape_loop.response import RandomUtilityModel, RuleBasedResponseModel
 from cape_loop.runner import (
     _run_sensitivity,
@@ -114,6 +117,78 @@ class SensitivityTests(unittest.TestCase):
         self.assertGreater(low_noise.beta, 1.0)
         rows = evaluate_grid(points, lambda point: {"metric": point.decision_noise})
         self.assertEqual(len(rows), len(points))
+
+    def test_policy_conditioning_strength_changes_visible_actions(self) -> None:
+        belief = initial_profile_belief(
+            (-2, -1, 1),
+            "incorrect",
+            profile_strength=0.8,
+        )
+        balanced = BalancedPolicy()
+        applied_by_strength: dict[float, set[int]] = {}
+        for strength in (0.0, 0.33, 0.67, 1.0):
+            policy = SoftProfileConditionedPolicy(
+                conditioning_strength=strength
+            )
+            applied_by_strength[strength] = {
+                turn
+                for turn in range(9)
+                if policy.action(
+                    TRAVEL,
+                    belief,
+                    turn=turn,
+                    master_seed=7,
+                    trajectory_id="policy-dose",
+                ).provenance.profile_conditioned
+            }
+        self.assertEqual(applied_by_strength[0.0], set())
+        self.assertTrue(
+            applied_by_strength[0.0]
+            <= applied_by_strength[0.33]
+            <= applied_by_strength[0.67]
+            <= applied_by_strength[1.0]
+        )
+        for turn in range(9):
+            neutral = SoftProfileConditionedPolicy(
+                conditioning_strength=0.0
+            ).action(
+                TRAVEL,
+                belief,
+                turn=turn,
+                master_seed=7,
+                trajectory_id="policy-dose",
+            )
+            control = balanced.action(
+                TRAVEL,
+                belief,
+                turn=turn,
+                master_seed=7,
+                trajectory_id="policy-dose",
+            )
+            self.assertEqual(neutral.signature(), control.signature())
+        full_action = SoftProfileConditionedPolicy(
+            conditioning_strength=1.0
+        ).action(
+            TRAVEL,
+            belief,
+            turn=0,
+            master_seed=7,
+            trajectory_id="policy-dose",
+        )
+        intermediate_action = SoftProfileConditionedPolicy(
+            conditioning_strength=0.67
+        ).action(
+            TRAVEL,
+            belief,
+            turn=0,
+            master_seed=7,
+            trajectory_id="policy-dose",
+        )
+        self.assertEqual(full_action.provenance.policy_version, "v1")
+        self.assertEqual(
+            intermediate_action.provenance.policy_version,
+            "v2-conditioning-strength",
+        )
 
     def test_one_at_a_time_grid_is_baseline_first_and_non_factorial(self) -> None:
         points = sensitivity_grid(
@@ -236,6 +311,7 @@ class SensitivityTests(unittest.TestCase):
             (
                 sensitivity.decision_noise_values[0],
                 sensitivity.presentation_multipliers[0],
+                sensitivity.profile_conditioning_strength_values[0],
                 sensitivity.rank_multipliers[0],
                 sensitivity.default_multipliers[0],
                 sensitivity.suggestion_multipliers[0],
@@ -246,6 +322,7 @@ class SensitivityTests(unittest.TestCase):
                 sensitivity.rule_noise_values[0],
             ),
             (
+                1.0,
                 1.0,
                 1.0,
                 1.0,
@@ -262,6 +339,9 @@ class SensitivityTests(unittest.TestCase):
             design=sensitivity.design,
             decision_noise_values=sensitivity.decision_noise_values,
             presentation_multipliers=sensitivity.presentation_multipliers,
+            profile_conditioning_strength_values=(
+                sensitivity.profile_conditioning_strength_values
+            ),
             rank_multipliers=sensitivity.rank_multipliers,
             default_multipliers=sensitivity.default_multipliers,
             suggestion_multipliers=sensitivity.suggestion_multipliers,
@@ -271,8 +351,8 @@ class SensitivityTests(unittest.TestCase):
             response_model_families=sensitivity.response_model_families,
             rule_noise_values=sensitivity.rule_noise_values,
         )
-        self.assertEqual(len(points), 19)
-        self.assertEqual(sum(point.trajectory_length for point in points), 152)
+        self.assertEqual(len(points), 22)
+        self.assertEqual(sum(point.trajectory_length for point in points), 176)
 
         # Each point runs one incorrect-profile condition across the declared
         # domain × user × replicate × policy × updater cells.
@@ -284,11 +364,11 @@ class SensitivityTests(unittest.TestCase):
             * len(config.experiment.updaters)
         )
         self.assertEqual(cells_per_point, 1_536)
-        self.assertEqual(len(points) * cells_per_point, 29_184)
+        self.assertEqual(len(points) * cells_per_point, 33_792)
         self.assertEqual(
             sum(point.trajectory_length for point in points)
             * cells_per_point,
-            233_472,
+            270_336,
         )
 
     def test_one_at_a_time_grid_varies_one_axis_or_family(self) -> None:
@@ -337,6 +417,7 @@ class SensitivityTests(unittest.TestCase):
             design="one_at_a_time",
             decision_noise_values=[1.0, 0.7],
             presentation_multipliers=[1.0, 0.5],
+            profile_conditioning_strength_values=[1.0, 0.0, 0.5],
             rank_multipliers=[1.0, 0.5],
             default_multipliers=[1.0, 0.5],
             suggestion_multipliers=[1.0, 0.5],
@@ -359,6 +440,7 @@ class SensitivityTests(unittest.TestCase):
         )
         self.assertTrue(passed)
         self.assertEqual(levels["presentation_multiplier"], [0.5, 1.0])
+        self.assertNotIn("profile_conditioning_strength", levels)
         self.assertEqual(levels["rule_noise"], [0.15, 0.25])
         self.assertTrue(all(survival["presentation_multiplier"].values()))
         self.assertTrue(all(survival["rule_noise"].values()))

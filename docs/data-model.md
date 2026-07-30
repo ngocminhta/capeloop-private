@@ -116,7 +116,7 @@ configs/offline/experiment_c_rescore_source.toml
 
 generate synthetic native states and blinded request packets. They make no
 provider call. The broader `configs/offline/sensitivity.toml` run is a separate
-19-point one-at-a-time robustness artifact and does not share the ordinary
+22-point one-at-a-time robustness artifact and does not share the ordinary
 A–C population/split layout.
 
 Primary records are canonical JSON or JSON Lines:
@@ -1054,7 +1054,9 @@ therefore writes narrow JSON Lines projections for routine analysis:
 | `analysis/experiment-b-turns.jsonl` | One retained turn from one trajectory | `schema_version`, one-based `source_record_index`, zero-based `source_turn_index`, `trajectory_id`, `user_id`, `domain_id`, actual per-turn `scenario_id`, `crn_key`, `updater_id`, `policy_id`, `initial_profile_condition`, one-based `turn`, `terminal_error`, repeated `retained_terminal_error`, `same_history_shadow` |
 | `analysis/experiment-c-rows.jsonl` | One existing fixed-history or endogenous evaluation/ranking row | `schema_version`, one-based `source_record_index`, `split`, `regime`, `replicate`, `user_id`, `domain_id`, `updater_id`, `profile_error`, `behavioral_accuracy`, nullable `cross_context_accuracy`, `intrinsic_regret`, `score_basis`, `history_digest`, `battery_id`, `battery_digest` |
 
-Experiment A's `update_error` is its action-conditioned update error (ACUE).
+Experiment A's compact `update_error` is the registered fitted-reference
+action-conditioned update error (ACUE); exact-oracle ACUE and KL remain in the
+experiment metric/event rows rather than changing this registered projection.
 In Experiment B, `terminal_error` is the per-turn marginal Brier error;
 `retained_terminal_error` repeats the trajectory's retained terminal Brier and
 matches the last compact turn. `same_history_shadow` is a Boolean confirming
@@ -1162,6 +1164,14 @@ Normalization follows the estimand:
   retains `sensitivity_point_id` and the rest of that point's coordinates in
   `conditions`.
 
+B and sensitivity turn metrics include the evaluator-only balanced action
+signature, visible-action divergence, profile-aligned treatment, and
+reinforcement-event indicator where defined. Their terminal/comparison metrics
+include initial and terminal error, EAR, CEC, reinforcement-event rate, and,
+for matched soft/exploratory B branches, action-aware disconfirmation deficit.
+These values describe the same retained trajectories; they are not additional
+observations.
+
 The trace deliberately excludes latent theta and susceptibility, numeric option
 feature vectors, posterior and joint-belief arrays, native-memory payloads,
 provider request bodies, and repeated copies of the frozen template bank.
@@ -1214,18 +1224,20 @@ experiment-specific rows:
 
 | File | Version field | Principal keys |
 | --- | --- | --- |
-| `metrics/experiment-a.jsonl` | none | `trial_id`, `user_id`, `domain`, `target_attribute`, `anchor_direction`, `prior_stratum`, `prior_strength`, `mechanism`, `response_mode`, `updater_id`, `brier`, `fitted_aware_brier`, `excess_brier`, `acue`, `marginal_kl`, nullable `update_direction_accuracy`, evaluated/excluded direction-component counts, `update_magnitude`, `evidence_weight` |
-| `metrics/experiment-b-terminal.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, profile Brier and projected-choice/tie scores, shadow-to-system marginal KL, coverage/time-to-coverage, displayed/selected option diversity, profile-conditioned exposure and mechanism count/evenness, cumulative information gain, total regret, nullable false-stable attribute rate, and nullable trajectory-level false-stable flag |
+| `metrics/experiment-a.jsonl` | none | `trial_id`, `user_id`, `domain`, `target_attribute`, `anchor_direction`, `prior_stratum`, `prior_strength`, `mechanism`, `response_mode`, `updater_id`, `brier`, fitted-reference `acue`, `exact_acue`, `exact_marginal_kl`, `marginal_kl`, nullable update-direction accuracy, evaluated/excluded direction-component counts, update magnitude, and evidence weight |
+| `metrics/experiment-a-{oracle,exact-oracle}-slopes.jsonl` | none | updater/response-mode counts, `reference_basis`, pooled intercept/slope, residual summaries by mechanism, nested per-mechanism intercepts/slopes, complete-user bootstrap intervals, and inference status |
+| `metrics/experiment-b-terminal.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, initial/terminal profile Brier, EAR, mean CEC, action-aware disconfirmation evidence, reinforcement-event count/rate, projected-choice/tie scores, shadow-to-system marginal KL, coverage/time-to-coverage, displayed/selected option diversity, profile-conditioned exposure and mechanism count/evenness, cumulative information gain, total regret, nullable false-stable attribute rate, and nullable trajectory-level false-stable flag |
 | `metrics/experiment-b-native-decoders.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, decoder and pseudonymous-state IDs, profile Brier, projected-choice/tie scores, regret, and predicted IDs; it does not repeat trajectory-level decomposition fields |
-| `metrics/experiment-b-decomposition.jsonl` | `schema_version: 1` | paired trajectory IDs and evidence-selection, profile-attribution, balanced-attribution, and interaction costs |
+| `metrics/experiment-b-decomposition.jsonl` | `schema_version: 1` | paired trajectory IDs; evidence-selection, profile-attribution, balanced-attribution, and interaction costs; visible-action and observed-choice divergence; and nullable exploratory information/disconfirmation deficits |
 | `metrics/experiment-b-self-confirmation.jsonl` | `schema_version: 1` | trajectory/attribute/direction, initial/system-terminal/shadow-terminal wrong mass, system and shadow gain, `false_stable`, cumulative LCG, clause booleans, `reportable` |
 | `metrics/experiment-b-power.json` | `schema_version: 1` | frozen factor contrast/formula, complete-user pilot interactions and exclusions, pilot-input SHA-256, bounded simulation/Monte Carlo settings, 16/32/64/128 power points, Wilson uncertainty, advisory threshold decision, and `not_claimed` boundary |
 | `metrics/experiment-c.jsonl` | `schema_version: 1` | split/regime/replicate/user/domain/updater, ranking scores, `score_basis`, `system_projection_score`, history/event/battery digests, predictions, nested native decoder evaluations |
 | `metrics/experiment-{b,c}-llm-raw-calibrated-terminal.jsonl` | `schema_version: 1` | experiment/pairing/split/regime/user/domain/updater, raw-or-calibrated variant, request/prompt/model IDs, battery scores, active-history scope, zero added provider calls, and explicit full-counterfactual-rerun flag |
-| `metrics/sensitivity.jsonl` | `schema_version: 1` | grid coordinates, domain/policy/updater stratum, trajectory count, mean terminal/shadow error, cumulative and per-turn information gain/regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, attribution cost, and profile-consistent suggestion opportunity/rejection counts and rate |
+| `metrics/sensitivity.jsonl` | `schema_version: 1` | grid coordinates including `profile_conditioning_strength`, domain/policy/updater stratum, trajectory count, mean initial/terminal/shadow error, EAR, CEC, reinforcement-event rate, cumulative and per-turn information gain/regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, attribution cost, and profile-consistent suggestion opportunity/rejection counts and rate |
 
 Sensitivity also writes `sensitivity-decomposition.jsonl` with paired
-domain/updater selection, attribution, and interaction means, plus
+domain/updater selection, attribution, interaction, visible-action-divergence,
+and observed-choice-divergence means, plus
 `sensitivity-grand.jsonl` with one descriptive row per grid point and
 `sensitivity-phase-domains.jsonl` with separately classified domain-point
 rows.

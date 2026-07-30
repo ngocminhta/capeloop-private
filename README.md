@@ -3,12 +3,19 @@
 **Causal Attribution of Preference Evidence in Closed-Loop Agents**
 
 CAPE-Loop is the reference implementation and evaluation harness for the paper
-proposal **“You Chose What I Showed You: Causal Provenance and Self-Confirming
-User Profiles in LLM Agents.”**
+proposal **“You Chose What I Showed You: Policy-Dependent Evidence and
+Causal-Provenance Miscalibration in LLM User Profiles.”**
 
-The project asks a narrow causal question: when a persistent agent updates a user
-profile from a choice or acceptance, does it account for the options, ranking,
-default, suggestion, and policy that helped produce that response?
+The project asks two related questions:
+
+1. How does the interaction policy change the quality of evidence available
+   for persistent user profiling?
+2. How well do profile writers calibrate an update to the causal provenance of
+   that evidence?
+
+The stable evaluation object is the updater–interaction-policy pair.
+Provenance miscalibration is the mechanism analysis; strict false-profile
+self-confirmation is a stronger, conditional downstream outcome.
 
 ```text
 current profile
@@ -325,11 +332,11 @@ bins with one preference attribute as the forecast unit.
 
 Experiments are organized around:
 
-- **Experiment A:** one-step causal-provenance sensitivity;
-- **Experiment B:** false-profile self-confirmation and the decomposition of
-  evidence selection from evidential attribution;
-- **Experiment C:** fixed-history versus endogenous closed-loop system
-  evaluation, plus a separate
+- **Experiment A:** one-step causal-provenance calibration;
+- **Experiment B:** policy-induced evidence quality, same-history attribution,
+  and conditional false-profile self-confirmation;
+- **Experiment C:** logging-policy-dependent system evaluation and selection,
+  plus a separate
   [two-family external-decoder rescore](docs/experiments.md#experiment-c-external-decoder-rescore)
   and
   [multi-seed robustness review](docs/experiments.md#experiment-c-multi-seed-robustness);
@@ -529,18 +536,20 @@ evidence workflows:
 | Purpose | Configurations | Exact bounded workload |
 | --- | --- | ---: |
 | A live profile writing | `configs/live/experiment_a_{openai,openrouter}.toml` | 848 physical attempts per provider |
-| B live closed loop | `configs/live/experiment_b_{openai,openrouter}.toml` | 768 trajectory + 96 calibration = 864 attempts per provider |
+| B live closed loop | `configs/live/experiment_b_{openai,openrouter}.toml` | 576 trajectory + 48 calibration = 624 attempts per provider |
 | C live evaluation validity | `configs/live/experiment_c_{openai,openrouter}.toml` | 768 evaluation + 48 calibration = 816 attempts per provider |
 | Gate 4 source generation | `configs/offline/gate4_source.toml` | Offline; 640 decoder requests per source and 80 native actions |
 | C external rescore source | `configs/offline/experiment_c_rescore_source.toml` | Offline; 360 decoder requests per source |
-| Gate 6 live OAT | `configs/live/sensitivity_{openai,openrouter}.toml` | 576-attempt upper bound per provider |
+| Gate 6 live OAT | `configs/live/sensitivity_{openai,openrouter}.toml` | 720-attempt upper bound per provider |
 
 These are ceiling-safe pilots, not power commitments or completed paper
 experiments. Configuration validation and live startup both recompute the
 whole-design preflight and fail before credential access when a workload no
-longer fits. The current B pair is transport-safe but uses only three turns;
-revise it to repeat attributes before using it to investigate the later-action
-criterion.
+longer fits. The B pair evaluates one LLM at a time for six turns across two
+domains, eight users, correct/incorrect seeds, and balanced, soft, and
+exploratory policies. Each preference dimension receives a later revisit and
+the exploratory branch supplies the disconfirmation comparison. Repeat the
+frozen design in separate runs for the selected model families.
 
 The runner retains the fitted parameters in
 `models/llm-calibration.json`, development raw responses in
@@ -581,10 +590,13 @@ optional first-party-origin replications, not prerequisites for the selected
 OpenRouter workflow.
 
 The broader simulator robustness configuration is now a baseline-first,
-19-point one-at-a-time design. It varies every declared axis while explicitly
-recording that interactions among axes are not estimable. The two live Gate 6
-pilots use smaller 11-point one-at-a-time grids and remain separate from the
-simulator-only robustness run.
+22-point one-at-a-time design. It varies the original robustness axes plus a
+direct policy-conditioning propensity multiplier while explicitly recording
+that interactions among axes are not estimable. The two live Gate 6 pilots
+use smaller 14-point one-at-a-time grids and remain separate from the
+simulator-only robustness run. Their three-turn baseline establishes transport
+and visible manipulation only; a feedback-loop pilot must revisit attributes
+over at least six, preferably nine, turns.
 
 ## Run artifacts
 
@@ -732,6 +744,8 @@ CAPE-Loop diagnoses preference-inference behavior. It is not:
 - a new recommendation algorithm;
 - a claim that an agent changes the user's latent preference;
 - a universal normative model of human choice;
+- a claim that every LLM ignores interaction context;
+- evidence of self-confirmation unless all five registered clauses hold;
 - evidence that a hypothesis holds merely because the code can compute its
   metric;
 - authorization to conduct or release a human-participant study without the

@@ -108,6 +108,15 @@ changing or clearing `openrouter_upstream_provider`. Preserve the reviewed
 presets: copy one into ignored `configs/local/`, change the model/route there,
 then validate the resolved local file before execution.
 
+For the next Experiment B calibration, use three separate copies of the same
+frozen B config: Gemini 3.6 Flash at minimal reasoning, GPT-5.6 Luna at low
+reasoning, and Mistral Large 3 (`mistralai/mistral-large-2512`) with the
+reasoning field empty. Clear the Google-specific upstream-provider pin for Luna
+and Mistral, then record and review the returned route metadata before admitting
+either run. Claude Sonnet 5 is not in this primary trio because its completed
+quick-pilot route exposed a nonempty moderation pipeline that the current
+integrity contract rejects.
+
 ### Conversation-template authoring
 
 Generate a candidate bank only when creating or revising scenario language:
@@ -203,16 +212,16 @@ zero retries; do not raise these ceilings merely to make a design pass.
 | Adaptive pilot | Physical-attempt bound | Maximum output allocation |
 | --- | ---: | ---: |
 | Experiment A | 848 | 1,736,704 |
-| Experiment B | 864 | 1,769,472 |
+| Experiment B | 624 | 1,277,952 |
 | Experiment C | 816 | 1,671,168 |
-| Gate 6 OAT | 576 | 1,179,648 |
+| Gate 6 OAT | 720 | 1,474,560 |
 
-The listed B presets are ceiling-safe transport pilots, but their current
-three-turn horizon normally cannot revisit an updated attribute and therefore
-cannot exercise the declared later-action criterion. Redesign B to use at
-least six turns and a smaller paid factor set before collecting a scientific
-pilot; one two-domain, eight-user, `llm_full_context`-only six-turn design fits
-at 816 calls including calibration.
+The listed B presets use that two-domain, eight-user,
+`llm_full_context`-only six-turn design. They cross correct/incorrect seeds with
+balanced, soft, and exploratory policies, revisit each preference dimension,
+retain local reference updaters, and fit at 624 calls including calibration.
+Run one selected model per completed source run; the preset is a bounded
+calibration design, not a preregistered paper sample.
 
 The bounded offline Gate 4 source produces 640 decoder requests per model and
 80 native-action requests. Its selected zero-retry plan reserves 4,469,348

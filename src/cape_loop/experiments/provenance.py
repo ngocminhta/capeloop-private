@@ -125,6 +125,25 @@ class ExperimentARow:
         )
 
     @property
+    def exact_log_odds_update(self) -> float:
+        return _positive_log_odds_update(
+            self.prior,
+            self.exact_posterior,
+            self.target_attribute,
+        )
+
+    @property
+    def exact_acue(self) -> float:
+        """Descriptive ACUE against the known generating response model."""
+
+        return action_conditioned_update_error(
+            self.prior,
+            self.posterior,
+            self.prior,
+            self.exact_posterior,
+        )
+
+    @property
     def fitted_evidence_strength(self) -> float:
         """Absolute fitted-aware update toward the controlled anchor."""
 
@@ -177,6 +196,7 @@ class ExperimentARow:
             ),
             "metrics": {
                 "acue": self.acue,
+                "exact_acue": self.exact_acue,
                 "fitted_aware_kl": self.fitted_aware_kl,
                 "exact_kl": self.exact_kl,
                 "brier": self.brier,
@@ -195,6 +215,7 @@ class ExperimentARow:
                 "fitted_aware_log_odds_update": (
                     self.fitted_aware_log_odds_update
                 ),
+                "exact_log_odds_update": self.exact_log_odds_update,
                 "fitted_evidence_strength": self.fitted_evidence_strength,
             },
         }
@@ -272,6 +293,10 @@ class ExperimentAResult:
                 updater_id: {
                     "mean_acue": math.fsum(item.acue for item in items)
                     / len(items),
+                    "mean_exact_acue": math.fsum(
+                        item.exact_acue for item in items
+                    )
+                    / len(items),
                     "mean_excess_brier": math.fsum(
                         item.excess_brier for item in items
                     )
@@ -295,6 +320,24 @@ class ExperimentAResult:
             response_mode=response_mode,
             replicates=replicates,
             seed=seed,
+            reference_basis="fitted_action_aware",
+        )
+
+    def exact_oracle_update_slopes(
+        self,
+        *,
+        response_mode: str = "controlled_anchor",
+        replicates: int = 2000,
+        seed: int = 1729,
+    ) -> tuple[OracleUpdateSlope, ...]:
+        """Fit descriptive slopes against the known generating posterior."""
+
+        return estimate_oracle_update_slopes(
+            self.rows,
+            response_mode=response_mode,
+            replicates=replicates,
+            seed=seed,
+            reference_basis="exact_action_aware",
         )
 
     def evidence_strength_analysis(
@@ -1077,11 +1120,42 @@ class MechanismResidual:
 
 
 @dataclass(frozen=True, slots=True)
+class MechanismUpdateSlope:
+    """One updater's calibration curve within one provenance mechanism."""
+
+    mechanism: str
+    observation_count: int
+    user_cluster_count: int
+    intercept: float | None
+    slope: float | None
+    root_mean_squared_residual: float | None
+    slope_interval: IntervalEstimate | None
+    inference_status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mechanism": self.mechanism,
+            "observation_count": self.observation_count,
+            "user_cluster_count": self.user_cluster_count,
+            "intercept": self.intercept,
+            "slope": self.slope,
+            "root_mean_squared_residual": self.root_mean_squared_residual,
+            "slope_interval": (
+                None
+                if self.slope_interval is None
+                else self.slope_interval.to_dict()
+            ),
+            "inference_status": self.inference_status,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class OracleUpdateSlope:
-    """Directional log-odds slope against the fitted action-aware update."""
+    """Directional log-odds slope against a named action-aware reference."""
 
     updater_id: str
     response_mode: str
+    reference_basis: str
     observation_count: int
     user_cluster_count: int
     intercept: float
@@ -1090,11 +1164,13 @@ class OracleUpdateSlope:
     mechanism_residuals: tuple[MechanismResidual, ...]
     slope_interval: IntervalEstimate | None
     inference_status: str
+    mechanism_slopes: tuple[MechanismUpdateSlope, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "updater_id": self.updater_id,
             "response_mode": self.response_mode,
+            "reference_basis": self.reference_basis,
             "observation_count": self.observation_count,
             "user_cluster_count": self.user_cluster_count,
             "intercept": self.intercept,
@@ -1102,6 +1178,10 @@ class OracleUpdateSlope:
             "root_mean_squared_residual": self.root_mean_squared_residual,
             "mechanism_residuals": [
                 residual.to_dict() for residual in self.mechanism_residuals
+            ],
+            "mechanism_slopes": [
+                mechanism_slope.to_dict()
+                for mechanism_slope in self.mechanism_slopes
             ],
             "slope_interval": (
                 None
@@ -1111,7 +1191,7 @@ class OracleUpdateSlope:
             "inference_status": self.inference_status,
             "estimand": (
                 "system target-attribute positive-direction log-odds update "
-                "regressed on the fitted action-aware update"
+                f"regressed on the {self.reference_basis} update"
             ),
         }
 
@@ -1123,6 +1203,7 @@ def estimate_oracle_update_slopes(
     replicates: int = 2000,
     confidence_level: float = 0.95,
     seed: int = 1729,
+    reference_basis: str = "fitted_action_aware",
 ) -> tuple[OracleUpdateSlope, ...]:
     """Estimate updater slopes and complete-user bootstrap intervals."""
 
@@ -1130,6 +1211,19 @@ def estimate_oracle_update_slopes(
         raise ValueError("slope bootstrap requires positive replicates")
     if not 0 < confidence_level < 1:
         raise ValueError("confidence_level must lie in (0, 1)")
+    if reference_basis not in {
+        "fitted_action_aware",
+        "exact_action_aware",
+    }:
+        raise ValueError(
+            "reference_basis must be 'fitted_action_aware' or "
+            "'exact_action_aware'"
+        )
+
+    def reference_update(row: ExperimentARow) -> float:
+        if reference_basis == "fitted_action_aware":
+            return row.fitted_aware_log_odds_update
+        return row.exact_log_odds_update
     selected = tuple(row for row in rows if row.response_mode == response_mode)
     if not selected:
         raise ValueError(f"no Experiment A rows for response mode {response_mode!r}")
@@ -1139,13 +1233,15 @@ def estimate_oracle_update_slopes(
         updater_rows = tuple(
             row for row in selected if row.updater_id == updater_id
         )
-        x_values = tuple(
-            row.fitted_aware_log_odds_update for row in updater_rows
-        )
+        x_values = tuple(reference_update(row) for row in updater_rows)
         y_values = tuple(row.log_odds_update for row in updater_rows)
         intercept, slope, residuals = _fit_line(x_values, y_values)
         residual_rows = []
+        mechanism_slope_rows = []
         for mechanism in sorted({row.mechanism for row in updater_rows}):
+            mechanism_rows = tuple(
+                row for row in updater_rows if row.mechanism == mechanism
+            )
             values = tuple(
                 residual
                 for row, residual in zip(updater_rows, residuals)
@@ -1160,6 +1256,116 @@ def estimate_oracle_update_slopes(
                         math.fsum(value * value for value in values)
                         / len(values)
                     ),
+                )
+            )
+            mechanism_by_user: dict[str, list[ExperimentARow]] = {}
+            for row in mechanism_rows:
+                mechanism_by_user.setdefault(row.user_id, []).append(row)
+            mechanism_user_ids = sorted(mechanism_by_user)
+            try:
+                (
+                    mechanism_intercept,
+                    mechanism_slope,
+                    mechanism_residual_values,
+                ) = _fit_line(
+                    [reference_update(row) for row in mechanism_rows],
+                    [row.log_odds_update for row in mechanism_rows],
+                )
+            except ValueError:
+                mechanism_slope_rows.append(
+                    MechanismUpdateSlope(
+                        mechanism=mechanism,
+                        observation_count=len(mechanism_rows),
+                        user_cluster_count=len(mechanism_user_ids),
+                        intercept=None,
+                        slope=None,
+                        root_mean_squared_residual=None,
+                        slope_interval=None,
+                        inference_status=(
+                            "not_estimable; the mechanism slice has insufficient "
+                            "reference-update variation"
+                        ),
+                    )
+                )
+                continue
+
+            mechanism_draws: list[float] = []
+            if len(mechanism_user_ids) >= 2:
+                weights = [1.0] * len(mechanism_user_ids)
+                for replicate in range(replicates):
+                    sampled_rows = [
+                        row
+                        for draw in range(len(mechanism_user_ids))
+                        for row in mechanism_by_user[
+                            mechanism_user_ids[
+                                weighted_index(
+                                    weights,
+                                    seed,
+                                    "oracle-update-mechanism-slope",
+                                    response_mode,
+                                    updater_id,
+                                    mechanism,
+                                    replicate,
+                                    draw,
+                                )
+                            ]
+                        ]
+                    ]
+                    try:
+                        _, draw_slope, _ = _fit_line(
+                            [
+                                reference_update(row)
+                                for row in sampled_rows
+                            ],
+                            [
+                                row.log_odds_update
+                                for row in sampled_rows
+                            ],
+                        )
+                    except ValueError:
+                        continue
+                    mechanism_draws.append(draw_slope)
+            if mechanism_draws:
+                tail = (1.0 - confidence_level) / 2.0
+                mechanism_interval = IntervalEstimate(
+                    estimate=mechanism_slope,
+                    lower=percentile(mechanism_draws, tail),
+                    upper=percentile(mechanism_draws, 1.0 - tail),
+                    confidence_level=confidence_level,
+                    method=(
+                        "percentile bootstrap resampling complete latent users "
+                        "within mechanism"
+                    ),
+                    cluster_count=len(mechanism_user_ids),
+                    replicate_count=len(mechanism_draws),
+                )
+                mechanism_status = (
+                    "descriptive_and_cluster_bootstrap; inferential adequacy "
+                    "still depends on the preregistered participant count"
+                )
+            else:
+                mechanism_interval = None
+                mechanism_status = (
+                    "descriptive_only; at least two independently sampled users "
+                    "with estimable within-mechanism update variation are "
+                    "required for resampling"
+                )
+            mechanism_slope_rows.append(
+                MechanismUpdateSlope(
+                    mechanism=mechanism,
+                    observation_count=len(mechanism_rows),
+                    user_cluster_count=len(mechanism_user_ids),
+                    intercept=mechanism_intercept,
+                    slope=mechanism_slope,
+                    root_mean_squared_residual=math.sqrt(
+                        math.fsum(
+                            value * value
+                            for value in mechanism_residual_values
+                        )
+                        / len(mechanism_residual_values)
+                    ),
+                    slope_interval=mechanism_interval,
+                    inference_status=mechanism_status,
                 )
             )
 
@@ -1191,8 +1397,7 @@ def estimate_oracle_update_slopes(
                 try:
                     _, draw_slope, _ = _fit_line(
                         [
-                            row.fitted_aware_log_odds_update
-                            for row in sampled_rows
+                            reference_update(row) for row in sampled_rows
                         ],
                         [row.log_odds_update for row in sampled_rows],
                     )
@@ -1226,6 +1431,7 @@ def estimate_oracle_update_slopes(
             OracleUpdateSlope(
                 updater_id=updater_id,
                 response_mode=response_mode,
+                reference_basis=reference_basis,
                 observation_count=len(updater_rows),
                 user_cluster_count=len(user_ids),
                 intercept=intercept,
@@ -1237,6 +1443,7 @@ def estimate_oracle_update_slopes(
                 mechanism_residuals=tuple(residual_rows),
                 slope_interval=slope_interval,
                 inference_status=status,
+                mechanism_slopes=tuple(mechanism_slope_rows),
             )
         )
     return tuple(results)
@@ -1799,6 +2006,7 @@ class ExperimentAConfirmatoryResult:
 
     oracle_update_slopes: tuple[OracleUpdateSlope, ...]
     evidence_strength: EvidenceStrengthAnalysis
+    exact_oracle_update_slopes: tuple[OracleUpdateSlope, ...] = ()
     mechanism_contrasts: tuple[PairedContrast, ...] = ()
     updater_mechanism_interactions: tuple[PairedContrast, ...] = ()
     marginal_regression: ClusterRobustOLSResult | None = None
@@ -1813,6 +2021,10 @@ class ExperimentAConfirmatoryResult:
             "bootstrap_replicates": self.bootstrap_replicates,
             "oracle_update_slopes": [
                 result.to_dict() for result in self.oracle_update_slopes
+            ],
+            "exact_oracle_update_slopes": [
+                result.to_dict()
+                for result in self.exact_oracle_update_slopes
             ],
             "evidence_strength": self.evidence_strength.to_dict(),
             "mechanism_contrasts": [

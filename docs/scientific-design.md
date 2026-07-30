@@ -439,12 +439,25 @@ single-dimension exposure design.
   profile-conditioned and balanced evidence collection.
 - **Evidential-attribution cost** compares an updater with its same-history
   action-aware shadow.
-- **Self-confirmation interaction** asks whether updater blindness adds more
-  error under a profile-conditioned policy than under a balanced policy for
-  initially wrong profiles.
+- **Self-confirmation interaction** asks whether updater miscalibration adds
+  more error under a profile-conditioned policy than under a balanced policy
+  for initially wrong profiles.
 
 This decomposition distinguishes insufficient information from excessive
 interpretation of the information actually collected.
+
+The primary paper-level object is the updater–logging-policy pair. Continuous
+closed-loop diagnostics therefore accompany the strict predicate: error
+amplification ratio, cumulative excess confidence, exploratory-versus-soft
+disconfirmation deficit, direct visible-action divergence from balanced, and
+reinforcement-event rate. The strict five-clause outcome remains unchanged and
+is interpreted as a stronger conditional result.
+
+Sensitivity gives the soft policy a behaviorally active dose in `[0, 1]`.
+The dose multiplies its legacy confidence-dependent probability of applying a
+profile-aligned ranking, default, or suggestion. Zero is a balanced-action
+negative control; one reproduces the ordinary policy exactly. This is distinct
+from changing simulated user susceptibility after an action is displayed.
 
 ## Definition of false self-confirmation
 
@@ -519,7 +532,7 @@ outcomes unscored when a faithful direct-statement, longitudinal,
 randomized-response, indifference, or real-system correction executor is not
 present; it does not relabel anchor choices as these controls.
 
-Hard option filtering is a stress test. The primary self-confirmation result
+Hard option filtering is a stress test. Any strong self-confirmation result
 requires soft conditioning with counter-profile alternatives still available.
 
 ## Stage gates

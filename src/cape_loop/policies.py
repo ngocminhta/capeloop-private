@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Protocol
 
 from .beliefs import PreferenceBelief
@@ -122,6 +123,19 @@ class BalancedPolicy:
 class SoftProfileConditionedPolicy:
     policy_id: str = "soft_profile_conditioned"
     policy_version: str = "v1"
+    conditioning_strength: float | None = None
+
+    def __post_init__(self) -> None:
+        strength = self.conditioning_strength
+        if strength is None:
+            return
+        if (
+            isinstance(strength, bool)
+            or not isinstance(strength, (int, float))
+            or not math.isfinite(float(strength))
+            or not 0.0 <= float(strength) <= 1.0
+        ):
+            raise ValueError("conditioning_strength must lie in [0, 1]")
 
     def action(
         self,
@@ -145,14 +159,28 @@ class SoftProfileConditionedPolicy:
         mechanism = ("ranking", "default", "suggestion")[
             ((turn % 3) + (turn // 3)) % 3
         ]
-        # Soft conditioning changes the probability that a profile-consistent
-        # presentation treatment is applied.  Keeping this decision keyed by
-        # semantic identity lets the evaluator compare a strengthened profile
-        # with an otherwise identical unstrengthened counterfactual.
-        confidence = belief.sign_mass(target, direction)
-        application_probability = 0.15 + 0.80 * max(
-            0.0, min(1.0, (confidence - 0.5) / 0.5)
-        )
+        if self.conditioning_strength is None:
+            # Preserve the ordinary Experiment B/C protocol. Those runs use
+            # profile confidence to make conditioning soft and adaptive.
+            confidence = belief.sign_mass(target, direction)
+            application_probability = 0.15 + 0.80 * max(
+                0.0, min(1.0, (confidence - 0.5) / 0.5)
+            )
+        else:
+            # Sensitivity assigns an exogenous multiplier to the legacy
+            # adaptive propensity. Lambda=0 is a neutral-action control and
+            # lambda=1 exactly preserves the ordinary soft policy. Retaining
+            # the confidence term lets accumulated profile changes alter
+            # later actions, which the strict self-confirmation definition
+            # requires.
+            confidence = belief.sign_mass(target, direction)
+            legacy_probability = 0.15 + 0.80 * max(
+                0.0, min(1.0, (confidence - 0.5) / 0.5)
+            )
+            application_probability = (
+                float(self.conditioning_strength)
+                * legacy_probability
+            )
         apply_profile = uniform(
             master_seed,
             "soft-profile-application",
@@ -212,7 +240,14 @@ class SoftProfileConditionedPolicy:
             context,
             PolicyProvenance(
                 policy_id=self.policy_id,
-                policy_version=self.policy_version,
+                policy_version=(
+                    self.policy_version
+                    if (
+                        self.conditioning_strength is None
+                        or float(self.conditioning_strength) == 1.0
+                    )
+                    else "v2-conditioning-strength"
+                ),
                 profile_snapshot=_snapshot(belief),
                 random_seed=semantic_seed(
                     master_seed, trajectory_id, turn, self.policy_id

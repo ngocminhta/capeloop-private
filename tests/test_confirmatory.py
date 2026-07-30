@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import unittest
 
 from cape_loop.domains import TRAVEL
@@ -201,6 +202,49 @@ class ExperimentAConfirmatoryTests(unittest.TestCase):
         self.assertAlmostEqual(by_updater["no_update"].slope, 0.0)
         self.assertIsNotNone(
             by_updater["fitted_action_aware"].slope_interval
+        )
+        mechanism_slopes = {
+            item.mechanism: item
+            for item in by_updater[
+                "fitted_action_aware"
+            ].mechanism_slopes
+        }
+        self.assertEqual(
+            set(mechanism_slopes),
+            {"balanced", "default", "restricted", "suggested"},
+        )
+        self.assertTrue(
+            all(
+                item.slope is not None
+                and math.isclose(item.slope, 1.0, abs_tol=1e-9)
+                for mechanism, item in mechanism_slopes.items()
+                if mechanism != "restricted"
+            )
+        )
+        self.assertIsNone(mechanism_slopes["restricted"].slope)
+        self.assertIn(
+            "not_estimable",
+            mechanism_slopes["restricted"].inference_status,
+        )
+        self.assertTrue(
+            all(
+                item.slope_interval is not None
+                for mechanism, item in mechanism_slopes.items()
+                if mechanism != "restricted"
+            )
+        )
+        exact_slopes = self.result.exact_oracle_update_slopes(
+            replicates=40,
+            seed=2,
+        )
+        self.assertTrue(
+            all(
+                item.reference_basis == "exact_action_aware"
+                for item in exact_slopes
+            )
+        )
+        self.assertTrue(
+            all(math.isfinite(item.slope) for item in exact_slopes)
         )
 
         baseline = fitted_evidence_strength_ordering(self.result.rows)

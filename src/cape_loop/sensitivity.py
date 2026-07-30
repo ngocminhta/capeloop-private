@@ -16,6 +16,7 @@ class SensitivityPoint:
     presentation_multiplier: float
     profile_strength: float
     trajectory_length: int
+    profile_conditioning_strength: float = 1.0
     rank_multiplier: float = 1.0
     default_multiplier: float = 1.0
     suggestion_multiplier: float = 1.0
@@ -28,6 +29,10 @@ class SensitivityPoint:
             raise ValueError("decision_noise must be positive")
         if self.presentation_multiplier < 0:
             raise ValueError("presentation_multiplier must be non-negative")
+        if not 0.0 <= self.profile_conditioning_strength <= 1.0:
+            raise ValueError(
+                "profile_conditioning_strength must lie in [0, 1]"
+            )
         if any(
             value < 0
             for value in (
@@ -64,6 +69,7 @@ class SensitivityPoint:
             f"family={self.response_model_family};"
             f"noise={self.decision_noise:.8g};"
             f"presentation={self.presentation_multiplier:.8g};"
+            f"conditioning={self.profile_conditioning_strength:.8g};"
             f"rank={self.rank_multiplier:.8g};"
             f"default={self.default_multiplier:.8g};"
             f"suggestion={self.suggestion_multiplier:.8g};"
@@ -82,6 +88,9 @@ class SensitivityPoint:
             "point_id": self.point_id,
             "decision_noise": self.decision_noise,
             "presentation_multiplier": self.presentation_multiplier,
+            "profile_conditioning_strength": (
+                self.profile_conditioning_strength
+            ),
             "rank_multiplier": self.rank_multiplier,
             "default_multiplier": self.default_multiplier,
             "suggestion_multiplier": self.suggestion_multiplier,
@@ -100,6 +109,7 @@ def sensitivity_grid(
     presentation_multipliers: Iterable[float],
     profile_strength_values: Iterable[float],
     trajectory_lengths: Iterable[int],
+    profile_conditioning_strength_values: Iterable[float] = (1.0,),
     rank_multipliers: Iterable[float] = (1.0,),
     default_multipliers: Iterable[float] = (1.0,),
     suggestion_multipliers: Iterable[float] = (1.0,),
@@ -125,6 +135,7 @@ def sensitivity_grid(
     axes = (
         tuple(decision_noise_values),
         tuple(presentation_multipliers),
+        tuple(profile_conditioning_strength_values),
         tuple(rank_multipliers),
         tuple(default_multipliers),
         tuple(suggestion_multipliers),
@@ -158,6 +169,7 @@ def sensitivity_grid(
     for (
         noise,
         presentation,
+        conditioning,
         rank,
         default,
         suggestion,
@@ -182,6 +194,7 @@ def sensitivity_grid(
                     SensitivityPoint(
                         decision_noise=noise,
                         presentation_multiplier=presentation,
+                        profile_conditioning_strength=conditioning,
                         profile_strength=profile,
                         trajectory_length=turns,
                         rank_multiplier=rank,
@@ -197,6 +210,7 @@ def sensitivity_grid(
         (
             noise,
             presentation,
+            conditioning,
             rank,
             default,
             suggestion,
@@ -220,6 +234,7 @@ def sensitivity_grid(
                     SensitivityPoint(
                         decision_noise=noise,
                         presentation_multiplier=presentation,
+                        profile_conditioning_strength=conditioning,
                         profile_strength=profile,
                         trajectory_length=turns,
                         rank_multiplier=rank,
@@ -276,9 +291,11 @@ def sensitivity_breadth_coverage(
     """Check meaningful-region survival at every declared sensitivity level.
 
     Rule noise is a conditional axis: only rule-based points declare it, and
-    only passing rule-based rows can cover one of its levels. Keeping this
-    logic beside grid construction prevents the run-level Gate 6 report and
-    the immutable cross-run reviewer from drifting apart.
+    only passing rule-based rows can cover one of its levels. Policy dose is a
+    visible manipulation/boundary axis but is deliberately not folded into the
+    version-1 broad-simulator-parameter gate. Keeping this logic beside grid
+    construction prevents the run-level Gate 6 report and the immutable
+    cross-run reviewer from drifting apart.
     """
 
     axes = (
@@ -430,6 +447,7 @@ def infer_axis_boundaries(
             if key in {
                 "decision_noise",
                 "presentation_multiplier",
+                "profile_conditioning_strength",
                 "rank_multiplier",
                 "default_multiplier",
                 "suggestion_multiplier",

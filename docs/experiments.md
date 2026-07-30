@@ -14,6 +14,15 @@ correction-debt diagnostic, and artifact-freezing commands. This document
 describes what the current runners execute and retain. It reports no
 experimental outcome.
 
+The stable object of study is the **updater–logging-policy pair**. Experiment A
+tests whether an updater assigns warranted weight to evidence generated under
+different elicitation mechanisms. Experiment B tests how an updater and an
+adaptive interaction policy jointly determine the evidence that is collected.
+Experiment C tests whether conclusions about an updater change with the policy
+that produced its evaluation history. Strict five-clause self-confirmation is a
+strong conditional downstream outcome, not the premise on which the other
+experiments depend.
+
 ## Shared preparation
 
 Experiments A–C call the same preparation path before their main runner:
@@ -237,7 +246,7 @@ successful command is not scientific approval: readiness is reported
 separately for engineering, scientific-pilot, and paper use, and catalog status
 strings alone never count as verified human evidence.
 
-## Experiment A: provenance audit
+## Experiment A: causal-provenance calibration
 
 Use:
 
@@ -331,6 +340,7 @@ metrics/experiment-a-control-reference.json
 metrics/experiment-a-control-baseline.json
 metrics/experiment-a-hypothesis-estimands.json
 metrics/experiment-a-oracle-slopes.jsonl
+metrics/experiment-a-exact-oracle-slopes.jsonl
 metrics/experiment-a-evidence-strength.json
 metrics/experiment-a-raw-calibrated-scores.jsonl
 metrics/experiment-a-reliability.jsonl
@@ -348,9 +358,10 @@ metrics/summary.json
 
 The compact A file includes both `controlled_anchor` and `naturally_sampled`
 rows. It exposes identifiers, mechanism, prior strength, response mode, and
-ACUE as `update_error`; the full event and exact-reference files remain the
-source for reconstructing complete posteriors and causal chains. A compact row
-is a projection of an evaluated trial, not an additional trial.
+the registered fitted-reference ACUE as `update_error`; the full event and
+exact-reference files remain the source for reconstructing complete posteriors
+and causal chains. A compact row is a projection of an evaluated trial, not an
+additional trial.
 `analysis/experiment-a-exclusions.jsonl` mirrors the versioned exclusion rows
 independently of raw event retention so confirmatory admission never silently
 drops an excluded matched set.
@@ -361,8 +372,12 @@ copying identical dialogue once for every updater while retaining the source
 record linkage and the A metrics used in analysis.
 
 Metric rows include marginal Brier score, fitted-aware reference Brier,
-excess Brier, action-conditioned update error, marginal KL, update-direction
-accuracy, update magnitude, and evidence weight.
+excess Brier, registered fitted-reference action-conditioned update error,
+exact action-aware ACUE and KL diagnostics, marginal KL, update-direction
+accuracy, update magnitude, and evidence weight. The exact diagnostic is
+available because controlled users are generated from the known response
+model. It does not silently replace the registered fitted-reference H1/H2
+estimands; a confirmatory migration would require a new analysis version.
 
 To avoid repeating the exact reference once per updater,
 `experiment-a.jsonl` retains each updater row's theta belief projections and an
@@ -373,8 +388,10 @@ on `exact_reference_id`. The in-memory experiment row also exposes
 
 The confirmatory bundle adds:
 
-- directional log-odds update slope against the fitted-aware reference, with a
-  user-clustered bootstrap interval;
+- pooled and mechanism-specific directional log-odds update slopes against the
+  fitted-aware reference, each with a user-clustered bootstrap interval;
+- parallel, separately labeled pooled and mechanism-specific slopes against
+  the exact generating-model posterior for controlled diagnosis;
 - a data-derived fitted evidence-strength ordering across mechanisms;
 - raw-versus-calibrated forecast scores and one-vs-rest marginal-class
   reliability bins;
@@ -385,10 +402,12 @@ The confirmatory bundle adds:
   exist.
 
 The separate hypothesis-estimand artifact prevents those general-purpose ACUE
-analyses from being mistaken for H1 or H2. It reports H1's anchor-directional
-and update-strength contrasts, H2's explicit distance-to-unaware versus
-distance-to-aware comparison, and H7's mitigation/valid-learning component.
-The frozen formulas and incomplete-data rules are in [Metrics](metrics.md).
+analyses from being mistaken for H1 or H2. It reports H1's narrow
+anchor-directional and update-strength contrasts, H2's explicit
+distance-to-unaware versus distance-to-aware comparison, and H7's
+mitigation/valid-learning component. H1/H2 test particular failure modes; they
+do not classify a model as globally provenance-blind or provenance-aware. The
+frozen formulas and incomplete-data rules are in [Metrics](metrics.md).
 
 The dependency-free CR1 regression is an auditable marginal robustness
 analysis. It is **not** the proposal's confirmatory generalized mixed-effects
@@ -567,7 +586,7 @@ structured-only smoke run is incomplete, while a complete response corpus can
 exercise the full computational check. `claim_status` remains `not_claimed` in
 either case.
 
-## Experiment B: closed-loop self-confirmation
+## Experiment B: policy-dependent evidence and closed-loop reinforcement
 
 Use:
 
@@ -594,16 +613,16 @@ least six turns to inspect the declared later-action mechanism.
 
 The bounded live pair is
 `configs/live/experiment_b_openai.toml` and
-`configs/live/experiment_b_openrouter.toml`. Both preserve balanced versus
-soft-profile-conditioned policies and the ordinary/provenance-aware LLM arms.
-Each preflights 768 trajectory updates plus 96 development-calibration calls:
-864 physical attempts with retries disabled. The current request and token
-ceilings are defined and preflighted in [Live execution](live-execution.md).
-These current presets use three turns and therefore remain transport pilots,
-not scientifically informative Gate 2 pilots. Revise their horizon and paid
-factor set before collection; one domain, eight users, four initial-profile
-conditions, two policies, six turns, and `llm_full_context` alone require 384
-trajectory calls plus 24 calibration calls per model.
+`configs/live/experiment_b_openrouter.toml`. Both cross correct/incorrect seeds
+with balanced, soft-profile-conditioned, and exploratory policies, and evaluate
+one `llm_full_context` model at a time alongside local reference updaters. Each
+uses eight users, two domains, and six turns, so every preference dimension is
+revisited once. The preflight bound is 576 trajectory updates plus 48
+development-calibration calls: 624 physical attempts with retries disabled.
+Run the same frozen design separately for each model family; never combine
+provider calls from different models into one nominal updater. The request and
+token ceilings are defined and preflighted in
+[Live execution](live-execution.md).
 
 ### Executed crossing
 
@@ -618,7 +637,7 @@ domain
 × configured updater
 ```
 
-The four initial profile conditions are fixed in code:
+The four supported initial profile conditions are:
 
 ```text
 correct
@@ -627,13 +646,15 @@ uncertain
 empty
 ```
 
-The checked-in configuration selects balanced, softly
-profile-conditioned, and exploratory policies. Other known policies may be
-selected by a different valid closed-loop config. The strict contract requires
-the ranking/default/suggestion mechanism declaration, naturally sampled
-responses, and a nonnegative bootstrap count. The checked-in confirmatory
-configuration uses 2,000 replicates. A count of zero is permitted only to make
-smoke and integration runs inexpensive; it emits point estimates marked
+`experiment.initial_profile_conditions` selects a nonempty subset. The offline
+reference uses all four; the bounded live calibration uses `correct` and
+`incorrect`. The checked-in configurations select balanced, softly
+profile-conditioned, and exploratory policies where the budget permits. Other
+known policies may be selected by a different valid closed-loop config. The
+strict contract requires the ranking/default/suggestion mechanism declaration,
+naturally sampled responses, and a nonnegative bootstrap count. The checked-in
+offline configuration uses 2,000 replicates. A count of zero is permitted only
+to make smoke and integration runs inexpensive; it emits point estimates marked
 `not_computed` and cannot computationally pass Gates 2 or 3.
 
 Every trajectory has:
@@ -656,6 +677,12 @@ rotates ranking, default, and suggestion channels and applies the
 profile-consistent treatment with a probability determined by current profile
 confidence.
 
+For sensitivity runs, a numeric policy-strength dose multiplies that legacy
+adaptive treatment probability. A dose of `0` is the balanced-action negative
+control, and `1` exactly reproduces the ordinary soft-policy implementation.
+The ordinary Experiment B policy has no numeric override and retains its
+original `v1` behavior and provenance version.
+
 The exploratory policy is `v2-balanced-coverage`. At each turn it restricts
 selection to the least-exposed attribute or attributes, then chooses the one
 with greatest current marginal entropy, with a deterministic index tie-break.
@@ -669,6 +696,32 @@ collapse onto one dimension.
 Balanced versus profile-conditioned shadow paths supply evidence-selection
 comparisons. Evaluated belief versus its same-history shadow supplies
 attribution comparisons.
+
+Every soft-policy turn also receives an evaluator-only balanced-policy action
+signature constructed from the same user, scenario, profile, turn, and semantic
+random seed. This creates direct, paired indicators for whether the visible
+action and observed choice diverged from their balanced counterparts. It is a
+policy contrast, not another user interaction.
+
+The terminal and decomposition artifacts report four continuous loop
+diagnostics in addition to the unchanged strict five-clause predicate:
+
+- **error amplification ratio (EAR):** terminal marginal Brier error divided by
+  initial marginal Brier error;
+- **cumulative excess confidence (CEC):** the existing cumulative learning-
+  confidence gain, averaged over attributes that were wrong initially;
+- **disconfirmation deficit (DD):** exploratory action-aware disconfirming
+  log-evidence minus soft-policy disconfirming log-evidence for the initially
+  false profile direction; and
+- **reinforcement-event rate:** the fraction of turns on which a visible
+  profile-aligned action differs from balanced, the selected response supports
+  the false direction, and the evaluated updater gains more false confidence
+  than its exact same-history shadow.
+
+EAR is undefined when initial error is numerically zero, and DD is available
+only when a matched exploratory trajectory exists. These continuous measures
+can show partial feedback-loop formation without claiming a stable
+self-confirming equilibrium.
 
 The runner reports deterministic 95% percentile-bootstrap intervals for
 evidence-selection cost, profile- and balanced-policy attribution costs, the
@@ -935,7 +988,7 @@ origins or a statistical-independence claim. Current local validation and
 collection state is reported only in
 [Implementation status](implementation-status.md).
 
-## Experiment C: evaluation validity
+## Experiment C: logging-policy-dependent evaluation validity
 
 Use:
 
@@ -979,6 +1032,15 @@ For every development/test user, domain, and replicate, the runner creates:
 Fixed histories have a content digest and per-event signatures. The runner
 asserts that every updater receives identical fixed event objects. Endogenous
 histories differ by design because the updater's profile affects later actions.
+
+Accordingly, the primary evaluation object is
+`Score(updater, logging_policy)`, not a single policy-independent updater
+score. The current executable `v1` comparison contains fixed balanced and
+fixed-bias loggers plus an endogenous soft-policy deployment branch. It can
+measure absolute open-loop optimism and paired system-selection error for those
+regimes. A larger crossed set of balanced, exploratory, randomized, and
+profile-conditioned fixed loggers would be a versioned Experiment C extension,
+not something the current artifacts imply.
 
 ### Terminal battery
 
@@ -1303,15 +1365,16 @@ Use:
 PYTHONPATH=src python -m cape_loop run configs/offline/sensitivity.toml
 ```
 
-The checked-in config is a baseline-first, 19-point one-at-a-time declaration:
+The checked-in config is a baseline-first, 22-point one-at-a-time declaration:
 
 ```text
 1 all-baseline random-utility point
 + 2 nonbaseline values on each of decision noise, shared presentation,
   rank, default, suggestion, profile strength, and trajectory length
 + 1 nonbaseline prior-uncertainty value
++ 3 nonbaseline profile-conditioning policy doses
 + 3 rule-based baseline points, one per declared rule-noise value
-= 19 points
+= 22 points
 ```
 
 Random-utility points do not carry a rule-noise value. Rule-based points are
@@ -1334,6 +1397,27 @@ Each point:
 - injects declared prior uncertainty without changing split identity; and
 - retains information gain and regret both cumulatively and per turn so
   trajectory-length comparisons do not rely on mechanically larger totals.
+
+`profile_conditioning_strength_values` is behaviorally active. For a numeric
+dose `lambda`, the soft policy applies its otherwise unchanged
+confidence-dependent treatment with probability:
+
+```text
+lambda × legacy_soft_policy_probability
+```
+
+Thus `0` yields balanced visible actions, intermediate values produce weak and
+moderate exposure, and `1` is the exact legacy/full-strength baseline. This
+axis changes what the user and updater see; it is distinct from
+`presentation_multipliers`, which changes simulated user susceptibility to a
+visible treatment. The `1` endpoint also retains the legacy `v1` policy
+provenance string, so provenance-aware prompts are identical to ordinary
+full-strength runs; only intermediate/null-dose points use the versioned dose
+label. Because the null dose is intended to remove the harmful
+mechanism, it is a negative control and is not required to lie inside a
+declared all-level harmful region. The complete dose axis is retained for
+manipulation summaries and phase-boundary inference; it is not silently added
+to the version-1 Gate 6 broad-simulator-parameter clause.
 
 The runner supports `llm_response_only`, `llm_full_context`, and
 `llm_provenance_aware` in replay, direct OpenAI, or OpenRouter mode. One shared
@@ -1393,7 +1477,11 @@ development diagnostics. `sensitivity.jsonl` and its CSV are stratified by
 domain, policy, and updater; `sensitivity-decomposition.jsonl` contains paired
 policy contrasts; both attribute-assessment and trajectory/profile rate
 denominators are named explicitly; `sensitivity-grand.jsonl` is descriptive
-only.
+only. Terminal rows also expose EAR, CEC, reinforcement-event rate, and direct
+visible-action/choice divergence diagnostics. When an exploratory branch is
+present in an ordinary Experiment B run, its paired decomposition row
+additionally exposes DD; the canonical sensitivity contract intentionally uses
+only balanced and soft branches.
 
 Phase criteria are declared by metric, relation, and threshold in the resolved
 configuration. The fifth frozen criterion requires the phase-target users to

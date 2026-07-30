@@ -28,9 +28,11 @@ DEFAULT_MARKDOWN_PREVIEW_LIMIT = 100
 
 _METRIC_LABELS = {
     "acue": "ACUE — excess update divergence (lower is better)",
+    "exact_acue": "Exact-oracle ACUE (lower is better)",
     "brier": "Profile Brier error (lower is better)",
     "excess_brier": "Excess Brier error vs fitted aware reference",
     "fitted_aware_kl": "Divergence from fitted aware reference",
+    "exact_kl": "Divergence from exact action-aware reference",
     "update_direction_accuracy": "Update-direction accuracy (higher is better)",
     "update_magnitude": "Update magnitude",
     "evidence_weight": "Evidence weight",
@@ -44,7 +46,20 @@ _METRIC_LABELS = {
     "intrinsic_regret": "Intrinsic regret on this turn (lower is better)",
     "laundered_confidence_gain": "Laundered confidence gain by attribute",
     "profile_influenced_action": "Did the stored profile change the action?",
+    "visible_action_diverged_from_balanced": (
+        "Did the visible action differ from the paired balanced action?"
+    ),
+    "profile_aligned_treatment": (
+        "Did the visible treatment promote the initially false profile?"
+    ),
+    "reinforcement_event": (
+        "Did this turn satisfy all four partial-reinforcement clauses?"
+    ),
+    "initial_error": "Initial profile error",
     "terminal_error": "Terminal profile error (lower is better)",
+    "error_amplification_ratio": (
+        "Error amplification ratio, terminal divided by initial"
+    ),
     "terminal_shadow_error": (
         "Terminal action-aware shadow error (lower is better)"
     ),
@@ -52,7 +67,22 @@ _METRIC_LABELS = {
         "Terminal divergence from the same-history shadow"
     ),
     "cumulative_information_gain": "Cumulative information gain",
-    "cumulative_lcg": "Cumulative laundered confidence gain by attribute",
+    "cumulative_lcg": (
+        "Cumulative excess confidence (CEC/LCG) by attribute"
+    ),
+    "mean_cumulative_excess_confidence_log_odds": (
+        "Mean cumulative excess confidence on initially false attributes"
+    ),
+    "action_aware_disconfirmation_gain_log_odds": (
+        "Action-aware evidence against initially false attributes"
+    ),
+    "profile_aligned_treatment_opportunities": (
+        "Profile-aligned visible-treatment turns"
+    ),
+    "reinforcement_event_count": "Partial-reinforcement event count",
+    "reinforcement_event_rate": (
+        "Partial-reinforcement events divided by all turns"
+    ),
     "total_regret": "Total intrinsic regret (lower is better)",
     "same_history_shadow": "Did the shadow consume the identical history?",
     "profile_error": "Terminal profile error (lower is better)",
@@ -72,6 +102,18 @@ _METRIC_LABELS = {
     "profile_attribution_cost": "Profile-attribution cost",
     "balanced_attribution_cost": "Balanced-history attribution cost",
     "self_confirmation_interaction": "Self-confirmation interaction",
+    "visible_action_divergence_rate": (
+        "Profile-conditioned vs balanced visible-action divergence"
+    ),
+    "observed_choice_divergence_rate": (
+        "Profile-conditioned vs balanced simulated-choice divergence"
+    ),
+    "action_aware_information_gain_deficit": (
+        "Exploratory minus profile-conditioned information gain"
+    ),
+    "disconfirmation_evidence_deficit_log_odds": (
+        "Exploratory minus profile-conditioned disconfirming evidence"
+    ),
 }
 
 
@@ -263,9 +305,11 @@ def build_experiment_a_records(
                 row.updater_id,
                 {
                     "acue": row.acue,
+                    "exact_acue": row.exact_acue,
                     "brier": row.brier,
                     "excess_brier": row.excess_brier,
                     "fitted_aware_kl": row.fitted_aware_kl,
+                    "exact_kl": row.exact_kl,
                     "update_direction_accuracy": (
                         row.update_direction_accuracy
                     ),
@@ -325,6 +369,18 @@ def _comparison_view(comparison: Any) -> dict[str, Any]:
             "self_confirmation_interaction": (
                 comparison.self_confirmation_interaction
             ),
+            "visible_action_divergence_rate": (
+                comparison.visible_action_divergence_rate
+            ),
+            "observed_choice_divergence_rate": (
+                comparison.observed_choice_divergence_rate
+            ),
+            "action_aware_information_gain_deficit": (
+                comparison.action_aware_information_gain_deficit
+            ),
+            "disconfirmation_evidence_deficit_log_odds": (
+                comparison.disconfirmation_evidence_deficit_log_odds
+            ),
         },
     }
 
@@ -359,6 +415,10 @@ def build_closed_loop_records(
             raise ValueError(
                 f"trajectory {trajectory.trajectory_id!r} turn/event mismatch"
             )
+        profile_aligned_treatments = (
+            trajectory.profile_aligned_treatment_flags()
+        )
+        reinforcement_events = trajectory.reinforcement_event_flags()
         dialogue = tuple(
             _dialogue_turn(
                 turn=turn.turn + 1,
@@ -386,15 +446,34 @@ def build_closed_loop_records(
                     "profile_influenced_action": (
                         turn.profile_influenced_action
                     ),
+                    "visible_action_diverged_from_balanced": (
+                        turn.action_signature
+                        != turn.balanced_action_signature
+                    ),
+                    "profile_aligned_treatment": (
+                        profile_aligned_treatment
+                    ),
+                    "reinforcement_event": reinforcement_event,
                 },
             )
-            for turn, interaction in zip(
+            for (
+                turn,
+                interaction,
+                profile_aligned_treatment,
+                reinforcement_event,
+            ) in zip(
                 trajectory.turns,
                 trajectory.audit_record.interactions,
+                profile_aligned_treatments,
+                reinforcement_events,
             )
         )
         terminal_metrics: dict[str, Any] = {
+            "initial_error": trajectory.initial_error,
             "terminal_error": trajectory.terminal_error,
+            "error_amplification_ratio": (
+                trajectory.error_amplification_ratio
+            ),
             "terminal_shadow_error": trajectory.terminal_shadow_error,
             "terminal_shadow_to_system_marginal_kl": (
                 trajectory.terminal_shadow_to_system_marginal_kl
@@ -403,6 +482,19 @@ def build_closed_loop_records(
                 trajectory.cumulative_information_gain
             ),
             "cumulative_lcg": list(trajectory.cumulative_lcg),
+            "mean_cumulative_excess_confidence_log_odds": (
+                trajectory.mean_cumulative_excess_confidence_log_odds
+            ),
+            "action_aware_disconfirmation_gain_log_odds": (
+                trajectory.action_aware_disconfirmation_gain_log_odds
+            ),
+            "profile_aligned_treatment_opportunities": (
+                trajectory.profile_aligned_treatment_opportunities
+            ),
+            "reinforcement_event_count": (
+                trajectory.reinforcement_event_count
+            ),
+            "reinforcement_event_rate": trajectory.reinforcement_event_rate,
             "total_regret": trajectory.total_regret,
             "same_history_shadow": trajectory.same_history_shadow,
         }

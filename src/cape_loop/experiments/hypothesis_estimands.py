@@ -160,7 +160,7 @@ class H1Analysis:
     def to_dict(self) -> dict[str, Any]:
         return {
             "hypothesis_id": "H1",
-            "name": "Causal-provenance blindness",
+            "name": "Directional causal-provenance over-update",
             "target_updater_id": self.target_updater_id,
             "reference_updater_id": self.reference_updater_id,
             "response_mode": self.response_mode,
