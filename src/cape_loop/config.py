@@ -14,6 +14,13 @@ import json
 import math
 import tomllib
 
+from .splits import (
+    LEGACY_THETA_POLICY,
+    LEGACY_SUSCEPTIBILITY_POLICY,
+    SUSCEPTIBILITY_POLICIES,
+    THETA_POLICIES,
+)
+
 
 SCHEMA_VERSION = 1
 KNOWN_DOMAINS = frozenset({"travel", "writing"})
@@ -187,6 +194,40 @@ class ScenarioSection:
         if result.conversation_file and not result.catalog_file:
             raise ConfigError(
                 "scenarios.conversation_file requires a scenario catalog"
+            )
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationSection:
+    """Versioned latent-population allocation policy."""
+
+    susceptibility_policy: str = LEGACY_SUSCEPTIBILITY_POLICY
+    theta_policy: str = LEGACY_THETA_POLICY
+
+    @classmethod
+    def parse(cls, raw: Mapping[str, Any]) -> "PopulationSection":
+        _only_keys(
+            "population",
+            raw,
+            {"susceptibility_policy", "theta_policy"},
+        )
+        result = cls(**raw)
+        if not isinstance(result.susceptibility_policy, str):
+            raise ConfigError(
+                "population.susceptibility_policy must be a string"
+            )
+        if result.susceptibility_policy not in SUSCEPTIBILITY_POLICIES:
+            raise ConfigError(
+                "population.susceptibility_policy must be one of "
+                f"{sorted(SUSCEPTIBILITY_POLICIES)}"
+            )
+        if not isinstance(result.theta_policy, str):
+            raise ConfigError("population.theta_policy must be a string")
+        if result.theta_policy not in THETA_POLICIES:
+            raise ConfigError(
+                "population.theta_policy must be one of "
+                f"{sorted(THETA_POLICIES)}"
             )
         return result
 
@@ -936,6 +977,7 @@ class AppConfig:
     schema_version: int = SCHEMA_VERSION
     run: RunSection = field(default_factory=RunSection)
     scenarios: ScenarioSection = field(default_factory=ScenarioSection)
+    population: PopulationSection = field(default_factory=PopulationSection)
     experiment: ExperimentSection = field(default_factory=ExperimentSection)
     response_model: ResponseModelSection = field(default_factory=ResponseModelSection)
     inference: InferenceSection = field(default_factory=InferenceSection)
@@ -953,6 +995,7 @@ class AppConfig:
                 "schema_version",
                 "run",
                 "scenarios",
+                "population",
                 "experiment",
                 "response_model",
                 "inference",
@@ -975,6 +1018,7 @@ class AppConfig:
         parsers = {
             "run": RunSection,
             "scenarios": ScenarioSection,
+            "population": PopulationSection,
             "experiment": ExperimentSection,
             "response_model": ResponseModelSection,
             "inference": InferenceSection,
@@ -1134,7 +1178,12 @@ class AppConfig:
                 )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.population == PopulationSection():
+            # Preserve legacy resolved configurations and run identities when
+            # the new population policy has not been explicitly selected.
+            result.pop("population")
+        return result
 
     def canonical_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))

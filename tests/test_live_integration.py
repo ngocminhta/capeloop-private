@@ -406,9 +406,7 @@ class LiveConfigurationTests(unittest.TestCase):
         self.assertTrue(
             all(
                 all(
-                    option["option_id"].startswith(
-                        "travel-option-beacon-v1:"
-                    )
+                    option["option_id"].startswith("presented_option_")
                     for option in context["options"]
                 )
                 for context in contexts

@@ -197,11 +197,13 @@ class CompactAnalysisExportTests(unittest.TestCase):
                 "turns": [
                     {
                         "turn": 0,
+                        "scenario_id": "scenario-1",
                         "theta_snapshot": theta,
                         "belief_after": _uniform_belief(),
                     },
                     {
                         "turn": 1,
+                        "scenario_id": "scenario-2",
                         "theta_snapshot": theta,
                         "belief_after": _point_belief(theta),
                     },
@@ -236,6 +238,10 @@ class CompactAnalysisExportTests(unittest.TestCase):
                 [0, 1],
             )
             self.assertEqual([row["turn"] for row in rows], [1, 2])
+            self.assertEqual(
+                [row["scenario_id"] for row in rows],
+                ["scenario-1", "scenario-2"],
+            )
             self.assertAlmostEqual(rows[0]["terminal_error"], 0.75)
             self.assertEqual(rows[1]["terminal_error"], 0.0)
             self.assertTrue(all(row["same_history_shadow"] for row in rows))

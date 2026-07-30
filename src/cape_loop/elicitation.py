@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from .domains import DomainSpec
@@ -46,6 +46,26 @@ class MatchedAnchorSet:
             surface_response=surface_response,
             choice_noise_key=f"{self.scenario_id}:controlled-anchor",
         )
+
+    def with_anchor_position(self, *, anchor_first: bool) -> "MatchedAnchorSet":
+        """Return the same matched quartet with one shared physical order."""
+
+        if not isinstance(anchor_first, bool):
+            raise TypeError("anchor_first must be Boolean")
+        reordered = {}
+        for mechanism, context in self.contexts.items():
+            other = next(
+                option_id
+                for option_id in context.option_ids
+                if option_id != self.anchor_option_id
+            )
+            ranking = (
+                (self.anchor_option_id, other)
+                if anchor_first
+                else (other, self.anchor_option_id)
+            )
+            reordered[mechanism] = replace(context, ranking=ranking)
+        return replace(self, contexts=reordered)
 
     def validate_invariants(self) -> None:
         contexts = self.contexts

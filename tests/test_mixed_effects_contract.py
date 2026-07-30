@@ -76,14 +76,16 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             experiments["B"]["formula"],
             (
                 "terminal_error ~ updater * policy * initial_profile + "
-                "domain + turn + (1 + policy | user) + (1 | scenario)"
+                "domain + turn + (1 + policy | user) + (1 | scenario) + "
+                "(1 | crn_set)"
             ),
         )
         self.assertEqual(
             experiments["B"]["proposal_formula"],
             (
                 "TerminalError ~ Updater * Policy * InitialProfile + "
-                "Domain + Turn + (1 + Policy | User) + (1 | Scenario)"
+                "Domain + Turn + (1 + Policy | User) + (1 | Scenario) + "
+                "(1 | CRNSet)"
             ),
         )
         self.assertEqual(
@@ -239,6 +241,14 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             "final compact turn error equals retained_terminal_error",
         )
         self.assertEqual(experiment_b["outcome_name"], "terminal_error")
+        self.assertEqual(
+            experiment_b["scenario_mapping"],
+            "run_id + turn.scenario_id",
+        )
+        self.assertEqual(
+            experiment_b["crn_set_mapping"],
+            "run_id + crn_key",
+        )
 
     def test_r_input_contract_binds_source_and_validates_compact_rows(
         self,

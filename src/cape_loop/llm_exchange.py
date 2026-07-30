@@ -14,14 +14,18 @@ from .calibration import TemperatureCalibration
 VALUES = ("-2", "-1", "+1", "+2")
 VIEWS = frozenset({"response_only", "full_context", "provenance_aware"})
 ATTRIBUTES = ("attribute_1", "attribute_2", "attribute_3")
+# Four probabilities rounded independently to three decimal places can differ
+# from one by up to 2e-3. Keep a small floating-point margin around that exact
+# decimal-rounding bound, then canonicalize every accepted vector below.
+PROBABILITY_SUM_TOLERANCE = 2.1e-3
 
 BASE_INSTRUCTION = """\
 Return JSON only. Infer a persistent preference profile from the supplied prior
 and natural-language interaction. The payload's profile_schema explains the
 meaning of attribute_1, attribute_2, and attribute_3 in this domain. For each
-attribute, return probabilities for -2, -1, +1, +2. Treat a local selection as
-evidence, not as a direct statement of a permanent preference. Do not use
-information that is absent from the request.
+attribute, return probabilities for -2, -1, +1, +2; each four-value vector must
+sum to 1.0. Treat a local selection as evidence, not as a direct statement of a
+permanent preference. Do not use information that is absent from the request.
 """
 
 PROVENANCE_INSTRUCTION = """\
@@ -163,7 +167,7 @@ class LLMResponse:
             ):
                 raise ValueError(f"{attribute} contains probability outside [0, 1]")
             total = math.fsum(parsed.values())
-            if abs(total - 1.0) > 1e-6:
+            if abs(total - 1.0) > PROBABILITY_SUM_TOLERANCE:
                 raise ValueError(f"{attribute} probabilities do not sum to one")
             # Provider decimals can be within the public response tolerance
             # while still exceeding the tighter invariant used by the belief

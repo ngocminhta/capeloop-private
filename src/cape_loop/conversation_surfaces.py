@@ -13,16 +13,15 @@ the same wording for the same visible context and selected option.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Formatter
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
-import json
-import re
 
 from .schemas import InteractionContext, PolicyProvenance
-
 
 SCHEMA_VERSION = 1
 PRESENTATIONS = (
@@ -32,6 +31,9 @@ PRESENTATIONS = (
     "suggested",
     "ranking",
 )
+FIXED_CHOICE_TEMPLATE = "I choose {selected_name}."
+DEFAULT_TREATMENT_SENTENCE = "{default_name} is preselected as the default."
+SUGGESTED_TREATMENT_SENTENCE = "I suggest {suggested_name}."
 
 _CORE_PRESENTATION_FIELDS = frozenset(
     {
@@ -42,9 +44,7 @@ _CORE_PRESENTATION_FIELDS = frozenset(
         "option_2_description",
     }
 )
-_OPTIONAL_PRESENTATION_FIELDS = frozenset(
-    {"default_name", "suggested_name"}
-)
+_OPTIONAL_PRESENTATION_FIELDS = frozenset({"default_name", "suggested_name"})
 _CHOICE_FIELDS = frozenset({"selected_name"})
 _MECHANISM_TO_PRESENTATION = {
     "balanced": "balanced",
@@ -87,6 +87,13 @@ _LOCAL_CHOICE_SHAPE = re.compile(
     r"|\[selected option\]\s*,?\s+please"
     r")\s*[.!]?$",
     re.IGNORECASE,
+)
+_DISPLAY_NAME = re.compile(
+    r"^(?P<stem>[A-Z][A-Za-z]*(?: [A-Za-z]+){0,3}) "
+    r"(?P<letter>[A-D])$"
+)
+_GENERIC_DISPLAY_NAME_STEMS = frozenset(
+    {"option", "choice", "alternative", "selection", "item"}
 )
 
 
@@ -179,14 +186,10 @@ def _validate_presentation_template(
     allowed = _CORE_PRESENTATION_FIELDS | _OPTIONAL_PRESENTATION_FIELDS
     unknown = sorted(observed - allowed)
     if unknown:
-        raise ValueError(
-            f"{name} contains unknown placeholders: {', '.join(unknown)}"
-        )
+        raise ValueError(f"{name} contains unknown placeholders: {', '.join(unknown)}")
     missing = sorted(_CORE_PRESENTATION_FIELDS - observed)
     if missing:
-        raise ValueError(
-            f"{name} must preserve placeholders: {', '.join(missing)}"
-        )
+        raise ValueError(f"{name} must preserve placeholders: {', '.join(missing)}")
     if presentation == "default":
         if "default_name" not in observed:
             raise ValueError(f"{name} must preserve {{default_name}}")
@@ -198,9 +201,7 @@ def _validate_presentation_template(
         if "default_name" in observed:
             raise ValueError(f"{name} cannot contain {{default_name}}")
     elif observed & _OPTIONAL_PRESENTATION_FIELDS:
-        raise ValueError(
-            f"{name} cannot contain default or suggested placeholders"
-        )
+        raise ValueError(f"{name} cannot contain default or suggested placeholders")
     return value
 
 
@@ -211,14 +212,82 @@ def _validate_choice_template(template: str) -> str:
     unknown = sorted(observed - _CHOICE_FIELDS)
     if unknown:
         raise ValueError(
-            "choice_template contains unknown placeholders: "
-            + ", ".join(unknown)
+            "choice_template contains unknown placeholders: " + ", ".join(unknown)
         )
     if observed != _CHOICE_FIELDS:
         raise ValueError("choice_template must preserve {selected_name}")
     probe = value.format(selected_name="Option A")
     _validate_local_choice(probe, selected_name="Option A")
     return value
+
+
+def _display_name_stem(display_names: Mapping[str, str]) -> str:
+    """Validate one neutral A-D name pool and return its shared noun stem."""
+
+    matches = []
+    for name in display_names.values():
+        match = _DISPLAY_NAME.fullmatch(name)
+        if match is None:
+            raise ValueError(
+                "display names must share a concrete noun stem and end in A-D"
+            )
+        matches.append(match)
+    stems = {match.group("stem") for match in matches}
+    letters = {match.group("letter") for match in matches}
+    if len(stems) != 1 or letters != set("ABCD"):
+        raise ValueError(
+            "display names must contain one shared noun stem with A, B, C, "
+            "and D exactly once"
+        )
+    stem = next(iter(stems))
+    if stem.casefold() in _GENERIC_DISPLAY_NAME_STEMS:
+        raise ValueError("display names require a scenario-specific concrete noun stem")
+    return stem
+
+
+def expand_presentation_templates(base_template: str) -> dict[str, str]:
+    """Apply the only allowed default/suggestion additions to a neutral base."""
+
+    neutral = _validate_presentation_template("balanced", base_template)
+
+    def with_treatment(treatment: str) -> str:
+        return neutral.replace(
+            "{prompt}",
+            "{prompt} " + treatment,
+            1,
+        )
+
+    return {
+        "balanced": neutral,
+        "restricted": neutral,
+        "default": with_treatment(DEFAULT_TREATMENT_SENTENCE),
+        "suggested": with_treatment(SUGGESTED_TREATMENT_SENTENCE),
+        "ranking": neutral,
+    }
+
+
+def _validate_frozen_authoring_contract(
+    *,
+    display_names: Mapping[str, str],
+    presentation_templates: Mapping[str, str],
+    choice_template: str,
+) -> str:
+    """Enforce at load/run time what the authoring client promises."""
+
+    stem = _display_name_stem(display_names)
+    neutral = presentation_templates["balanced"]
+    expected = expand_presentation_templates(neutral)
+    if dict(presentation_templates) != expected:
+        raise ValueError(
+            "frozen conversation templates must use one identical neutral "
+            "base for balanced/restricted/ranking and only the canonical "
+            "default/suggestion sentence"
+        )
+    if choice_template != FIXED_CHOICE_TEMPLATE:
+        raise ValueError(
+            "frozen conversation templates must use the canonical local choice reply"
+        )
+    return stem
 
 
 def _validate_local_choice(value: str, *, selected_name: str) -> None:
@@ -232,17 +301,13 @@ def _validate_local_choice(value: str, *, selected_name: str) -> None:
         flags=re.IGNORECASE,
     )
     if _GENERAL_PREFERENCE.search(semantic_text):
-        raise ValueError(
-            "rendered user message invents a persistent preference claim"
-        )
+        raise ValueError("rendered user message invents a persistent preference claim")
     if _EXPLANATION.search(semantic_text):
         raise ValueError("rendered user message invents a reason for the choice")
     if _CLAUSE_JOINER.search(semantic_text):
         raise ValueError("rendered user message must contain only one local choice")
     if not _LOCAL_CHOICE.search(semantic_text):
-        raise ValueError(
-            "rendered user message must explicitly make a local choice"
-        )
+        raise ValueError("rendered user message must explicitly make a local choice")
     if _LOCAL_CHOICE_SHAPE.fullmatch(semantic_text.strip()) is None:
         raise ValueError(
             "rendered user message must contain only the selected local choice"
@@ -411,9 +476,7 @@ class ScenarioConversationTemplate:
         provenance: PolicyProvenance,
     ) -> str:
         try:
-            presentation = _MECHANISM_TO_PRESENTATION[
-                provenance.presentation_mechanism
-            ]
+            presentation = _MECHANISM_TO_PRESENTATION[provenance.presentation_mechanism]
         except KeyError as exc:
             raise ValueError(
                 "unsupported presentation mechanism for conversation rendering: "
@@ -422,33 +485,33 @@ class ScenarioConversationTemplate:
 
         if context.default_option_id is not None:
             if presentation != "default":
-                raise ValueError(
-                    "visible default and provenance mechanism disagree"
-                )
+                raise ValueError("visible default and provenance mechanism disagree")
         elif presentation == "default":
-            raise ValueError(
-                "default provenance requires a visible default option"
-            )
+            raise ValueError("default provenance requires a visible default option")
         if context.suggested_option_id is not None:
             if presentation != "suggested":
-                raise ValueError(
-                    "visible suggestion and provenance mechanism disagree"
-                )
+                raise ValueError("visible suggestion and provenance mechanism disagree")
         elif presentation == "suggested":
             raise ValueError(
                 "suggestion provenance requires a visible suggested option"
             )
-        if (
-            presentation not in {"default", "suggested"}
-            and (
-                context.default_option_id is not None
-                or context.suggested_option_id is not None
-            )
+        if presentation not in {"default", "suggested"} and (
+            context.default_option_id is not None
+            or context.suggested_option_id is not None
         ):
             raise ValueError(
                 "non-treatment conversation contains a default or suggestion"
             )
         return presentation
+
+    def validate_frozen_authoring_contract(self) -> None:
+        """Validate neutral wording, treatment isolation, and the name pool."""
+
+        _validate_frozen_authoring_contract(
+            display_names=self.display_names,
+            presentation_templates=self.presentation_templates,
+            choice_template=self.choice_template,
+        )
 
     def render(
         self,
@@ -485,20 +548,25 @@ class ScenarioConversationTemplate:
         ordered_options = tuple(
             context.option(option_id) for option_id in context.ranking
         )
-        selected_name = self.display_names.get(selected)
-        if selected_name is None:
-            raise ValueError(
-                "conversation template does not name the selected option"
-            )
-        try:
-            ordered_names = tuple(
-                self.display_names[option.option_id]
-                for option in ordered_options
-            )
-        except KeyError as exc:
+        missing_names = [
+            option.option_id
+            for option in ordered_options
+            if option.option_id not in self.display_names
+        ]
+        if missing_names:
             raise ValueError(
                 "conversation template does not name every displayed option"
-            ) from exc
+            )
+        stem = _display_name_stem(self.display_names)
+        # A/B are presentation-position aliases, not stable semantic labels.
+        # Reassigning them after ranking prevents a model from learning that a
+        # particular letter always means one latent preference direction.
+        ordered_names = (f"{stem} A", f"{stem} B")
+        displayed_names = {
+            option.option_id: name
+            for option, name in zip(ordered_options, ordered_names)
+        }
+        selected_name = displayed_names[selected]
         descriptions = tuple(
             _text(
                 option.label,
@@ -517,12 +585,12 @@ class ScenarioConversationTemplate:
             "default_name": (
                 ""
                 if context.default_option_id is None
-                else self.display_names[context.default_option_id]
+                else displayed_names[context.default_option_id]
             ),
             "suggested_name": (
                 ""
                 if context.suggested_option_id is None
-                else self.display_names[context.suggested_option_id]
+                else displayed_names[context.suggested_option_id]
             ),
         }
         assistant = self.presentation_templates[presentation].format_map(values)
@@ -533,10 +601,6 @@ class ScenarioConversationTemplate:
         )
         user = self.choice_template.format(selected_name=selected_name)
         _validate_local_choice(user, selected_name=selected_name)
-        displayed_names = {
-            option.option_id: name
-            for option, name in zip(ordered_options, ordered_names)
-        }
         surface_id = (
             f"{self.scenario_id}:{presentation}:"
             f"{context.ranking[0]}>{context.ranking[1]}:{selected}"
@@ -592,15 +656,12 @@ class ConversationTemplateBank:
         if not templates:
             raise ValueError("conversation template bank cannot be empty")
         if not all(
-            isinstance(template, ScenarioConversationTemplate)
-            for template in templates
+            isinstance(template, ScenarioConversationTemplate) for template in templates
         ):
             raise TypeError(
                 "templates must contain ScenarioConversationTemplate objects"
             )
-        by_scenario = {
-            template.scenario_id: template for template in templates
-        }
+        by_scenario = {template.scenario_id: template for template in templates}
         if len(by_scenario) != len(templates):
             raise ValueError(
                 "conversation template bank contains duplicate scenario IDs"
@@ -671,36 +732,26 @@ class ConversationTemplateBank:
                 f"({'; '.join(details)})"
             )
         for scenario_id, scenario in scenario_by_id.items():
+            self._by_scenario[scenario_id].validate_frozen_authoring_contract()
             options = getattr(scenario, "options", None)
             if not isinstance(options, tuple) and not isinstance(options, list):
-                raise TypeError(
-                    f"catalog scenario {scenario_id!r} must expose options"
-                )
-            option_ids = {
-                getattr(option, "option_id", None) for option in options
-            }
+                raise TypeError(f"catalog scenario {scenario_id!r} must expose options")
+            option_ids = {getattr(option, "option_id", None) for option in options}
             if None in option_ids or not all(
-                isinstance(option_id, str) and option_id
-                for option_id in option_ids
+                isinstance(option_id, str) and option_id for option_id in option_ids
             ):
                 raise TypeError(
                     f"catalog scenario {scenario_id!r} has invalid option IDs"
                 )
-            template_ids = set(
-                self._by_scenario[scenario_id].display_names
-            )
+            template_ids = set(self._by_scenario[scenario_id].display_names)
             if template_ids != option_ids:
                 missing_options = sorted(option_ids - template_ids)
                 unknown_options = sorted(template_ids - option_ids)
                 details = []
                 if missing_options:
-                    details.append(
-                        "missing=" + ",".join(missing_options)
-                    )
+                    details.append("missing=" + ",".join(missing_options))
                 if unknown_options:
-                    details.append(
-                        "unknown=" + ",".join(unknown_options)
-                    )
+                    details.append("unknown=" + ",".join(unknown_options))
                 raise ValueError(
                     f"conversation template {scenario_id!r} option coverage "
                     f"is not exact ({'; '.join(details)})"
@@ -711,9 +762,7 @@ class ConversationTemplateBank:
             "schema_version": self.schema_version,
             "bank_id": self.bank_id,
             "source": self.source,
-            "templates": [
-                template.to_dict() for template in self.templates
-            ],
+            "templates": [template.to_dict() for template in self.templates],
         }
 
 
@@ -737,9 +786,7 @@ def load_conversation_bank(path: str | Path) -> ConversationTemplateBank:
         "conversation template bank",
     )
     if payload["schema_version"] != SCHEMA_VERSION:
-        raise ValueError(
-            f"conversation bank schema_version must be {SCHEMA_VERSION}"
-        )
+        raise ValueError(f"conversation bank schema_version must be {SCHEMA_VERSION}")
     bank_source = _text(payload["source"], "source", maximum=500)
     raw_templates = payload["templates"]
     if not isinstance(raw_templates, list) or not raw_templates:
@@ -779,15 +826,15 @@ def load_conversation_bank(path: str | Path) -> ConversationTemplateBank:
             raise TypeError(
                 f"{name}.presentation_templates must map strings to strings"
             )
-        templates.append(
-            ScenarioConversationTemplate(
-                scenario_id=item["scenario_id"],
-                display_names=display_names,  # type: ignore[arg-type]
-                presentation_templates=presentations,  # type: ignore[arg-type]
-                choice_template=item["choice_template"],
-                source=item.get("source", bank_source),
-            )
+        template = ScenarioConversationTemplate(
+            scenario_id=item["scenario_id"],
+            display_names=display_names,  # type: ignore[arg-type]
+            presentation_templates=presentations,  # type: ignore[arg-type]
+            choice_template=item["choice_template"],
+            source=item.get("source", bank_source),
         )
+        template.validate_frozen_authoring_contract()
+        templates.append(template)
     return ConversationTemplateBank(
         bank_id=payload["bank_id"],
         templates=tuple(templates),
@@ -798,8 +845,12 @@ def load_conversation_bank(path: str | Path) -> ConversationTemplateBank:
 
 __all__ = [
     "ConversationTemplateBank",
+    "DEFAULT_TREATMENT_SENTENCE",
+    "FIXED_CHOICE_TEMPLATE",
     "PRESENTATIONS",
     "RenderedConversation",
     "ScenarioConversationTemplate",
+    "SUGGESTED_TREATMENT_SENTENCE",
+    "expand_presentation_templates",
     "load_conversation_bank",
 ]

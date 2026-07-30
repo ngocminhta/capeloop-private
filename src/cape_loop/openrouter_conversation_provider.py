@@ -13,34 +13,35 @@ simulator has selected an option.
 
 from __future__ import annotations
 
+import json
+import math
+import os
+import re
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from string import Formatter
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
-import json
-import math
-import os
-import re
 
-from .openrouter_provider import (
-    HTTPResult,
-    HTTPTransport,
-    OPENROUTER_OFFICIAL_BASE_URL,
-    urllib_transport,
-)
 from .conversation_surfaces import (
+    DEFAULT_TREATMENT_SENTENCE,
+    FIXED_CHOICE_TEMPLATE,
+    SUGGESTED_TREATMENT_SENTENCE,
     ConversationTemplateBank,
     ScenarioConversationTemplate,
+    expand_presentation_templates,
+)
+from .openrouter_provider import (
+    OPENROUTER_OFFICIAL_BASE_URL,
+    HTTPResult,
+    HTTPTransport,
+    urllib_transport,
 )
 from .scenarios import ScenarioCatalog, ScenarioSpec
 
-
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
-OPENROUTER_CONVERSATION_ENDPOINT = (
-    OPENROUTER_OFFICIAL_BASE_URL + "/v1/chat/completions"
-)
+OPENROUTER_CONVERSATION_ENDPOINT = OPENROUTER_OFFICIAL_BASE_URL + "/v1/chat/completions"
 TEMPLATE_SCHEMA_VERSION = 1
 
 PRESENTATION_KINDS = (
@@ -69,11 +70,6 @@ PRESENTATION_PLACEHOLDERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 CHOICE_PLACEHOLDERS = ("selected_name",)
-FIXED_CHOICE_TEMPLATE = "I choose {selected_name}."
-DEFAULT_TREATMENT_SENTENCE = (
-    "{default_name} is preselected as the default."
-)
-SUGGESTED_TREATMENT_SENTENCE = "I suggest {suggested_name}."
 
 _MODEL_SLUG = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _OPTION_NAME = re.compile(
@@ -99,6 +95,8 @@ _MATHEMATICAL_SURFACE = re.compile(
     r"statistic(?:al)?|target index|utility score)\b",
     re.IGNORECASE,
 )
+
+
 class ConversationProviderError(RuntimeError):
     """Base class for conversation-template authoring failures."""
 
@@ -184,9 +182,7 @@ class OpenRouterConversationConfig:
             or float(self.timeout_seconds) <= 0.0
             or float(self.timeout_seconds) > 300.0
         ):
-            raise ValueError(
-                "timeout_seconds must be finite and lie in (0, 300]"
-            )
+            raise ValueError("timeout_seconds must be finite and lie in (0, 300]")
         _positive_integer(
             self.max_output_tokens,
             "max_output_tokens",
@@ -256,9 +252,7 @@ def _option_name_schema(
                 "minLength": 3,
                 "maxLength": 40,
                 "pattern": (
-                    r"^[A-Z][A-Za-z]*(?: [A-Za-z]+){0,3} "
-                    + letters[index]
-                    + "$"
+                    r"^[A-Z][A-Za-z]*(?: [A-Za-z]+){0,3} " + letters[index] + "$"
                 ),
                 "description": (
                     "Neutral display name ending in "
@@ -289,10 +283,7 @@ def conversation_template_json_schema(
                 "description": (
                     "One neutral assistant utterance using exactly these "
                     "placeholders once each: "
-                    + ", ".join(
-                        "{" + name + "}"
-                        for name in BASE_TEMPLATE_PLACEHOLDERS
-                    )
+                    + ", ".join("{" + name + "}" for name in BASE_TEMPLATE_PLACEHOLDERS)
                 ),
             },
         },
@@ -351,9 +342,7 @@ class PreparedConversationRequest:
             "model": self.body["model"],
             "model_input": deepcopy(dict(self.model_input)),
             "authored_fields": ["display_names", "base_template"],
-            "base_template_placeholders": list(
-                BASE_TEMPLATE_PLACEHOLDERS
-            ),
+            "base_template_placeholders": list(BASE_TEMPLATE_PLACEHOLDERS),
             "local_treatment_expansion": {
                 "neutral_presentations": [
                     "balanced",
@@ -456,9 +445,7 @@ def _template_fields(text: str, *, label: str) -> tuple[str, ...]:
                 )
             fields.append(field_name)
     except ValueError as exc:
-        raise ConversationResponseError(
-            f"{label} contains malformed braces"
-        ) from exc
+        raise ConversationResponseError(f"{label} contains malformed braces") from exc
     return tuple(fields)
 
 
@@ -513,21 +500,13 @@ def _validate_base_template(
     scenario: ScenarioSpec,
 ) -> str:
     if not isinstance(raw, str) or not 70 <= len(raw) <= 800:
-        raise ConversationResponseError(
-            "base_template must contain 70-800 characters"
-        )
+        raise ConversationResponseError("base_template must contain 70-800 characters")
     fields = _template_fields(raw, label="base_template")
     if Counter(fields) != Counter(BASE_TEMPLATE_PLACEHOLDERS):
-        expected = ", ".join(
-            "{" + field + "}" for field in BASE_TEMPLATE_PLACEHOLDERS
-        )
-        raise ConversationResponseError(
-            f"base_template must use exactly {expected}"
-        )
+        expected = ", ".join("{" + field + "}" for field in BASE_TEMPLATE_PLACEHOLDERS)
+        raise ConversationResponseError(f"base_template must use exactly {expected}")
     if "?" not in raw:
-        raise ConversationResponseError(
-            "base_template must ask a question"
-        )
+        raise ConversationResponseError("base_template must ask a question")
     forbidden_surfaces = tuple(
         text.casefold()
         for option in scenario.options
@@ -536,17 +515,14 @@ def _validate_base_template(
     folded = raw.casefold()
     if any(surface in folded for surface in forbidden_surfaces):
         raise ConversationResponseError(
-            "base_template repeats source option text instead of using "
-            "placeholders"
+            "base_template repeats source option text instead of using placeholders"
         )
     if _NEUTRAL_TREATMENT_WORDS.search(raw):
         raise ConversationResponseError(
             "base_template introduces a default or suggestion treatment cue"
         )
     if _RESTRICTED_CUES.search(raw):
-        raise ConversationResponseError(
-            "base_template must not announce a restriction"
-        )
+        raise ConversationResponseError("base_template must not announce a restriction")
     if _RANKING_CUES.search(raw):
         raise ConversationResponseError(
             "base_template must not characterize rank as quality"
@@ -560,21 +536,7 @@ def _validate_base_template(
 
 
 def _expand_base_template(base_template: str) -> dict[str, str]:
-    def with_treatment(treatment_sentence: str) -> str:
-        return base_template.replace(
-            "{prompt}",
-            "{prompt} " + treatment_sentence,
-            1,
-        )
-
-    neutral = base_template
-    result = {
-        "balanced": neutral,
-        "restricted": neutral,
-        "default": with_treatment(DEFAULT_TREATMENT_SENTENCE),
-        "suggested": with_treatment(SUGGESTED_TREATMENT_SENTENCE),
-        "ranking": neutral,
-    }
+    result = expand_presentation_templates(base_template)
     for kind in PRESENTATION_KINDS:
         fields = _template_fields(
             result[kind],
@@ -585,14 +547,8 @@ def _expand_base_template(base_template: str) -> dict[str, str]:
                 "local treatment expansion produced an invalid placeholder "
                 f"contract for {kind}"
             )
-    if not (
-        result["balanced"]
-        == result["restricted"]
-        == result["ranking"]
-    ):
-        raise AssertionError(
-            "neutral local presentation expansion must be identical"
-        )
+    if not (result["balanced"] == result["restricted"] == result["ranking"]):
+        raise AssertionError("neutral local presentation expansion must be identical")
     return result
 
 
@@ -633,18 +589,12 @@ def _usage(raw: Any) -> dict[str, int]:
     result: dict[str, int] = {}
     for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = raw.get(name)
-        if (
-            not isinstance(value, int)
-            or isinstance(value, bool)
-            or value < 0
-        ):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ConversationResponseError(
                 f"OpenRouter usage.{name} must be a non-negative integer"
             )
         result[name] = value
-    if result["total_tokens"] < (
-        result["prompt_tokens"] + result["completion_tokens"]
-    ):
+    if result["total_tokens"] < (result["prompt_tokens"] + result["completion_tokens"]):
         raise ConversationResponseError(
             "OpenRouter total_tokens is smaller than its components"
         )
@@ -713,9 +663,7 @@ def _parse_result(
             "OpenRouter response body is not valid UTF-8 JSON"
         ) from exc
     if not isinstance(raw, Mapping):
-        raise ConversationResponseError(
-            "OpenRouter response body must be an object"
-        )
+        raise ConversationResponseError("OpenRouter response body must be an object")
     response_id = raw.get("id")
     returned_model = raw.get("model")
     if not isinstance(response_id, str) or not response_id.strip():
@@ -723,9 +671,7 @@ def _parse_result(
             "OpenRouter response lacks a provider response ID"
         )
     if not isinstance(returned_model, str) or not returned_model:
-        raise ConversationResponseError(
-            "OpenRouter response lacks a returned model"
-        )
+        raise ConversationResponseError("OpenRouter response lacks a returned model")
     if returned_model != config.model:
         raise ConversationModelMismatch(
             "OpenRouter returned a model different from the pinned model: "
@@ -747,9 +693,7 @@ def _parse_result(
         )
     message = choice.get("message")
     if not isinstance(message, Mapping):
-        raise ConversationResponseError(
-            "OpenRouter response choice lacks a message"
-        )
+        raise ConversationResponseError("OpenRouter response choice lacks a message")
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
         raise ConversationResponseError(
@@ -797,9 +741,7 @@ def _parse_result(
         "usage": usage,
         "validation_status": "passed",
         "allow_fallbacks": False,
-        "authored_display_names": deepcopy(
-            validated["display_names"]
-        ),
+        "authored_display_names": deepcopy(validated["display_names"]),
         "authored_base_template": validated["base_template"],
         "local_treatment_expansion": {
             "balanced": "",
@@ -892,8 +834,7 @@ class OpenRouterConversationProvider:
                 scenario
             ):
                 raise ValueError(
-                    "one scenario_id was completed with different visible "
-                    "content"
+                    "one scenario_id was completed with different visible content"
                 )
             return deepcopy(existing)
 
@@ -906,9 +847,7 @@ class OpenRouterConversationProvider:
         # This is the first and only credential read in the complete path.
         secret = os.environ.get(OPENROUTER_API_KEY_ENV, "")
         if not secret:
-            raise ConversationMissingAPIKey(
-                f"{OPENROUTER_API_KEY_ENV} is not set"
-            )
+            raise ConversationMissingAPIKey(f"{OPENROUTER_API_KEY_ENV} is not set")
         self._reserve(prepared)
         headers = dict(prepared.headers)
         headers["Authorization"] = f"Bearer {secret}"
@@ -949,13 +888,8 @@ def generate_conversation_bank(
     if not isinstance(catalog, ScenarioCatalog):
         raise TypeError("catalog must be a ScenarioCatalog")
     if not isinstance(provider, OpenRouterConversationProvider):
-        raise TypeError(
-            "provider must be an OpenRouterConversationProvider"
-        )
-    source = (
-        "openrouter:"
-        f"{provider.config.model}:llm-authored-unreviewed"
-    )
+        raise TypeError("provider must be an OpenRouterConversationProvider")
+    source = f"openrouter:{provider.config.model}:llm-authored-unreviewed"
     templates = []
     for scenario in sorted(
         catalog.scenarios,
@@ -966,9 +900,7 @@ def generate_conversation_bank(
             ScenarioConversationTemplate(
                 scenario_id=record["scenario_id"],
                 display_names=record["display_names"],
-                presentation_templates=record[
-                    "presentation_templates"
-                ],
+                presentation_templates=record["presentation_templates"],
                 # The mathematical simulator already fixed the action. Keep
                 # its language identical across mechanisms and model runs;
                 # the LLM authors the meaningful assistant presentation.

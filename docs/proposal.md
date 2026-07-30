@@ -250,13 +250,16 @@ $$
 This prevents a strong default from being mistaken for high user utility.
 
 The implemented user-facing surface is hybrid. The equation above fixes
-\(Y_t\) first. OpenRouter authors one neutral base presentation and neutral
-display names per scenario. Code uses that base for balanced, restricted, and
-ranking; inserts only the fixed default or suggestion sentence when required;
-and states exactly `I choose {selected_name}.` The author receives neither
-\(\theta\) nor \(\psi\) and cannot change the choice. The evaluated profile
-writer sees natural dialogue and a semantic attribute codebook rather than
-numeric feature vectors or the experiment's target index.
+\(Y_t\) first. A separately frozen, outcome-blind authoring input supplies one
+neutral candidate presentation and neutral display names per scenario. The
+current 48 visible bases were subsequently project-standardized outcome-blind
+onto three source-neutral frames, with each frame balanced across test cells.
+Code uses each base for balanced, restricted, and ranking; inserts only the
+fixed default or suggestion sentence when required; and states exactly
+`I choose {selected_name}.` The author receives neither \(\theta\) nor \(\psi\)
+and cannot change the choice. The evaluated profile writer sees natural
+dialogue and a semantic attribute codebook rather than numeric feature vectors
+or the experiment's target index.
 
 ## 4.4 Exact action-aware posterior
 
@@ -613,7 +616,9 @@ $$
 
 * balanced/randomized;
 * softly profile-conditioned;
-* exploratory.
+* block-balanced exploratory, which uses current uncertainty to order the
+  least-exposed dimensions while covering all three once per complete
+  three-turn block.
 
 Hard filtering is a secondary stress condition.
 
@@ -1028,11 +1033,22 @@ The primary model is accompanied by:
 2. a rule-based noisy utility maximizer;
 3. broad parameter sweeps over ranking, default, suggestion, and choice noise.
 
-The primary surface uses a frozen bank derived from one OpenRouter-authored
-neutral base and display-name set per scenario. Authoring is separate from the
-trials. The structured decision is sampled first; code then fills the base,
-adds only a fixed default/suggestion sentence when applicable, and emits the
-fixed `I choose {selected_name}.` reply.
+The primary surface uses a frozen outcome-blind bank with one neutral base and
+display-name set per scenario. The current provisional bank contains 48
+project-standardized visible bases over three source-neutral frames. The
+historical OpenRouter record concerns candidate authoring, not provider
+authorship of that current text. Authoring is separate from the trials. The
+structured decision is sampled first; code then fills the base, adds only a
+fixed default/suggestion sentence when applicable, and emits the fixed
+`I choose {selected_name}.` reply.
+
+The version 1.4 scenario contract also declares the nuisance coordinate and
+direction of every same-direction restricted peer. Across the test bank it
+crosses both non-target coordinates with both signs, yielding 24 numeric
+scenario-anchor signatures represented three times each. This is prospective
+mathematical counterbalancing only. All 48 current surfaces remain provisional
+until independent human fact-mapping, naturalness, neutrality, non-dominance,
+and semantic-strength reviews are completed.
 
 For example:
 
@@ -1087,6 +1103,12 @@ $$
 (1\mid\operatorname{Scenario}).
 $$
 
+Within each user–domain–target cell, Experiment A reuses one scenario for both
+anchor directions and reverses physical anchor position across that pair.
+Mechanism, response-mode, prior-strength, and updater comparisons retain the
+same scenario/order assignment; the deterministic cycle balances scenario use
+within direction across users.
+
 ## Primary closed-loop model
 
 $$
@@ -1102,11 +1124,17 @@ $$
 \operatorname{Domain} +
 \operatorname{Turn} +
 (1+\operatorname{Policy}\mid\operatorname{User}) +
-(1\mid\operatorname{Scenario}).
+(1\mid\operatorname{Scenario}) +
+(1\mid\operatorname{CRNSet}).
 \end{aligned}
 $$
 
 The key interaction is specifically evaluated for incorrect initial profiles.
+For Experiment B, `Scenario` is the stimulus actually displayed on the
+retained turn. `CRNSet` is the common-random-number twin set shared across
+counterfactual policy/updater branches. They are distinct random effects:
+branches can share a CRN set while endogenous target divergence makes them
+display different scenarios.
 
 ## Common random numbers
 

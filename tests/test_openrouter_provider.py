@@ -377,10 +377,10 @@ class OpenRouterTransportAndParsingTests(unittest.TestCase):
         rounded = {
             **BELIEFS,
             "attribute_1": {
-                "-2": 0.440232,
-                "-1": 0.316871,
-                "+1": 0.148197,
-                "+2": 0.094701,
+                "-2": 0.133333,
+                "-1": 0.2,
+                "+1": 0.333333,
+                "+2": 0.333333,
             },
         }
         provider = OpenRouterChatProvider(

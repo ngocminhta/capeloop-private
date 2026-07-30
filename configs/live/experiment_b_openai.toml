@@ -2,9 +2,13 @@ schema_version = 1
 
 [scenarios]
 catalog_file = "data/scenarios/scenario-catalog-v1.json"
-catalog_sha256 = "67ad79b911a94811638ed320f7ddd1d4e8e8c1767f15419b9499c691badb6b3a"
+catalog_sha256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
 conversation_file = "data/scenarios/conversation-templates-v1.json"
 selection_policy = "deterministic-stratified-v1"
+
+[population]
+susceptibility_policy = "orthogonal-balanced-v2"
+theta_policy = "orthogonal-balanced-v2"
 
 # Canonical budget-bounded direct-OpenAI Experiment B pilot. The balanced and soft-profile policy
 # arms preserve the selection-versus-attribution decomposition; the two LLM
@@ -42,7 +46,7 @@ bootstrap_replicates = 2000
 beta = 1.0
 decision_noise = 1.0
 rank_scale = 0.35
-default_scale = 0.80
+default_scale = 0.75
 suggestion_scale = 0.65
 susceptibility_levels = [0.15, 0.45, 0.85]
 minimum_matched_probability = 0.05

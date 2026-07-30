@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 
 from cape_loop.conversation_surfaces import (
     ConversationTemplateBank,
     RenderedConversation,
     ScenarioConversationTemplate,
+    expand_presentation_templates,
     load_conversation_bank,
 )
 from cape_loop.schemas import (
@@ -17,7 +18,6 @@ from cape_loop.schemas import (
     Option,
     PolicyProvenance,
 )
-
 
 SCENARIO_ID = "travel-scenario-hotel-choice-01"
 OPTION_IDS = ("hotel-a", "hotel-b", "hotel-c", "hotel-d")
@@ -32,16 +32,18 @@ def presentation_templates() -> dict[str, str]:
         "balanced": shared + " Which one would you choose?",
         "restricted": shared + " Which of these works better?",
         "default": (
-            shared
-            + " {default_name} is currently selected as the default. "
+            shared + " {default_name} is currently selected as the default. "
             "Which one would you choose?"
         ),
         "suggested": (
-            shared
-            + " I suggest {suggested_name}. Which one would you choose?"
+            shared + " I suggest {suggested_name}. Which one would you choose?"
         ),
         "ranking": shared + " They are shown in this order. Which do you choose?",
     }
+
+
+def frozen_presentation_templates() -> dict[str, str]:
+    return expand_presentation_templates(presentation_templates()["balanced"])
 
 
 def scenario_template(
@@ -158,12 +160,12 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
             provenance("ranking"),
             "hotel-b",
         )
-        first = rendered.assistant_message.index("Hotel B is")
-        second = rendered.assistant_message.index("Hotel A is")
+        first = rendered.assistant_message.index("a higher-cost upgraded room")
+        second = rendered.assistant_message.index("a lower-cost standard room")
         self.assertLess(first, second)
         self.assertEqual(
-            tuple(rendered.display_names),
-            ("hotel-b", "hotel-a"),
+            dict(rendered.display_names),
+            {"hotel-b": "Hotel A", "hotel-a": "Hotel B"},
         )
         self.assertIn(":ranking:hotel-b>hotel-a:hotel-b", rendered.surface_id)
 
@@ -177,7 +179,7 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
             "hotel-c",
         )
         self.assertIn("Which of these works better?", rendered.assistant_message)
-        self.assertEqual(rendered.user_message, "I choose Hotel C.")
+        self.assertEqual(rendered.user_message, "I choose Hotel B.")
         self.assertIn(":restricted:", rendered.surface_id)
 
     def test_default_and_suggestion_are_expressed_naturally(self) -> None:
@@ -215,7 +217,7 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
             "other": "Hotel D",
         }
         template = scenario_template(display_names=names)
-        with self.assertRaisesRegex(ValueError, "selected option"):
+        with self.assertRaisesRegex(ValueError, "displayed option"):
             template.render(
                 context(
                     option_ids=("hotel-c", "hotel-d"),
@@ -226,7 +228,7 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
             )
 
     def test_context_and_provenance_treatments_must_agree(self) -> None:
-        template = scenario_template()
+        template = scenario_template(presentations=frozen_presentation_templates())
         with self.assertRaisesRegex(ValueError, "default.*disagree"):
             template.render(
                 context(default="hotel-a"),
@@ -281,8 +283,7 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
     def test_templates_require_every_semantic_placeholder(self) -> None:
         missing = presentation_templates()
         missing["balanced"] = (
-            "{prompt} {option_1_name}: {option_1_description}; "
-            "{option_2_name}."
+            "{prompt} {option_1_name}: {option_1_description}; {option_2_name}."
         )
         with self.assertRaisesRegex(ValueError, "option_2_description"):
             scenario_template(presentations=missing)
@@ -330,9 +331,7 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     scenario_template(choice_template=unsafe)
 
-        accepted = scenario_template(
-            choice_template="I'll go with {selected_name}."
-        )
+        accepted = scenario_template(choice_template="I'll go with {selected_name}.")
         self.assertEqual(
             accepted.render(
                 context(),
@@ -401,7 +400,7 @@ class ConversationTemplateBankTests(unittest.TestCase):
     def test_validate_catalog_requires_exact_scenario_and_option_coverage(
         self,
     ) -> None:
-        template = scenario_template()
+        template = scenario_template(presentations=frozen_presentation_templates())
         bank = ConversationTemplateBank(
             bank_id="complete-bank",
             templates=(template,),
@@ -410,8 +409,7 @@ class ConversationTemplateBankTests(unittest.TestCase):
         scenario = SimpleNamespace(
             scenario_id=SCENARIO_ID,
             options=tuple(
-                SimpleNamespace(option_id=option_id)
-                for option_id in OPTION_IDS
+                SimpleNamespace(option_id=option_id) for option_id in OPTION_IDS
             ),
         )
         bank.validate_catalog(SimpleNamespace(scenarios=(scenario,)))
@@ -433,9 +431,7 @@ class ConversationTemplateBankTests(unittest.TestCase):
             ),
         )
         with self.assertRaisesRegex(ValueError, "option coverage"):
-            bank.validate_catalog(
-                SimpleNamespace(scenarios=(wrong_options,))
-            )
+            bank.validate_catalog(SimpleNamespace(scenarios=(wrong_options,)))
 
     def test_load_conversation_bank_and_template_source_override(self) -> None:
         payload = {
@@ -451,19 +447,19 @@ class ConversationTemplateBankTests(unittest.TestCase):
                         "hotel-c": "Hotel C",
                         "hotel-d": "Hotel D",
                     },
-                    "presentation_templates": presentation_templates(),
+                    "presentation_templates": frozen_presentation_templates(),
                     "choice_template": "I choose {selected_name}.",
                 },
                 {
                     "scenario_id": "second-scenario",
                     "display_names": {
-                        "a": "Option A",
-                        "b": "Option B",
-                        "c": "Option C",
-                        "d": "Option D",
+                        "a": "Draft A",
+                        "b": "Draft B",
+                        "c": "Draft C",
+                        "d": "Draft D",
                     },
-                    "presentation_templates": presentation_templates(),
-                    "choice_template": "I select {selected_name}.",
+                    "presentation_templates": frozen_presentation_templates(),
+                    "choice_template": "I choose {selected_name}.",
                     "source": "openrouter:override-model",
                 },
             ],

@@ -48,13 +48,19 @@ update_error ~ updater * mechanism + domain + prior_strength
 
 `user` is `run_id + user_id`; `scenario` is
 `run_id + scenario_id`. Run prefixes prevent accidental cluster
-collisions when matched replications are combined.
+collisions when matched replications are combined. The source design pairs one
+actual scenario across the two anchor directions for each
+user–domain–target cell and reverses physical anchor position across that
+pair. Mechanism, response-mode, prior-strength, and updater rows retain the
+same scenario/order assignment, so `(1 | scenario)` models the catalog
+stimulus actually used rather than an anchor-direction or display-position
+proxy.
 
 Experiment B contributes one analysis row for every retained turn:
 
 ```text
 terminal_error ~ updater * policy * initial_profile + domain + turn
-               + (1 + policy | user) + (1 | scenario)
+               + (1 + policy | user) + (1 | scenario) + (1 | crn_set)
 ```
 
 For each row, the runner derives the outcome named `terminal_error` by the
@@ -64,9 +70,13 @@ zero-based source index and its normalized `1, ..., T` value. R checks their
 relationship, complete turn coverage, invariant trajectory metadata, and that
 the final compact value equals the trajectory's retained top-level
 `terminal_error`; a mismatch aborts analysis. Here `user` is
-`run_id + user_id`, and `scenario` is `run_id + crn_key`. The latter is the
-complete common-random-number twin set shared by counterfactual policy/updater
-branches.
+`run_id + user_id`, `scenario` is `run_id + turn.scenario_id`, and `crn_set`
+is `run_id + crn_key`. `scenario` therefore changes with the actual stimulus
+displayed on each retained turn. `crn_set` instead identifies the complete
+common-random-number twin set shared by counterfactual policy/updater branches.
+They are deliberately separate random effects: endogenous branches may remain
+in one CRN set after their target sequences diverge and cause different
+scenarios to be displayed.
 
 Both models use a Gaussian identity-link likelihood, maximum likelihood
 (`REML = FALSE`), treatment coding, `bobyqa`, and a 200,000-evaluation ceiling.
@@ -268,7 +278,8 @@ non-intercept families are also Holm corrected.
 - Hessian eigenvalues and positive-definiteness;
 - maximal-model singularity;
 - post-fit table/contrast warnings or errors;
-- user/scenario cluster counts and factor levels; and
+- user/scenario cluster counts and factor levels, including the retained
+  Experiment B CRN-set levels; and
 - residual/fitted summaries.
 
 The result status is:

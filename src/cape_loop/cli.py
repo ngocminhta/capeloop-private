@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
-from pathlib import Path
-from typing import Any, Mapping, Sequence
 import json
 import os
 import platform
 import sys
 import tempfile
+from hashlib import sha256
+from pathlib import Path
+from typing import Any, Mapping, Sequence
 
 from . import __version__
 from .analysis_export import (
@@ -25,20 +25,9 @@ from .control_study import (
     execute_control_llm_exchange,
     read_control_request_bindings,
 )
+from .conversation_reporting import conversation_stats, render_markdown
+from .conversation_surfaces import load_conversation_bank
 from .correction_debt import run_correction_debt_experiment
-from .evaluation_suite import orchestrate_openai_evaluation_suite
-from .external_decoder_providers import (
-    ANTHROPIC_DEFAULT_MODEL,
-    ANTHROPIC_OFFICIAL_ORIGIN,
-    GEMINI_DEFAULT_MODEL,
-    GEMINI_OFFICIAL_ORIGIN,
-    ExternalDecoderProvider,
-    ExternalDecoderProviderConfig,
-    ExternalDecoderProviderError,
-    _ExclusiveCollectionLock,
-    execute_external_decoder_collection,
-    plan_external_decoder_collection,
-)
 from .decoder_study import (
     ExternalDecoderRequest,
     analyze_external_decoders,
@@ -51,23 +40,12 @@ from .decoder_study import (
     read_human_collection,
     validate_external_decoder_import,
 )
-from .human_study import (
-    CONDITIONS,
-    StudyItem,
-    blind_and_order_items,
-    build_assignment_codebook,
-)
-from .human_comparison import (
-    analyze_h8_human_model_comparison,
-    convert_experiment_a_metrics_to_model_evidence,
-    read_model_evidence_strengths,
-)
-from .h7_control_review import (
-    create_h7_volunteered_review,
-    load_verified_h7_source,
-    snapshot_h7_review_inputs,
-    verify_h7_volunteered_review,
-    write_h7_plan_directory,
+from .domains import TRAVEL
+from .evaluation_suite import orchestrate_openai_evaluation_suite
+from .experiment_b_diagnostic import (
+    ALLOWED_DIAGNOSTIC_TURNS,
+    expected_provider_calls,
+    run_experiment_b_diagnostic,
 )
 from .experiment_c_review import (
     import_experiment_c_external_rescore,
@@ -77,19 +55,53 @@ from .experiment_c_robustness import (
     create_experiment_c_multiseed_review,
     verify_experiment_c_multiseed_review,
 )
+from .experiments.provenance import default_audit_users
+from .external_decoder_providers import (
+    ANTHROPIC_DEFAULT_MODEL,
+    ANTHROPIC_OFFICIAL_ORIGIN,
+    GEMINI_DEFAULT_MODEL,
+    GEMINI_OFFICIAL_ORIGIN,
+    ExternalDecoderProvider,
+    ExternalDecoderProviderConfig,
+    ExternalDecoderProviderError,
+    _ExclusiveCollectionLock,
+    execute_external_decoder_collection,
+    plan_external_decoder_collection,
+)
 from .gate_review import (
     DIRECT_FIRST_PARTY_COLLECTION_PROVENANCE,
     OPENROUTER_COLLECTION_PROVENANCE,
     import_native_gate_review,
     verify_gate_review,
 )
-from .conversation_surfaces import load_conversation_bank
-from .experiments.provenance import default_audit_users
+from .h7_control_review import (
+    create_h7_volunteered_review,
+    load_verified_h7_source,
+    snapshot_h7_review_inputs,
+    verify_h7_volunteered_review,
+    write_h7_plan_directory,
+)
+from .human_comparison import (
+    analyze_h8_human_model_comparison,
+    convert_experiment_a_metrics_to_model_evidence,
+    read_model_evidence_strengths,
+)
+from .human_study import (
+    CONDITIONS,
+    StudyItem,
+    blind_and_order_items,
+    build_assignment_codebook,
+)
 from .llm_exchange import (
     CompletionProvider,
     LLMRequest,
     ReplayProvider,
     read_responses,
+)
+from .native_action_provider import (
+    OpenAINativeActionProvider,
+    execute_openai_native_actions,
+    plan_openai_native_actions,
 )
 from .one_scenario import run_one_scenario
 from .openai_provider import (
@@ -100,15 +112,6 @@ from .openai_provider import (
     ResumableOpenAICompletionProvider,
     execute_jsonl,
     read_requests,
-)
-from .openrouter_provider import (
-    OPENROUTER_EXAMPLE_MODEL,
-    OPENROUTER_MODELS_URL,
-    OpenRouterChatProvider,
-    OpenRouterProviderConfig,
-    OpenRouterProviderError,
-    ResumableOpenRouterCompletionProvider,
-    execute_openrouter_jsonl,
 )
 from .openrouter_conversation_provider import (
     OpenRouterConversationConfig,
@@ -130,19 +133,29 @@ from .openrouter_decoder_collection import (
     openrouter_decoder_source_descriptor,
     openrouter_source_execution_summary,
 )
-from .native_action_provider import (
-    OpenAINativeActionProvider,
-    execute_openai_native_actions,
-    plan_openai_native_actions,
+from .openrouter_provider import (
+    OPENROUTER_EXAMPLE_MODEL,
+    OPENROUTER_MODELS_URL,
+    OpenRouterChatProvider,
+    OpenRouterProviderConfig,
+    OpenRouterProviderError,
+    ResumableOpenRouterCompletionProvider,
+    execute_openrouter_jsonl,
 )
+from .provider_attempts import append_jsonl as append_provider_jsonl
 from .release import freeze_run, verify_frozen_artifact
+from .response import RandomUtilityModel
 from .robustness_review import (
     build_gate6_cross_run_review,
     verify_gate6_cross_run_review,
 )
-from .schema_export import export_schemas
-from .schema_export import SCHEMAS
+from .scenario_calibration import (
+    build_scenario_calibration_audit,
+    render_blinded_surface_review_markdown,
+    render_scenario_calibration_markdown,
+)
 from .scenarios import load_scenario_catalog
+from .schema_export import SCHEMAS, export_schemas
 
 
 class _ExternalCollectionDirAction(argparse.Action):
@@ -257,9 +270,7 @@ def _atomic_write_new_text(path: Path, value: str) -> None:
             0o600,
         )
     except FileExistsError as exc:
-        raise FileExistsError(
-            f"artifact output is locked: {destination}"
-        ) from exc
+        raise FileExistsError(f"artifact output is locked: {destination}") from exc
     descriptor = -1
     temporary: Path | None = None
     try:
@@ -269,9 +280,7 @@ def _atomic_write_new_text(path: Path, value: str) -> None:
         finally:
             os.close(lock_descriptor)
         if destination.is_symlink() or destination.exists():
-            raise FileExistsError(
-                f"artifact output already exists: {destination}"
-            )
+            raise FileExistsError(f"artifact output already exists: {destination}")
         descriptor, name = tempfile.mkstemp(
             prefix=f".{destination.name}.",
             suffix=".tmp",
@@ -289,9 +298,7 @@ def _atomic_write_new_text(path: Path, value: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         if destination.is_symlink() or destination.exists():
-            raise FileExistsError(
-                f"artifact output already exists: {destination}"
-            )
+            raise FileExistsError(f"artifact output already exists: {destination}")
         os.rename(temporary, destination)
         temporary = None
         _fsync_directory(destination.parent)
@@ -377,19 +384,14 @@ def _reject_output_inside_input_run(
     resolved_output = output_path.resolve()
     if resolved_output == resolved_input:
         raise ValueError(
-            "collection output cannot overwrite its input: "
-            f"{resolved_input}"
+            f"collection output cannot overwrite its input: {resolved_input}"
         )
     source_run = _containing_run(input_path)
     if source_run is None:
         return
-    if (
-        resolved_output == source_run
-        or source_run in resolved_output.parents
-    ):
+    if resolved_output == source_run or source_run in resolved_output.parents:
         raise ValueError(
-            "collection output must be outside the immutable source "
-            f"run: {source_run}"
+            f"collection output must be outside the immutable source run: {source_run}"
         )
 
 
@@ -404,7 +406,10 @@ def _doctor(_: argparse.Namespace) -> int:
     try:
         from .domains import get_domain
 
-        checks["domains"] = [get_domain("travel").domain_id, get_domain("writing").domain_id]
+        checks["domains"] = [
+            get_domain("travel").domain_id,
+            get_domain("writing").domain_id,
+        ]
         checks["domain_registry_ok"] = True
     except Exception as exc:  # doctor should report, not crash
         checks["domain_registry_ok"] = False
@@ -440,6 +445,58 @@ class _SingleRequestJournal:
             allow_nan=False,
         )
         _atomic_write_new_text(self.request_path, serialized + "\n")
+        return self.provider.complete(request)
+
+
+class _BoundedRequestJournal:
+    """Durably retain every logical diagnostic request before delegation."""
+
+    def __init__(
+        self,
+        provider: CompletionProvider,
+        *,
+        request_path: Path,
+        logical_event_path: Path,
+        max_calls: int,
+    ) -> None:
+        if max_calls <= 0:
+            raise ValueError("request journal max_calls must be positive")
+        self.provider = provider
+        self.request_path = request_path
+        self.logical_event_path = logical_event_path
+        self.max_calls = max_calls
+        self.requests: list[LLMRequest] = []
+        self._unique_requests: dict[str, LLMRequest] = {}
+
+    @property
+    def call_count(self) -> int:
+        return len(self.requests)
+
+    def complete(self, request: LLMRequest):
+        if self.call_count >= self.max_calls:
+            raise RuntimeError(
+                "Experiment B request journal exceeded its logical-call bound"
+            )
+        existing = self._unique_requests.get(request.request_id)
+        if existing is not None and existing != request:
+            raise ValueError(
+                "diagnostic request ID collision with different prompt material"
+            )
+        reused = existing is not None
+        if not reused:
+            append_provider_jsonl(self.request_path, request.to_dict())
+            self._unique_requests[request.request_id] = request
+        append_provider_jsonl(
+            self.logical_event_path,
+            {
+                "schema_version": 1,
+                "logical_call": self.call_count + 1,
+                "request_id": request.request_id,
+                "prompt_sha256": request.prompt_sha256,
+                "reused_content_addressed_request": reused,
+            },
+        )
+        self.requests.append(request)
         return self.provider.complete(request)
 
 
@@ -580,9 +637,7 @@ def _demo_one_scenario(args: argparse.Namespace) -> int:
                 "provider": "openrouter",
                 "model_requested": args.model,
                 "model_returned": result.model_id,
-                "upstream_provider_returned": audit.get(
-                    "upstream_provider"
-                ),
+                "upstream_provider_returned": audit.get("upstream_provider"),
                 "physical_openrouter_calls": 1,
                 "scenario_id": result.scenario_id,
                 "mechanism": result.mechanism,
@@ -590,9 +645,367 @@ def _demo_one_scenario(args: argparse.Namespace) -> int:
                 "metrics": dict(result.metrics),
                 "readable_log": str(readable_path),
                 "machine_result": str(result_path),
-                "provider_audit": str(
-                    llm_dir / "provider-audit.jsonl"
+                "provider_audit": str(llm_dir / "provider-audit.jsonl"),
+            }
+        )
+    )
+    return 0
+
+
+def _semantic_user_profile(user: Any, domain: Any) -> list[str]:
+    """Render simulator-only preference truth without exposing it to the LLM."""
+
+    result = []
+    for attribute, value in zip(domain.attributes, user.theta):
+        direction = attribute.negative_label if value < 0 else attribute.positive_label
+        strength = "strongly" if abs(value) == 2 else "somewhat"
+        result.append(f"{strength} favors {direction} ({attribute.key})")
+    return result
+
+
+def _experiment_b_diagnostic_live_provider(
+    args: argparse.Namespace,
+    *,
+    llm_dir: Path,
+) -> tuple[Any, str, str, str]:
+    """Build one bounded live adapter and resolve provider-specific defaults."""
+
+    logical_calls = expected_provider_calls(args.turns)
+    total_token_ceiling = max(100_000, logical_calls * 12_000)
+    if args.provider == "openai":
+        if args.upstream_provider:
+            raise ValueError("--upstream-provider applies only to OpenRouter")
+        if args.zdr:
+            raise ValueError("--zdr applies only to OpenRouter")
+        model = args.model or DEFAULT_OPENAI_MODEL_ROLES["primary"].model
+        reasoning_effort = (
+            args.reasoning_effort
+            or DEFAULT_OPENAI_MODEL_ROLES["primary"].reasoning_effort
+        )
+        api_key_env = args.api_key_env or "OPENAI_API_KEY"
+        raw_provider = OpenAIResponsesProvider(
+            OpenAIProviderConfig(
+                model=model,
+                reasoning_effort=reasoning_effort,
+                api_key_env=api_key_env,
+                base_url="https://api.openai.com",
+                allow_custom_base_url=False,
+                timeout_seconds=args.timeout_seconds,
+                max_retries=0,
+                max_output_tokens=2048,
+                max_requests=logical_calls,
+                max_total_tokens=total_token_ceiling,
+                live_execution=True,
+            )
+        )
+        return (
+            ResumableOpenAICompletionProvider(
+                raw_provider,
+                responses_path=llm_dir / "responses.jsonl",
+                audit_path=llm_dir / "provider-audit.jsonl",
+                attempts_path=llm_dir / "provider-attempts.jsonl",
+            ),
+            "openai",
+            model,
+            reasoning_effort,
+        )
+
+    model = args.model or OPENROUTER_EXAMPLE_MODEL
+    reasoning_effort = args.reasoning_effort or "minimal"
+    api_key_env = args.api_key_env or "OPENROUTER_API_KEY"
+    upstream_provider = args.upstream_provider
+    if model == OPENROUTER_EXAMPLE_MODEL and not upstream_provider:
+        upstream_provider = "google-vertex/global"
+    raw_provider = OpenRouterChatProvider(
+        OpenRouterProviderConfig(
+            model=model,
+            reasoning_effort=reasoning_effort,
+            api_key_env=api_key_env,
+            upstream_provider=upstream_provider,
+            allow_fallbacks=False,
+            require_parameters=True,
+            data_collection="deny",
+            zdr=args.zdr,
+            timeout_seconds=args.timeout_seconds,
+            max_retries=0,
+            max_output_tokens=2048,
+            max_requests=logical_calls,
+            max_total_tokens=total_token_ceiling,
+            live_execution=True,
+        )
+    )
+    return (
+        ResumableOpenRouterCompletionProvider(
+            raw_provider,
+            responses_path=llm_dir / "responses.jsonl",
+            audit_path=llm_dir / "provider-audit.jsonl",
+            attempts_path=llm_dir / "provider-attempts.jsonl",
+        ),
+        "openrouter",
+        model,
+        reasoning_effort,
+    )
+
+
+def _demo_experiment_b_case(args: argparse.Namespace) -> int:
+    """Execute one bounded, matched Experiment B diagnostic case."""
+
+    if not args.execute_live:
+        raise ValueError(
+            "Experiment B diagnostic live execution requires the "
+            "explicit --execute-live flag"
+        )
+
+    loaded = load_scenario_catalog(
+        args.scenario_catalog,
+        expected_sha256=file_sha256(args.scenario_catalog),
+    )
+    conversation_bank = load_conversation_bank(args.conversation_bank)
+    conversation_bank.validate_catalog(loaded.catalog)
+
+    output = args.output_dir.absolute()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.parent.is_symlink():
+        raise ValueError("Experiment B diagnostic output parent cannot be a symlink")
+    try:
+        output.mkdir()
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"Experiment B diagnostic output must be a new directory: {output}"
+        ) from exc
+    llm_dir = output / "llm"
+    llm_dir.mkdir()
+    request_path = llm_dir / "requests.jsonl"
+    logical_request_path = llm_dir / "logical-request-events.jsonl"
+
+    adapter, provider_name, resolved_model, resolved_effort = (
+        _experiment_b_diagnostic_live_provider(
+            args,
+            llm_dir=llm_dir,
+        )
+    )
+    logical_calls = expected_provider_calls(args.turns)
+    journaled_provider = _BoundedRequestJournal(
+        adapter,
+        request_path=request_path,
+        logical_event_path=logical_request_path,
+        max_calls=logical_calls,
+    )
+    user = default_audit_users()[0]
+    diagnostic = run_experiment_b_diagnostic(
+        user=user,
+        domain=TRAVEL,
+        provider=journaled_provider,
+        scenario_catalog=loaded.catalog,
+        conversation_bank=conversation_bank,
+        seed=args.seed,
+        turns=args.turns,
+    )
+
+    provider_manifest = adapter.to_manifest()
+    unique_request_count = len({request.request_id for request in diagnostic.requests})
+    expected_execution = {
+        "requests_used": unique_request_count,
+        "requests_executed": unique_request_count,
+        "requests_resumed": (logical_calls - unique_request_count),
+        "transport_attempt_count": unique_request_count,
+    }
+    mismatches = {
+        key: {
+            "expected": expected,
+            "observed": provider_manifest.get(key),
+        }
+        for key, expected in expected_execution.items()
+        if provider_manifest.get(key) != expected
+    }
+    if diagnostic.provider_call_count != logical_calls:
+        mismatches["diagnostic_provider_call_count"] = {
+            "expected": logical_calls,
+            "observed": diagnostic.provider_call_count,
+        }
+    if (
+        journaled_provider.call_count != logical_calls
+        or tuple(journaled_provider.requests) != diagnostic.requests
+    ):
+        mismatches["request_journal_logical_calls"] = {
+            "expected": logical_calls,
+            "observed": journaled_provider.call_count,
+        }
+    if mismatches:
+        raise RuntimeError(
+            "Experiment B diagnostic physical-call invariant failed: "
+            + json.dumps(mismatches, sort_keys=True)
+        )
+
+    records = diagnostic.conversation_records
+    stats = conversation_stats(records)
+    conversation_path = output / "conversation.jsonl"
+    readable_path = output / "conversation.md"
+    result_path = output / "result.json"
+    provider_manifest_path = llm_dir / "provider-manifest.json"
+    semantic_profile = _semantic_user_profile(user, TRAVEL)
+    audits = adapter.used_audit_records
+    provider_tokens = [
+        audit.get("usage", {}).get("total_tokens")
+        for audit in audits
+        if isinstance(audit.get("usage"), Mapping)
+    ]
+    provider_costs = [
+        audit.get("usage", {}).get("cost")
+        for audit in audits
+        if isinstance(audit.get("usage"), Mapping)
+    ]
+    total_provider_tokens = (
+        sum(int(value) for value in provider_tokens)
+        if len(provider_tokens) == len(audits)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in provider_tokens
+        )
+        else None
+    )
+    total_provider_cost = (
+        sum(float(value) for value in provider_costs)
+        if len(provider_costs) == len(audits)
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in provider_costs
+        )
+        else None
+    )
+    summary = {
+        "schema_version": 1,
+        "status": "completed",
+        "scope": "experiment_b_matched_diagnostic",
+        "paper_eligible": False,
+        "claim_eligible": False,
+        "reason": (
+            "One synthetic user case demonstrates execution but cannot "
+            "support an empirical or inferential claim."
+        ),
+        "design": {
+            "domain": TRAVEL.domain_id,
+            "initial_profile_condition": "incorrect",
+            "policies": [
+                "balanced",
+                "soft_profile_conditioned",
+            ],
+            "turns_per_policy": args.turns,
+            "trajectory_count": len(diagnostic.experiment_result.trajectories),
+            "dialogue_turn_count": stats["turn_count"],
+            "evaluated_updater": "llm_full_context",
+            "logical_profile_updates": logical_calls,
+            "unique_profile_update_requests": unique_request_count,
+            "physical_provider_calls": provider_manifest.get("transport_attempt_count"),
+            "same_history_exact_shadow": True,
+        },
+        "simulated_user_researcher_only": {
+            **user.to_dict(),
+            "semantic_profile": semantic_profile,
+        },
+        "provider": {
+            **provider_manifest,
+            "provider_reported_total_tokens": total_provider_tokens,
+            "provider_reported_total_cost_usd": total_provider_cost,
+        },
+        "experiment_result": diagnostic.experiment_result.to_dict(include_truth=True),
+    }
+    overview = "\n".join(
+        [
+            "# One-case Experiment B diagnostic",
+            "",
+            "> **Demonstration only.** This is one synthetic user case, not "
+            "paper evidence.",
+            "",
+            "The same simulated user starts with an intentionally incorrect "
+            f"stored profile. The evaluated `{resolved_model}` profile writer "
+            f"then follows two matched {args.turns}-turn branches: a balanced "
+            "policy and a "
+            "soft-profile-conditioned policy. Each turn makes one real model "
+            "update; content-identical requests may be reused locally. The "
+            "exact action-aware shadow is computed locally.",
+            "",
+            "**Simulator-only true preferences (not shown to the model):**",
+            "",
+            *(f"- {item}" for item in semantic_profile),
+            "",
+            (
+                "Logical profile updates: "
+                f"**{logical_calls}**; physical provider "
+                "calls: "
+                f"**{provider_manifest.get('transport_attempt_count')}**; "
+                f"dialogue turns: **{stats['turn_count']}**; "
+                f"provider-reported tokens: "
+                f"**{total_provider_tokens if total_provider_tokens is not None else 'unavailable'}**; "
+                f"provider-reported cost: "
+                + (
+                    f"**${total_provider_cost:.6f}**."
+                    if total_provider_cost is not None
+                    else "**unavailable**."
+                )
+            ),
+            "",
+            "---",
+            "",
+        ]
+    )
+    rendered = render_markdown(
+        records,
+        experiment="B diagnostic",
+        complete_stats=stats,
+        complete_jsonl_path="conversation.jsonl",
+        preview_limit=len(records),
+        records_are_preselected=True,
+    )
+    _atomic_write_new_text(
+        conversation_path,
+        "".join(
+            json.dumps(
+                record,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            + "\n"
+            for record in records
+        ),
+    )
+    _atomic_write_new_text(readable_path, overview + rendered + "\n")
+    _atomic_write_new_text(result_path, _json(summary) + "\n")
+    _atomic_write_new_text(
+        provider_manifest_path,
+        _json(provider_manifest) + "\n",
+    )
+
+    print(
+        _json(
+            {
+                "status": "completed",
+                "scope": "experiment_b_matched_diagnostic",
+                "paper_eligible": False,
+                "provider": provider_name,
+                "model_requested": resolved_model,
+                "reasoning_effort": resolved_effort,
+                "models_returned": sorted(
+                    {response.model_id for response in diagnostic.responses}
                 ),
+                "upstream_providers_returned": (
+                    provider_manifest.get("upstream_providers_returned")
+                ),
+                "logical_profile_updates": (diagnostic.provider_call_count),
+                "unique_profile_update_requests": unique_request_count,
+                "physical_provider_calls": (
+                    provider_manifest.get("transport_attempt_count")
+                ),
+                "trajectories": len(diagnostic.experiment_result.trajectories),
+                "turns_per_trajectory": args.turns,
+                "dialogue_turns": stats["turn_count"],
+                "provider_reported_total_tokens": (total_provider_tokens),
+                "provider_reported_total_cost_usd": (total_provider_cost),
+                "readable_log": str(readable_path),
+                "machine_result": str(result_path),
+                "provider_audit": str(llm_dir / "provider-audit.jsonl"),
             }
         )
     )
@@ -605,6 +1018,76 @@ def _config_validate(args: argparse.Namespace) -> int:
 
     require_live_llm_budget(config)
     print(_json(config.to_dict()))
+    return 0
+
+
+def _scenarios_audit(args: argparse.Namespace) -> int:
+    """Write an outcome-free calibration report and human review packet."""
+
+    config = load_config(args.config)
+    if not config.scenarios.catalog_file:
+        raise ValueError("scenario audit requires [scenarios].catalog_file")
+    if not config.scenarios.conversation_file:
+        raise ValueError("scenario audit requires [scenarios].conversation_file")
+    output = args.output_dir
+    if output.is_symlink():
+        raise ValueError("scenario audit output cannot be a symlink")
+    if output.exists():
+        raise FileExistsError(f"scenario audit output already exists: {output}")
+
+    loaded = load_scenario_catalog(
+        config.scenarios.catalog_file,
+        expected_sha256=config.scenarios.catalog_sha256,
+    )
+    conversation_bank = load_conversation_bank(config.scenarios.conversation_file)
+    response = config.response_model
+    inverse_noise = 1.0 / response.decision_noise
+    model = RandomUtilityModel(
+        beta=response.beta * inverse_noise,
+        ranking_scale=response.rank_scale * inverse_noise,
+        default_scale=response.default_scale * inverse_noise,
+        suggestion_scale=response.suggestion_scale * inverse_noise,
+    )
+    planned_turns = config.experiment.turns if args.turns is None else args.turns
+    audit = build_scenario_calibration_audit(
+        loaded.catalog,
+        conversation_bank,
+        model,
+        susceptibility_levels=response.susceptibility_levels,
+        split=args.split,
+        planned_turns=planned_turns,
+        domains=config.experiment.domains,
+        policies=config.experiment.policies,
+        minimum_matched_probability=response.minimum_matched_probability,
+    )
+    researcher_markdown = render_scenario_calibration_markdown(audit)
+    blinded_surface_markdown = render_blinded_surface_review_markdown(audit)
+    output.mkdir(parents=True)
+    json_path = output / "scenario-audit.json"
+    researcher_path = output / "scenario-review.md"
+    blinded_surface_path = output / "scenario-surface-review-blinded.md"
+    _atomic_write_text(json_path, _json(audit) + "\n")
+    _atomic_write_text(researcher_path, researcher_markdown)
+    _atomic_write_text(blinded_surface_path, blinded_surface_markdown)
+    print(
+        _json(
+            {
+                "status": "completed",
+                "scope": "prospective_scenario_calibration",
+                "outcome_data_used": False,
+                "split": args.split,
+                "planned_turns": planned_turns,
+                "readiness": {
+                    name: tier["ready"] for name, tier in audit["readiness"].items()
+                },
+                "warning_count": audit["warnings"]["warning_count"],
+                "machine_report": str(json_path),
+                "human_review_packet": str(researcher_path),
+                "researcher_review_packet": str(researcher_path),
+                "blinded_surface_review_packet": str(blinded_surface_path),
+            }
+        )
+    )
     return 0
 
 
@@ -640,12 +1123,8 @@ def _gate_review_import_native(args: argparse.Namespace) -> int:
         source_review_path=args.source_review,
         output_dir=args.output_dir,
         external_collection_dir=args.external_collection_dir,
-        external_collection_provenance_mode=(
-            args.external_collection_provenance_mode
-        ),
-        allow_reviewed_generic_decoders=(
-            args.allow_reviewed_generic_decoders
-        ),
+        external_collection_provenance_mode=(args.external_collection_provenance_mode),
+        allow_reviewed_generic_decoders=(args.allow_reviewed_generic_decoders),
     )
     print(_json(result))
     return 0
@@ -675,20 +1154,14 @@ def _conversations_generate_openrouter(
     args: argparse.Namespace,
 ) -> int:
     if args.output.exists():
-        raise FileExistsError(
-            f"conversation bank already exists: {args.output}"
-        )
+        raise FileExistsError(f"conversation bank already exists: {args.output}")
     log_path = (
         args.log
         if args.log is not None
-        else args.output.with_name(
-            args.output.stem + ".generation.jsonl"
-        )
+        else args.output.with_name(args.output.stem + ".generation.jsonl")
     )
     if log_path.exists():
-        raise FileExistsError(
-            f"conversation generation log already exists: {log_path}"
-        )
+        raise FileExistsError(f"conversation generation log already exists: {log_path}")
     loaded = load_scenario_catalog(
         args.catalog,
         expected_sha256=file_sha256(args.catalog),
@@ -869,9 +1342,7 @@ def _llm_models(_: argparse.Namespace) -> int:
                     "strict_gate4_first_party_origin": False,
                 },
                 "selected_decoder_pair": {
-                    "provenance_mode": (
-                        "selected_openrouter_gateway_collection"
-                    ),
+                    "provenance_mode": ("selected_openrouter_gateway_collection"),
                     "shared_gateway": True,
                     "first_party_origin_claimed": False,
                     "statistical_independence_claimed": False,
@@ -879,13 +1350,9 @@ def _llm_models(_: argparse.Namespace) -> int:
                         {
                             "model": model,
                             "reasoning_effort": (
-                                SELECTED_OPENROUTER_REASONING_EFFORTS[
-                                    model
-                                ]
+                                SELECTED_OPENROUTER_REASONING_EFFORTS[model]
                             ),
-                            "decoder_family_id": (
-                                openrouter_decoder_family(model)
-                            ),
+                            "decoder_family_id": (openrouter_decoder_family(model)),
                         }
                         for model in SELECTED_OPENROUTER_DECODER_MODELS
                     ],
@@ -911,9 +1378,7 @@ def _llm_plan(args: argparse.Namespace) -> int:
     config = _openai_cli_config(args, live_execution=False)
     provider = OpenAIResponsesProvider(config)
     prepared = tuple(provider.prepare(request) for request in requests)
-    conservative_tokens = sum(
-        request.estimated_max_tokens for request in prepared
-    )
+    conservative_tokens = sum(request.estimated_max_tokens for request in prepared)
     retry_budget = _retry_expanded_budget(
         request_count=len(prepared),
         conservative_tokens=conservative_tokens,
@@ -949,17 +1414,12 @@ def _llm_plan(args: argparse.Namespace) -> int:
 
 def _llm_execute(args: argparse.Namespace) -> int:
     if not args.execute_live:
-        raise ValueError(
-            "live execution requires the explicit --execute-live flag"
-        )
-    provider = OpenAIResponsesProvider(
-        _openai_cli_config(args, live_execution=True)
-    )
+        raise ValueError("live execution requires the explicit --execute-live flag")
+    provider = OpenAIResponsesProvider(_openai_cli_config(args, live_execution=True))
     if not args.responses.exists() and not args.audit.exists():
         requests = read_requests(args.requests)
         conservative_tokens = sum(
-            provider.prepare(request).estimated_max_tokens
-            for request in requests
+            provider.prepare(request).estimated_max_tokens for request in requests
         )
         retry_budget = _retry_expanded_budget(
             request_count=len(requests),
@@ -988,9 +1448,7 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
     config = _openrouter_cli_config(args, live_execution=False)
     provider = OpenRouterChatProvider(config)
     prepared = tuple(provider.prepare(request) for request in requests)
-    conservative_tokens = sum(
-        request.estimated_max_tokens for request in prepared
-    )
+    conservative_tokens = sum(request.estimated_max_tokens for request in prepared)
     retry_budget = _retry_expanded_budget(
         request_count=len(prepared),
         conservative_tokens=conservative_tokens,
@@ -1010,9 +1468,7 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
                 "reasoning_effort": config.reasoning_effort or None,
                 "api_key_env": config.api_key_env,
                 "endpoint": config.endpoint,
-                "upstream_provider_constraint": (
-                    config.upstream_provider or None
-                ),
+                "upstream_provider_constraint": (config.upstream_provider or None),
                 "provider_preferences": config.provider_preferences(),
                 "response_cache_enabled": False,
                 "router_metadata_requested": True,
@@ -1039,17 +1495,13 @@ def _llm_plan_openrouter(args: argparse.Namespace) -> int:
 def _llm_execute_openrouter(args: argparse.Namespace) -> int:
     if not args.execute_live:
         raise ValueError(
-            "live OpenRouter execution requires the explicit "
-            "--execute-live flag"
+            "live OpenRouter execution requires the explicit --execute-live flag"
         )
-    provider = OpenRouterChatProvider(
-        _openrouter_cli_config(args, live_execution=True)
-    )
+    provider = OpenRouterChatProvider(_openrouter_cli_config(args, live_execution=True))
     if not args.responses.exists() and not args.audit.exists():
         requests = read_requests(args.requests)
         conservative_tokens = sum(
-            provider.prepare(request).estimated_max_tokens
-            for request in requests
+            provider.prepare(request).estimated_max_tokens for request in requests
         )
         retry_budget = _retry_expanded_budget(
             request_count=len(requests),
@@ -1127,16 +1579,12 @@ def _openai_decoder_roles(args: argparse.Namespace) -> tuple[str, ...]:
 
 def _decoder_execute_openai(args: argparse.Namespace) -> int:
     if not args.execute_live:
-        raise ValueError(
-            "decoder execution requires the explicit --execute-live flag"
-        )
+        raise ValueError("decoder execution requires the explicit --execute-live flag")
     _openai_decoder_roles(args)
     _reject_output_inside_input_run(args.requests, args.output_dir)
     requests = read_external_decoder_requests(args.requests)
     output = Path(args.output_dir)
-    with _ExclusiveCollectionLock(
-        output / _GENERIC_DECODER_COMMAND_LOCK_NAME
-    ):
+    with _ExclusiveCollectionLock(output / _GENERIC_DECODER_COMMAND_LOCK_NAME):
         return _decoder_execute_openai_locked(
             args,
             output=output,
@@ -1160,10 +1608,7 @@ def _decoder_execute_openai_locked(
             "openai-"
             + role_name
             + "-"
-            + "".join(
-                character if character.isalnum() else "-"
-                for character in model
-            )
+            + "".join(character if character.isalnum() else "-" for character in model)
         )
         provider = OpenAIResponsesProvider(
             _openai_cli_config(
@@ -1261,9 +1706,7 @@ def _decoder_execute_openai_locked(
             {
                 "output_dir": str(output),
                 "judgments": len(judgments),
-                "source_design_eligible": (
-                    design_audit.source_design_eligible
-                ),
+                "source_design_eligible": (design_audit.source_design_eligible),
                 "statistical_independence_claimed": False,
             }
         )
@@ -1294,9 +1737,7 @@ def _decoder_plan_openai(args: argparse.Namespace) -> int:
             )
             for request in requests
         )
-        conservative_tokens = sum(
-            request.estimated_max_tokens for request in prepared
-        )
+        conservative_tokens = sum(request.estimated_max_tokens for request in prepared)
         retry_budget = _retry_expanded_budget(
             request_count=len(prepared),
             conservative_tokens=conservative_tokens,
@@ -1340,9 +1781,7 @@ def _openrouter_decoder_models(
     additional = tuple(getattr(args, "additional_model", ()))
     if model is None:
         if additional:
-            raise ValueError(
-                "--additional-model requires an explicit --model"
-            )
+            raise ValueError("--additional-model requires an explicit --model")
         models = SELECTED_OPENROUTER_DECODER_MODELS
     else:
         models = (model, *additional)
@@ -1372,9 +1811,7 @@ def _openrouter_model_effort_overrides(
                 "one of none, minimal, low, medium, high, xhigh, or max"
             )
         if model in result:
-            raise ValueError(
-                "OpenRouter per-model reasoning overrides must be unique"
-            )
+            raise ValueError("OpenRouter per-model reasoning overrides must be unique")
         result[model] = effort
     models = set(_openrouter_decoder_models(args))
     unexpected = sorted(set(result) - models)
@@ -1435,8 +1872,7 @@ def _decoder_plan_openrouter(args: argparse.Namespace) -> int:
 def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
     if not args.execute_live:
         raise ValueError(
-            "OpenRouter decoder execution requires the explicit "
-            "--execute-live flag"
+            "OpenRouter decoder execution requires the explicit --execute-live flag"
         )
     models = _openrouter_decoder_models(args)
     _reject_output_inside_input_run(args.requests, args.output_dir)
@@ -1445,16 +1881,10 @@ def _decoder_execute_openrouter(args: argparse.Namespace) -> int:
     if output.parent.is_symlink():
         raise ValueError("OpenRouter decoder output parent cannot be a symlink")
     if output.exists() and (output.is_symlink() or not output.is_dir()):
-        raise ValueError(
-            "OpenRouter decoder output must be a safe directory"
-        )
-    with _ExclusiveCollectionLock(
-        output / OPENROUTER_COLLECTION_LOCKS[0]
-    ):
+        raise ValueError("OpenRouter decoder output must be a safe directory")
+    with _ExclusiveCollectionLock(output / OPENROUTER_COLLECTION_LOCKS[0]):
         _require_safe_openrouter_decoder_output(output, models=models)
-        with _ExclusiveCollectionLock(
-            output / OPENROUTER_COLLECTION_LOCKS[1]
-        ):
+        with _ExclusiveCollectionLock(output / OPENROUTER_COLLECTION_LOCKS[1]):
             return _decoder_execute_openrouter_locked(
                 args,
                 output=output,
@@ -1472,9 +1902,7 @@ def _require_safe_openrouter_decoder_output(
     if output.parent.is_symlink():
         raise ValueError("OpenRouter decoder output parent cannot be a symlink")
     if output.exists() and (output.is_symlink() or not output.is_dir()):
-        raise ValueError(
-            "OpenRouter decoder output must be a safe directory"
-        )
+        raise ValueError("OpenRouter decoder output must be a safe directory")
     if not output.exists():
         return
     allowed_root = {
@@ -1496,19 +1924,13 @@ def _require_safe_openrouter_decoder_output(
     for name in actual_root - {"journals"}:
         candidate = output / name
         if candidate.is_symlink() or not candidate.is_file():
-            raise ValueError(
-                f"unsafe OpenRouter decoder resume file: {name}"
-            )
+            raise ValueError(f"unsafe OpenRouter decoder resume file: {name}")
     journals = output / "journals"
     if not journals.exists():
         return
     if journals.is_symlink() or not journals.is_dir():
-        raise ValueError(
-            "OpenRouter decoder journals must be a safe directory"
-        )
-    expected_journals = {
-        openrouter_decoder_identity(model)[0] for model in models
-    }
+        raise ValueError("OpenRouter decoder journals must be a safe directory")
+    expected_journals = {openrouter_decoder_identity(model)[0] for model in models}
     unexpected_journals = sorted(
         {item.name for item in journals.iterdir()} - expected_journals
     )
@@ -1524,9 +1946,7 @@ def _require_safe_openrouter_decoder_output(
     }
     for journal in journals.iterdir():
         if journal.is_symlink() or not journal.is_dir():
-            raise ValueError(
-                "OpenRouter model journal must be a safe directory"
-            )
+            raise ValueError("OpenRouter model journal must be a safe directory")
         unexpected_files = sorted(
             {item.name for item in journal.iterdir()} - allowed_journal_files
         )
@@ -1537,9 +1957,7 @@ def _require_safe_openrouter_decoder_output(
             )
         for item in journal.iterdir():
             if item.is_symlink() or not item.is_file():
-                raise ValueError(
-                    "OpenRouter model journal contains an unsafe file"
-                )
+                raise ValueError("OpenRouter model journal contains an unsafe file")
 
 
 def _decoder_execute_openrouter_locked(
@@ -1571,9 +1989,7 @@ def _decoder_execute_openrouter_locked(
     plan_path = output / "collection-plan.json"
     if plan_path.exists():
         if plan_path.is_symlink() or not plan_path.is_file():
-            raise ValueError(
-                "existing OpenRouter collection plan is not a safe file"
-            )
+            raise ValueError("existing OpenRouter collection plan is not a safe file")
         try:
             retained_plan = json.loads(plan_path.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1611,9 +2027,7 @@ def _decoder_execute_openrouter_locked(
             audit_path=journal / "provider-audit.jsonl",
         )
         adapter.require_static_corpus_capacity(provider_requests)
-        prepared_runs.append(
-            (index, model, instance_id, adapter, provider_requests)
-        )
+        prepared_runs.append((index, model, instance_id, adapter, provider_requests))
 
     judgments = []
     manifests = []
@@ -1632,9 +2046,7 @@ def _decoder_execute_openrouter_locked(
                     response,
                     decoder_instance_id=instance_id,
                     decoder_family_id=openrouter_decoder_family(model),
-                    source_descriptor=openrouter_decoder_source_descriptor(
-                        model
-                    ),
+                    source_descriptor=openrouter_decoder_source_descriptor(model),
                 )
             )
         audits = tuple(adapter.used_audit_records)
@@ -1714,13 +2126,9 @@ def _decoder_execute_openrouter_locked(
             {
                 "output_dir": str(output),
                 "judgments": len(judgments),
-                "source_design_eligible": (
-                    design_audit.source_design_eligible
-                ),
+                "source_design_eligible": (design_audit.source_design_eligible),
                 "eligible_for_reviewed_shared_gateway_admission": (
-                    execution_manifest[
-                        "eligible_for_reviewed_shared_gateway_admission"
-                    ]
+                    execution_manifest["eligible_for_reviewed_shared_gateway_admission"]
                 ),
                 "shared_gateway": True,
                 "first_party_origin_claimed": False,
@@ -1789,8 +2197,7 @@ def _decoder_plan_distinct(args: argparse.Namespace) -> int:
 def _decoder_execute_distinct(args: argparse.Namespace) -> int:
     if not args.execute_live:
         raise ValueError(
-            "distinct decoder execution requires the explicit "
-            "--execute-live flag"
+            "distinct decoder execution requires the explicit --execute-live flag"
         )
     planning_configs = _external_decoder_configs(
         args,
@@ -1800,9 +2207,7 @@ def _decoder_execute_distinct(args: argparse.Namespace) -> int:
     requests = read_external_decoder_requests(args.requests)
     plan = plan_external_decoder_collection(requests, planning_configs)
     output = Path(args.output_dir)
-    with _ExclusiveCollectionLock(
-        output / ".external-decoder-command.lock"
-    ):
+    with _ExclusiveCollectionLock(output / ".external-decoder-command.lock"):
         return _decoder_execute_distinct_locked(
             args,
             requests=requests,
@@ -1822,9 +2227,7 @@ def _decoder_execute_distinct_locked(
 
     plan_path = output / "collection-plan.json"
     plan_text = _json(plan) + "\n"
-    if plan_path.exists() and plan_path.read_text(
-        encoding="utf-8"
-    ) != plan_text:
+    if plan_path.exists() and plan_path.read_text(encoding="utf-8") != plan_text:
         raise ValueError(
             "existing distinct-decoder plan has a different request, model, "
             "origin, or budget identity"
@@ -1861,8 +2264,7 @@ def _decoder_execute_distinct_locked(
         "audit_path": audit_path.name,
         "attempt_path": attempt_path.name,
         "repaired_trailing_files": [
-            Path(path).name
-            for path in summary.repaired_trailing_files
+            Path(path).name for path in summary.repaired_trailing_files
         ],
     }
     manifest = {
@@ -1890,9 +2292,7 @@ def _decoder_execute_distinct_locked(
             {
                 **summary.to_dict(),
                 "output_dir": str(output),
-                "source_design_eligible": (
-                    source_design.source_design_eligible
-                ),
+                "source_design_eligible": (source_design.source_design_eligible),
                 "statistical_independence_claimed": False,
                 "claim_status": "not_claimed",
             }
@@ -2022,10 +2422,7 @@ def _human_study_compare(args: argparse.Namespace) -> int:
         ),
     }
     resolved_output = args.output.resolve()
-    if any(
-        resolved_output == resolved
-        for _, resolved, _ in snapshots.values()
-    ):
+    if any(resolved_output == resolved for _, resolved, _ in snapshots.values()):
         raise ValueError("H8 output cannot overwrite an evidence input")
     response_material = snapshots["human responses"][2]
     codebook_material = snapshots["assignment codebook"][2]
@@ -2046,15 +2443,9 @@ def _human_study_compare(args: argparse.Namespace) -> int:
         **result.to_dict(),
         "artifact_kind": "h8_human_model_comparison",
         "input_artifacts": {
-            "human_responses_sha256": sha256(
-                response_material
-            ).hexdigest(),
-            "assignment_codebook_sha256": sha256(
-                codebook_material
-            ).hexdigest(),
-            "model_evidence_sha256": sha256(
-                evidence_material
-            ).hexdigest(),
+            "human_responses_sha256": sha256(response_material).hexdigest(),
+            "assignment_codebook_sha256": sha256(codebook_material).hexdigest(),
+            "model_evidence_sha256": sha256(evidence_material).hexdigest(),
         },
     }
     for label, (path, resolved, material) in snapshots.items():
@@ -2100,9 +2491,7 @@ def _read_jsonl_objects(
         try:
             lines = path.decode("utf-8").splitlines()
         except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"{source_label}: input must be valid UTF-8"
-            ) from exc
+            raise ValueError(f"{source_label}: input must be valid UTF-8") from exc
     else:
         source_label = str(path)
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -2113,13 +2502,9 @@ def _read_jsonl_objects(
         try:
             decoded = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"{source_label}:{line_number}: {exc}"
-            ) from exc
+            raise ValueError(f"{source_label}:{line_number}: {exc}") from exc
         if not isinstance(decoded, Mapping):
-            raise ValueError(
-                f"{source_label}:{line_number}: row must be an object"
-            )
+            raise ValueError(f"{source_label}:{line_number}: row must be an object")
         rows.append(decoded)
     return tuple(rows)
 
@@ -2131,17 +2516,13 @@ def _human_study_evidence_from_experiment_a(
     if not valid:
         raise ValueError(
             "Experiment A source run is not verified: " + "; ".join(errors)
-    )
+        )
     _reject_output_inside_input_run(args.run_dir, args.output)
     source_paths = {
         "Experiment A config": args.run_dir / "config.resolved.json",
         "Experiment A manifest": args.run_dir / "manifest.json",
-        "Experiment A population": (
-            args.run_dir / "population" / "users.jsonl"
-        ),
-        "Experiment A metrics": (
-            args.run_dir / "metrics" / "experiment-a.jsonl"
-        ),
+        "Experiment A population": (args.run_dir / "population" / "users.jsonl"),
+        "Experiment A metrics": (args.run_dir / "metrics" / "experiment-a.jsonl"),
     }
     source_snapshots = {
         label: (
@@ -2224,9 +2605,7 @@ def _human_study_evidence_from_experiment_a(
 
 def _correction_debt_run(args: argparse.Namespace) -> int:
     if args.output.exists():
-        raise FileExistsError(
-            f"correction-debt output already exists: {args.output}"
-        )
+        raise FileExistsError(f"correction-debt output already exists: {args.output}")
     if args.truth_map is not None:
         decoded = json.loads(args.truth_map.read_text(encoding="utf-8"))
         if not isinstance(decoded, dict):
@@ -2260,9 +2639,7 @@ def _control_study_analyze(args: argparse.Namespace) -> int:
     """Regenerate fixed bindings and atomically score imported responses."""
 
     if args.output.exists():
-        raise FileExistsError(
-            f"control-study output already exists: {args.output}"
-        )
+        raise FileExistsError(f"control-study output already exists: {args.output}")
     _reject_output_inside_input_run(args.bindings, args.output)
     _reject_output_inside_input_run(args.responses, args.output)
     binding_resolved, binding_material = _snapshot_regular_file(
@@ -2276,18 +2653,10 @@ def _control_study_analyze(args: argparse.Namespace) -> int:
     retained_bindings = read_control_request_bindings(binding_material)
     if not retained_bindings:
         raise ValueError("control-study bindings cannot be empty")
-    updater_ids = {
-        binding.llm_request.updater_id
-        for binding in retained_bindings
-    }
-    views = {
-        binding.llm_request.view
-        for binding in retained_bindings
-    }
+    updater_ids = {binding.llm_request.updater_id for binding in retained_bindings}
+    views = {binding.llm_request.view for binding in retained_bindings}
     if len(updater_ids) != 1 or len(views) != 1:
-        raise ValueError(
-            "control-study bindings must use one updater ID and one view"
-        )
+        raise ValueError("control-study bindings must use one updater ID and one view")
     updater_id = next(iter(updater_ids))
     view = next(iter(views))
     plan = build_experiment_a_control_plan()
@@ -2415,9 +2784,9 @@ def _control_study_h7_review(args: argparse.Namespace) -> int:
                 "source_run_id": source.source_run["run_id"],
                 "plan_sha256": source.plan.plan_sha256,
                 "review_sha256": payload["review_sha256"],
-                "volunteered_pair_count": recomputed[
-                    "volunteered_valid_learning"
-                ]["pair_count"],
+                "volunteered_pair_count": recomputed["volunteered_valid_learning"][
+                    "pair_count"
+                ],
                 "computed_status": recomputed["computed_status"],
                 "criterion_met": recomputed["criterion_met"],
                 "source_run_modified": False,
@@ -2492,12 +2861,8 @@ def _experiment_c_decoder_import(args: argparse.Namespace) -> int:
         judgments_path=args.judgments,
         output_dir=args.output_dir,
         external_collection_dir=args.external_collection_dir,
-        external_collection_provenance_mode=(
-            args.external_collection_provenance_mode
-        ),
-        allow_reviewed_generic_decoders=(
-            args.allow_reviewed_generic_decoders
-        ),
+        external_collection_provenance_mode=(args.external_collection_provenance_mode),
+        allow_reviewed_generic_decoders=(args.allow_reviewed_generic_decoders),
     )
     print(_json(result))
     return 0
@@ -2599,9 +2964,7 @@ def _study_templates() -> tuple[StudyItem, ...]:
 def _human_study_generate(args: argparse.Namespace) -> int:
     output = Path(args.output_dir)
     if output.exists() and any(output.iterdir()):
-        raise ValueError(
-            "human-study output directory must be absent or empty"
-        )
+        raise ValueError("human-study output directory must be absent or empty")
     output.mkdir(parents=True, exist_ok=True)
     items = _study_templates()
     participant = blind_and_order_items(
@@ -2617,9 +2980,7 @@ def _human_study_generate(args: argparse.Namespace) -> int:
                     "assignment_protocol_id": args.assignment_protocol_id,
                     "consent_version": args.consent_version,
                     "blinding_version": args.blinding_version,
-                    "comprehension_check_id": (
-                        args.comprehension_check_id
-                    ),
+                    "comprehension_check_id": (args.comprehension_check_id),
                     **item,
                 },
                 sort_keys=True,
@@ -2695,10 +3056,7 @@ def _human_study_generate(args: argparse.Namespace) -> int:
                 "schema_version": 1,
                 "assignment_id": args.assignment_id,
                 "assignment_protocol_id": args.assignment_protocol_id,
-                "files": {
-                    path.name: file_sha256(path)
-                    for path in retained
-                },
+                "files": {path.name: file_sha256(path) for path in retained},
             }
         )
         + "\n",
@@ -2817,11 +3175,141 @@ def build_parser() -> argparse.ArgumentParser:
     )
     one_scenario.set_defaults(handler=_demo_one_scenario)
 
+    experiment_b_case = demo_commands.add_parser(
+        "experiment-b-case",
+        help=(
+            "run one matched Experiment B diagnostic using two logical "
+            "profile updates per configured turn"
+        ),
+    )
+    experiment_b_case.add_argument(
+        "output_dir",
+        type=Path,
+        help="new directory for the readable log and provider journals",
+    )
+    experiment_b_case.add_argument(
+        "--scenario-catalog",
+        type=Path,
+        default=Path("data/scenarios/scenario-catalog-v1.json"),
+    )
+    experiment_b_case.add_argument(
+        "--conversation-bank",
+        type=Path,
+        default=Path("data/scenarios/conversation-templates-v1.json"),
+    )
+    experiment_b_case.add_argument("--seed", type=int, default=1729)
+    experiment_b_case.add_argument(
+        "--turns",
+        type=int,
+        choices=ALLOWED_DIAGNOSTIC_TURNS,
+        default=3,
+        help=(
+            "turns per policy branch; 6 is the smallest horizon that repeats "
+            "every preference attribute"
+        ),
+    )
+    experiment_b_case.add_argument(
+        "--provider",
+        choices=("openrouter", "openai"),
+        default="openrouter",
+        help="live provider; defaults to OpenRouter",
+    )
+    experiment_b_case.add_argument(
+        "--model",
+        default="",
+        help=(
+            "exact model ID; defaults to Gemini Flash for OpenRouter or "
+            "GPT-5.6 Sol for direct OpenAI"
+        ),
+    )
+    experiment_b_case.add_argument(
+        "--reasoning-effort",
+        choices=(
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ),
+        default="",
+    )
+    experiment_b_case.add_argument(
+        "--upstream-provider",
+        default="",
+        help=(
+            "optional exact OpenRouter upstream provider constraint; the "
+            "default Gemini route uses google-vertex/global"
+        ),
+    )
+    experiment_b_case.add_argument(
+        "--api-key-env",
+        default="",
+    )
+    experiment_b_case.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=40.0,
+        help=(
+            "per-call timeout; worst-case transport time grows with twice "
+            "the selected turn count"
+        ),
+    )
+    experiment_b_case.add_argument(
+        "--zdr",
+        action="store_true",
+        help="require an OpenRouter zero-data-retention endpoint",
+    )
+    experiment_b_case.add_argument(
+        "--execute-live",
+        action="store_true",
+        help=(
+            "authorize twice the selected turn count in logical updates and "
+            "at most that many paid provider attempts"
+        ),
+    )
+    experiment_b_case.set_defaults(handler=_demo_experiment_b_case)
+
     config = commands.add_parser("config", help="configuration commands")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     validate = config_commands.add_parser("validate", help="validate a TOML config")
     validate.add_argument("config", type=Path)
     validate.set_defaults(handler=_config_validate)
+
+    scenarios = commands.add_parser(
+        "scenarios",
+        help="prospective scenario calibration and review commands",
+    )
+    scenario_commands = scenarios.add_subparsers(
+        dest="scenario_command",
+        required=True,
+    )
+    audit_scenarios = scenario_commands.add_parser(
+        "audit",
+        help=(
+            "audit one config-bound scenario bank without using experiment "
+            "outcomes or calling a model"
+        ),
+    )
+    audit_scenarios.add_argument("config", type=Path)
+    audit_scenarios.add_argument(
+        "output_dir",
+        type=Path,
+        help="new directory for machine and human-review reports",
+    )
+    audit_scenarios.add_argument(
+        "--split",
+        choices=("train", "development", "test"),
+        default="test",
+    )
+    audit_scenarios.add_argument(
+        "--turns",
+        type=int,
+        help=("planned trajectory horizon; defaults to experiment.turns from CONFIG"),
+    )
+    audit_scenarios.set_defaults(handler=_scenarios_audit)
 
     run = commands.add_parser("run", help="run an experiment configuration")
     run.add_argument("config", type=Path)
@@ -2834,9 +3322,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--execute-live",
         action="store_true",
-        help=(
-            "authorize configured live provider calls subject to hard budgets"
-        ),
+        help=("authorize configured live provider calls subject to hard budgets"),
     )
     run.add_argument(
         "--resume-failed-live",
@@ -2881,9 +3367,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_native.add_argument("source_review", type=Path)
     import_native.add_argument("output_dir", type=Path)
-    external_provenance = import_native.add_mutually_exclusive_group(
-        required=True
-    )
+    external_provenance = import_native.add_mutually_exclusive_group(required=True)
     external_provenance.add_argument(
         "--external-collection-dir",
         type=Path,
@@ -2925,9 +3409,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     gate6_review = commands.add_parser(
         "gate6-review",
-        help=(
-            "immutable offline cross-family Gate 6 robustness review"
-        ),
+        help=("immutable offline cross-family Gate 6 robustness review"),
     )
     gate6_review_commands = gate6_review.add_subparsers(
         dest="gate6_review_command",
@@ -2945,25 +3427,20 @@ def build_parser() -> argparse.ArgumentParser:
     build_gate6.set_defaults(handler=_gate6_review_build)
     verify_gate6 = gate6_review_commands.add_parser(
         "verify",
-        help=(
-            "verify a Gate 6 review, optionally re-reading every source run"
-        ),
+        help=("verify a Gate 6 review, optionally re-reading every source run"),
     )
     verify_gate6.add_argument("review_dir", type=Path)
     verify_gate6.add_argument(
         "--reverify-sources",
         action="store_true",
-        help=(
-            "re-verify all declared source runs and compare recomputed evidence"
-        ),
+        help=("re-verify all declared source runs and compare recomputed evidence"),
     )
     verify_gate6.set_defaults(handler=_gate6_review_verify)
 
     experiment_c_decoder = commands.add_parser(
         "experiment-c-decoder",
         help=(
-            "append-only external-decoder rescoring for a completed "
-            "Experiment C run"
+            "append-only external-decoder rescoring for a completed Experiment C run"
         ),
     )
     experiment_c_decoder_commands = experiment_c_decoder.add_subparsers(
@@ -3012,9 +3489,7 @@ def build_parser() -> argparse.ArgumentParser:
             "provider-validated provenance"
         ),
     )
-    import_c_decoder.set_defaults(
-        external_collection_provenance_mode=None
-    )
+    import_c_decoder.set_defaults(external_collection_provenance_mode=None)
     import_c_decoder.set_defaults(handler=_experiment_c_decoder_import)
     verify_c_decoder = experiment_c_decoder_commands.add_parser(
         "verify",
@@ -3057,9 +3532,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SOURCE_RUN",
         help="two or more compatible completed evaluation_validity runs",
     )
-    review_robustness.set_defaults(
-        handler=_experiment_c_robustness_review
-    )
+    review_robustness.set_defaults(handler=_experiment_c_robustness_review)
     verify_robustness = robustness_commands.add_parser(
         "verify",
         help="verify the review and optionally re-bind all source runs",
@@ -3070,13 +3543,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="source_runs",
         type=Path,
         action="append",
-        help=(
-            "repeat for every source to re-verify exact source bindings"
-        ),
+        help=("repeat for every source to re-verify exact source bindings"),
     )
-    verify_robustness.set_defaults(
-        handler=_experiment_c_robustness_verify
-    )
+    verify_robustness.set_defaults(handler=_experiment_c_robustness_verify)
 
     schema = commands.add_parser("schema", help="JSON Schema commands")
     schema_commands = schema.add_subparsers(dest="schema_command", required=True)
@@ -3104,9 +3573,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_conversations.add_argument(
         "--log",
         type=Path,
-        help=(
-            "readable JSONL request/result log; defaults beside OUTPUT"
-        ),
+        help=("readable JSONL request/result log; defaults beside OUTPUT"),
     )
     generate_conversations.add_argument(
         "--bank-id",
@@ -3147,9 +3614,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="authorize the paid OpenRouter authoring calls",
     )
-    generate_conversations.set_defaults(
-        handler=_conversations_generate_openrouter
-    )
+    generate_conversations.set_defaults(handler=_conversations_generate_openrouter)
 
     llm = commands.add_parser("llm", help="provider-neutral LLM exchange")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
@@ -3333,8 +3798,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_suite = llm_commands.add_parser(
         "evaluation-suite",
         help=(
-            "plan or explicitly execute isolated primary and replication "
-            "paper configs"
+            "plan or explicitly execute isolated primary and replication paper configs"
         ),
     )
     evaluation_suite.add_argument("primary_config", type=Path)
@@ -3344,10 +3808,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_suite.add_argument(
         "--execute-live",
         action="store_true",
-        help=(
-            "authorize both role-specific live runs under their own hard "
-            "budgets"
-        ),
+        help=("authorize both role-specific live runs under their own hard budgets"),
     )
     evaluation_suite.add_argument(
         "--allow-existing",
@@ -3360,9 +3821,7 @@ def build_parser() -> argparse.ArgumentParser:
         "artifact",
         help="freeze, compact, and verify run-derived artifacts",
     )
-    artifact_commands = artifact.add_subparsers(
-        dest="artifact_command", required=True
-    )
+    artifact_commands = artifact.add_subparsers(dest="artifact_command", required=True)
     freeze = artifact_commands.add_parser(
         "freeze", help="freeze a completed verified run to deterministic tar"
     )
@@ -3395,9 +3854,7 @@ def build_parser() -> argparse.ArgumentParser:
         "decoder-study",
         help="external native-state decoder exchange and analysis",
     )
-    decoder_commands = decoder.add_subparsers(
-        dest="decoder_command", required=True
-    )
+    decoder_commands = decoder.add_subparsers(dest="decoder_command", required=True)
     validate_decoder = decoder_commands.add_parser(
         "validate", help="validate decoder hashes, blinding, and source design"
     )
@@ -3450,9 +3907,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_openrouter_decoder = decoder_commands.add_parser(
         "plan-openrouter",
-        help=(
-            "dry-run routed OpenRouter decoder sources without reading a key"
-        ),
+        help=("dry-run routed OpenRouter decoder sources without reading a key"),
     )
     plan_openrouter_decoder.add_argument("requests", type=Path)
     add_openrouter_arguments(plan_openrouter_decoder)
@@ -3633,9 +4088,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_native_action = native_action_commands.add_parser(
         "plan-openai",
-        help=(
-            "plan exact gpt-5.6-sol native-state actions without reading a key"
-        ),
+        help=("plan exact gpt-5.6-sol native-state actions without reading a key"),
     )
     plan_native_action.add_argument("run_dir", type=Path)
     plan_native_action.add_argument("--output", type=Path)
@@ -3714,9 +4167,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_human.add_argument("--consent-version", default="consent-v1")
     analyze_human.add_argument("--blinding-version", default="blinding-v1")
-    analyze_human.add_argument(
-        "--bootstrap-replicates", type=int, default=1000
-    )
+    analyze_human.add_argument("--bootstrap-replicates", type=int, default=1000)
     analyze_human.add_argument("--seed", type=int, default=1729)
     analyze_human.add_argument("--output", type=Path)
     analyze_human.set_defaults(handler=_human_study_analyze)
@@ -3734,10 +4185,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare_human.add_argument(
         "--primary-llm-source-id",
         required=True,
-        help=(
-            "ordinary-LLM evidence source selected by the external "
-            "preregistration"
-        ),
+        help=("ordinary-LLM evidence source selected by the external preregistration"),
     )
     compare_human.add_argument(
         "--assignment-protocol-id",
@@ -3772,9 +4220,7 @@ def build_parser() -> argparse.ArgumentParser:
             "structured proxy updaters are rejected"
         ),
     )
-    evidence_from_a.set_defaults(
-        handler=_human_study_evidence_from_experiment_a
-    )
+    evidence_from_a.set_defaults(handler=_human_study_evidence_from_experiment_a)
 
     correction = commands.add_parser(
         "correction-debt",
@@ -3806,9 +4252,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_controls = control_study_commands.add_parser(
         "analyze",
-        help=(
-            "regenerate fixed plan/bindings and atomically score response JSONL"
-        ),
+        help=("regenerate fixed plan/bindings and atomically score response JSONL"),
     )
     analyze_controls.add_argument("bindings", type=Path)
     analyze_controls.add_argument("responses", type=Path)
@@ -3824,8 +4268,7 @@ def build_parser() -> argparse.ArgumentParser:
     h7_plan = control_study_commands.add_parser(
         "h7-plan",
         help=(
-            "build paired direct-statement requests from a verified "
-            "Experiment A run"
+            "build paired direct-statement requests from a verified Experiment A run"
         ),
     )
     h7_plan.add_argument("run_dir", type=Path)
@@ -3833,9 +4276,7 @@ def build_parser() -> argparse.ArgumentParser:
     h7_plan.set_defaults(handler=_control_study_h7_plan)
     h7_review = control_study_commands.add_parser(
         "h7-review",
-        help=(
-            "bind accepted provider evidence and recompute H7 in a new artifact"
-        ),
+        help=("bind accepted provider evidence and recompute H7 in a new artifact"),
     )
     h7_review.add_argument("run_dir", type=Path)
     h7_review.add_argument("plan_dir", type=Path)

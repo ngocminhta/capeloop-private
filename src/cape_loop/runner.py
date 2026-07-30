@@ -322,7 +322,9 @@ def _study_split_manifest(
     terminal_scenario = "heldout-terminal-v2-scenarios"
     return build_split_manifest(
         seed=config.run.seed,
+        theta_policy=config.population.theta_policy,
         susceptibility_levels=config.response_model.susceptibility_levels,
+        susceptibility_policy=config.population.susceptibility_policy,
         option_templates=(
             *option_by_split["train"],
             *option_by_split["development"],
@@ -3251,6 +3253,7 @@ def _run_b(
                 "trajectory_id": trajectory.trajectory_id,
                 "user_id": trajectory.user_id,
                 "domain_id": trajectory.domain_id,
+                "scenario_id": turn.scenario_id,
                 "crn_key": trajectory.crn_key,
                 "updater_id": trajectory.updater_id,
                 "policy_id": trajectory.policy_id,

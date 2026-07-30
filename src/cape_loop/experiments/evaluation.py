@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import math
+from dataclasses import dataclass
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
@@ -25,13 +25,13 @@ from ..policies import (
 from ..response import RandomUtilityModel, intrinsic_utility
 from ..scenarios import ScenarioCatalog, materialize_context
 from ..schemas import (
+    THETA_VALUES,
     InteractionContext,
     InteractionRecord,
     LatentUser,
     Observation,
     Option,
     PolicyProvenance,
-    THETA_VALUES,
     TrajectoryRecord,
 )
 from ..statistics import (
@@ -53,9 +53,7 @@ from ..updaters import (
     build_updater_registry,
     make_update_view,
 )
-from .closed_loop import run_trajectory
-from .closed_loop import ClosedLoopTrajectory
-
+from .closed_loop import ClosedLoopTrajectory, run_trajectory
 
 STATIC_REGIMES = ("fixed_balanced", "fixed_biased")
 ALL_REGIMES = STATIC_REGIMES + ("endogenous_closed_loop",)
@@ -153,15 +151,15 @@ def generate_fixed_history(
         raise ValueError("turns must be positive")
     declared_response = response_model or RandomUtilityModel()
     fixed_profile = (
-        PreferenceBelief.uniform()
-        if reference_belief is None
-        else reference_belief
+        PreferenceBelief.uniform() if reference_belief is None else reference_belief
     )
     identifier = history_id or (
         f"fixed:{domain.domain_id}:{user.user_id}:{policy.policy_id}"
     )
     common_key = crn_key or identifier
     events: list[LoggedEvent] = []
+    scenario_occurrences = [0, 0, 0]
+    target_occurrences = [0, 0, 0]
     for turn in range(turns):
         action = policy.action(
             domain,
@@ -169,19 +167,25 @@ def generate_fixed_history(
             turn=turn,
             master_seed=seed,
             trajectory_id=identifier,
+            target_counts=tuple(target_occurrences),
         )
+        target = action.context.target_attribute
+        if target is not None:
+            target_occurrences[target] += 1
         if scenario_catalog is not None:
-            target = action.context.target_attribute
             if target is None:
                 raise ValueError(
                     "catalog-backed fixed history requires a target attribute"
                 )
-            scenario = scenario_catalog.select(
+            occurrence = scenario_occurrences[target]
+            scenario_occurrences[target] += 1
+            scenario = scenario_catalog.select_cycle(
                 domain=domain.domain_id,
                 split=data_split,
                 target_attribute=target,
                 seed=seed,
-                selection_key=("fixed-history", common_key, turn),
+                cycle_key=("fixed-history", common_key),
+                occurrence_index=occurrence,
             )
             action = PolicyAction(
                 context=materialize_context(action.context, scenario),
@@ -400,13 +404,9 @@ def build_terminal_battery(
                 context=InteractionContext(
                     context_id=item.item_id,
                     options=options,
-                    ranking=tuple(
-                        option.option_id for option in options
-                    ),
+                    ranking=tuple(option.option_id for option in options),
                     domain=domain.domain_id,
-                    scenario_id=(
-                        f"{item.scenario_family_id}:{item.item_id}"
-                    ),
+                    scenario_id=(f"{item.scenario_family_id}:{item.item_id}"),
                     turn_id=f"terminal:{item.item_id}",
                     wording_template=item.wording_template_id,
                     question_type=item.question_type,
@@ -453,9 +453,7 @@ def _terminal_profile_reliability(
 
     if bin_count <= 1:
         raise ValueError("terminal reliability requires at least two bins")
-    buckets: list[list[tuple[float, float]]] = [
-        [] for _ in range(bin_count)
-    ]
+    buckets: list[list[tuple[float, float]]] = [[] for _ in range(bin_count)]
     for attribute in range(len(user.theta)):
         probabilities = belief.marginal(attribute)
         predicted = max(
@@ -465,9 +463,7 @@ def _terminal_profile_reliability(
         confidence = probabilities[predicted]
         truth = THETA_VALUES.index(user.theta[attribute])
         bin_index = min(int(confidence * bin_count), bin_count - 1)
-        buckets[bin_index].append(
-            (confidence, 1.0 if predicted == truth else 0.0)
-        )
+        buckets[bin_index].append((confidence, 1.0 if predicted == truth else 0.0))
     prediction_count = sum(len(bucket) for bucket in buckets)
     rows = []
     ece = 0.0
@@ -517,26 +513,16 @@ class TerminalBatteryScore:
         return {
             "profile_brier": self.profile_brier,
             "behavioral_accuracy": self.behavioral_accuracy,
-            "tie_excluded_behavioral_accuracy": (
-                self.tie_excluded_behavioral_accuracy
-            ),
-            "fractional_behavioral_accuracy": (
-                self.fractional_behavioral_accuracy
-            ),
+            "tie_excluded_behavioral_accuracy": (self.tie_excluded_behavioral_accuracy),
+            "fractional_behavioral_accuracy": (self.fractional_behavioral_accuracy),
             "cross_context_accuracy": self.cross_context_accuracy,
             "mean_intrinsic_regret": self.mean_intrinsic_regret,
             "predicted_option_ids": list(self.predicted_option_ids),
-            "predicted_utility_tie_count": (
-                self.predicted_utility_tie_count
-            ),
-            "intrinsic_utility_tie_count": (
-                self.intrinsic_utility_tie_count
-            ),
+            "predicted_utility_tie_count": (self.predicted_utility_tie_count),
+            "intrinsic_utility_tie_count": (self.intrinsic_utility_tie_count),
             "evaluated_item_count": self.evaluated_item_count,
             "profile_ece": self.profile_ece,
-            "profile_calibration_sample_unit": (
-                self.profile_calibration_sample_unit
-            ),
+            "profile_calibration_sample_unit": (self.profile_calibration_sample_unit),
             "profile_calibration_prediction_count": (
                 self.profile_calibration_prediction_count
             ),
@@ -636,16 +622,13 @@ def evaluate_terminal_battery(
         tie_excluded_behavioral_accuracy=(
             None
             if not tie_excluded_correct
-            else math.fsum(tie_excluded_correct)
-            / len(tie_excluded_correct)
+            else math.fsum(tie_excluded_correct) / len(tie_excluded_correct)
         ),
         fractional_behavioral_accuracy=(
             math.fsum(fractional_correct) / len(fractional_correct)
         ),
         cross_context_accuracy=(
-            None
-            if not cross_correct
-            else math.fsum(cross_correct) / len(cross_correct)
+            None if not cross_correct else math.fsum(cross_correct) / len(cross_correct)
         ),
         mean_intrinsic_regret=math.fsum(regrets) / len(regrets),
         predicted_option_ids=tuple(predictions),
@@ -739,8 +722,7 @@ class EvaluationRow:
             "ranking_score": active_ranking_score.to_dict(),
             "system_projection_score": self.system_projection_score.to_dict(),
             "native_decoder_evaluations": [
-                evaluation.to_dict()
-                for evaluation in self.native_decoder_evaluations
+                evaluation.to_dict() for evaluation in self.native_decoder_evaluations
             ],
         }
 
@@ -769,8 +751,7 @@ class ClusteredRankingSamples:
     @property
     def component_layout(self) -> tuple[tuple[str, int], ...]:
         return tuple(
-            (domain_id, replicate)
-            for _, domain_id, replicate in self.member_keys[0]
+            (domain_id, replicate) for _, domain_id, replicate in self.member_keys[0]
         )
 
 
@@ -795,17 +776,12 @@ def build_clustered_ranking_samples(
         system: {} for system in systems
     }
     for row in rows:
-        if (
-            row.split != split
-            or row.regime != regime
-            or row.updater_id not in keyed
-        ):
+        if row.split != split or row.regime != regime or row.updater_id not in keyed:
             continue
         key = (row.user_id, row.domain_id, row.replicate)
         if key in keyed[row.updater_id]:
             raise ValueError(
-                "duplicate ranking row for "
-                f"{split}/{regime}/{row.updater_id}/{key}"
+                f"duplicate ranking row for {split}/{regime}/{row.updater_id}/{key}"
             )
         if not math.isfinite(row.profile_error):
             raise ValueError("ranking profile errors must be finite")
@@ -814,9 +790,7 @@ def build_clustered_ranking_samples(
     reference_system = systems[0]
     reference_keys = set(keyed[reference_system])
     if not reference_keys:
-        raise ValueError(
-            f"missing {split}/{regime} rows for {reference_system}"
-        )
+        raise ValueError(f"missing {split}/{regime} rows for {reference_system}")
     for system in systems[1:]:
         observed_keys = set(keyed[system])
         if observed_keys != reference_keys:
@@ -833,8 +807,7 @@ def build_clustered_ranking_samples(
         for cluster_id in cluster_ids
     )
     reference_layout = tuple(
-        (domain_id, replicate)
-        for _, domain_id, replicate in member_keys[0]
+        (domain_id, replicate) for _, domain_id, replicate in member_keys[0]
     )
     if not reference_layout:
         raise ValueError("ranking user clusters cannot be empty")
@@ -850,10 +823,7 @@ def build_clustered_ranking_samples(
             f"observed={reference_layout}"
         )
     for cluster_id, members in zip(cluster_ids, member_keys):
-        layout = tuple(
-            (domain_id, replicate)
-            for _, domain_id, replicate in members
-        )
+        layout = tuple((domain_id, replicate) for _, domain_id, replicate in members)
         if layout != reference_layout:
             raise ValueError(
                 "ranking user clusters do not contain the same complete "
@@ -865,8 +835,7 @@ def build_clustered_ranking_samples(
         (
             system,
             tuple(
-                mean(keyed[system][key] for key in members)
-                for members in member_keys
+                mean(keyed[system][key] for key in members) for members in member_keys
             ),
         )
         for system in systems
@@ -914,9 +883,7 @@ def summarize_terminal_calibration(
             score.profile_reliability_bins[bin_index] for score in material
         )
         prediction_count = sum(row.prediction_count for row in source_rows)
-        populated = tuple(
-            row for row in source_rows if row.prediction_count > 0
-        )
+        populated = tuple(row for row in source_rows if row.prediction_count > 0)
         if populated:
             mean_confidence = (
                 math.fsum(
@@ -974,8 +941,7 @@ def _pooled_terminal_calibration(
     """Pool score-level bins for an averaged multi-decoder score."""
 
     if any(
-        score.profile_ece is None
-        or not score.profile_reliability_bins
+        score.profile_ece is None or not score.profile_reliability_bins
         for score in scores
     ):
         return None, (), 0
@@ -1021,8 +987,7 @@ def mean_terminal_battery_scores(
     material = tuple(scores)
     if len(material) != required_score_count:
         raise ValueError(
-            "terminal score mean requires exactly "
-            f"{required_score_count} scores"
+            f"terminal score mean requires exactly {required_score_count} scores"
         )
     if len({score.evaluated_item_count for score in material}) != 1:
         raise ValueError("terminal scores use different battery cardinalities")
@@ -1031,21 +996,14 @@ def mean_terminal_battery_scores(
         _pooled_terminal_calibration(scores)
     )
     return TerminalBatteryScore(
-        profile_brier=math.fsum(score.profile_brier for score in scores)
-        / len(scores),
-        behavioral_accuracy=math.fsum(
-            score.behavioral_accuracy for score in scores
-        )
+        profile_brier=math.fsum(score.profile_brier for score in scores) / len(scores),
+        behavioral_accuracy=math.fsum(score.behavioral_accuracy for score in scores)
         / len(scores),
         tie_excluded_behavioral_accuracy=(
             None
-            if any(
-                score.tie_excluded_behavioral_accuracy is None
-                for score in scores
-            )
+            if any(score.tie_excluded_behavioral_accuracy is None for score in scores)
             else math.fsum(
-                float(score.tie_excluded_behavioral_accuracy)
-                for score in scores
+                float(score.tie_excluded_behavioral_accuracy) for score in scores
             )
             / len(scores)
         ),
@@ -1056,14 +1014,10 @@ def mean_terminal_battery_scores(
         cross_context_accuracy=(
             None
             if any(score.cross_context_accuracy is None for score in scores)
-            else math.fsum(
-                float(score.cross_context_accuracy) for score in scores
-            )
+            else math.fsum(float(score.cross_context_accuracy) for score in scores)
             / len(scores)
         ),
-        mean_intrinsic_regret=math.fsum(
-            score.mean_intrinsic_regret for score in scores
-        )
+        mean_intrinsic_regret=math.fsum(score.mean_intrinsic_regret for score in scores)
         / len(scores),
         # A mean score has no single predicted action sequence. Individual
         # sequences remain in their source-specific score rows.
@@ -1096,9 +1050,7 @@ def _ranking_score(
             "native ranking requires exactly two blinded decoder evaluations"
         )
     return (
-        mean_terminal_battery_scores(
-            tuple(item.score for item in decoder_evaluations)
-        ),
+        mean_terminal_battery_scores(tuple(item.score for item in decoder_evaluations)),
         "mean_of_two_blinded_native_decoders",
     )
 
@@ -1123,15 +1075,9 @@ class RankingAnalysis:
     closed_bootstrap_ranks: tuple[BootstrapRankSummary, ...]
     pairwise_reversal_probabilities: tuple[tuple[str, float], ...]
     pairwise_tie_probabilities: tuple[tuple[str, float], ...]
-    pairwise_open_difference_intervals: tuple[
-        PairwiseDifferenceInterval, ...
-    ]
-    pairwise_closed_difference_intervals: tuple[
-        PairwiseDifferenceInterval, ...
-    ]
-    pairwise_open_closed_shift_intervals: tuple[
-        PairwiseRegimeShiftInterval, ...
-    ]
+    pairwise_open_difference_intervals: tuple[PairwiseDifferenceInterval, ...]
+    pairwise_closed_difference_intervals: tuple[PairwiseDifferenceInterval, ...]
+    pairwise_open_closed_shift_intervals: tuple[PairwiseRegimeShiftInterval, ...]
     credible_pairwise_reversals: tuple[str, ...]
     open_partial_order: tuple[tuple[str, ...], ...]
     closed_partial_order: tuple[tuple[str, ...], ...]
@@ -1159,9 +1105,7 @@ class RankingAnalysis:
             ),
             "open_mean_errors": dict(self.open_mean_errors),
             "biased_mean_errors": dict(self.biased_mean_errors),
-            "closed_development_mean_errors": dict(
-                self.closed_development_mean_errors
-            ),
+            "closed_development_mean_errors": dict(self.closed_development_mean_errors),
             "closed_test_mean_errors": dict(self.closed_test_mean_errors),
             "open_ranks": dict(self.open_ranks),
             "biased_ranks": dict(self.biased_ranks),
@@ -1189,9 +1133,7 @@ class RankingAnalysis:
             "pairwise_reversal_probabilities": dict(
                 self.pairwise_reversal_probabilities
             ),
-            "pairwise_tie_probabilities": dict(
-                self.pairwise_tie_probabilities
-            ),
+            "pairwise_tie_probabilities": dict(self.pairwise_tie_probabilities),
             "pairwise_open_difference_intervals": [
                 interval.to_dict()
                 for interval in self.pairwise_open_difference_intervals
@@ -1204,17 +1146,13 @@ class RankingAnalysis:
                 interval.to_dict()
                 for interval in self.pairwise_open_closed_shift_intervals
             ],
-            "credible_pairwise_reversals": list(
-                self.credible_pairwise_reversals
-            ),
+            "credible_pairwise_reversals": list(self.credible_pairwise_reversals),
             "credible_reversal_basis": (
                 "joint paired open/closed complete-user error-difference "
                 "intervals clear the tie region in opposite directions and "
                 "their difference-of-differences interval clears it too"
             ),
-            "open_partial_order": [
-                list(group) for group in self.open_partial_order
-            ],
+            "open_partial_order": [list(group) for group in self.open_partial_order],
             "closed_partial_order": [
                 list(group) for group in self.closed_partial_order
             ],
@@ -1225,9 +1163,7 @@ class RankingAnalysis:
                 "systems are not separated by interval-supported dominance"
             ),
             "open_loop_optimism": dict(self.open_loop_optimism),
-            "evaluation_selection_regret": dict(
-                self.evaluation_selection_regret
-            ),
+            "evaluation_selection_regret": dict(self.evaluation_selection_regret),
         }
 
 
@@ -1259,10 +1195,7 @@ def _partial_order(
     grouped: dict[float, list[str]] = {}
     for system, rank in ranks.items():
         grouped.setdefault(rank, []).append(system)
-    return tuple(
-        tuple(sorted(grouped[rank]))
-        for rank in sorted(grouped)
-    )
+    return tuple(tuple(sorted(grouped[rank])) for rank in sorted(grouped))
 
 
 def analyze_rankings(
@@ -1277,9 +1210,7 @@ def analyze_rankings(
 
     systems = tuple(updater_ids)
     if len(systems) < 2 or len(set(systems)) != len(systems):
-        raise ValueError(
-            "ranking analysis requires at least two distinct updater IDs"
-        )
+        raise ValueError("ranking analysis requires at least two distinct updater IDs")
     if bootstrap_replicates <= 0:
         raise ValueError("ranking analysis requires positive bootstrap replicates")
     if tie_tolerance < 0:
@@ -1310,19 +1241,14 @@ def analyze_rankings(
     )
     _assert_same_cluster_members(open_clusters, biased_clusters)
     _assert_same_cluster_members(open_clusters, closed_development_clusters)
-    if (
-        open_clusters.component_layout
-        != closed_test_clusters.component_layout
-    ):
+    if open_clusters.component_layout != closed_test_clusters.component_layout:
         raise ValueError(
             "development and test ranking clusters must retain the same "
             "domain/replicate layout"
         )
     open_samples = open_clusters.errors_by_system
     biased_samples = biased_clusters.errors_by_system
-    closed_development_samples = (
-        closed_development_clusters.errors_by_system
-    )
+    closed_development_samples = closed_development_clusters.errors_by_system
     closed_test_samples = closed_test_clusters.errors_by_system
     open_errors = _means(open_samples)
     biased_errors = _means(biased_samples)
@@ -1350,14 +1276,12 @@ def analyze_rankings(
         closed_dev_errors,
         tie_tolerance=tie_tolerance,
     )
-    reversal_probabilities, tie_probabilities = (
-        pairwise_reversal_and_tie_probability(
-            open_samples,
-            closed_development_samples,
-            replicates=bootstrap_replicates,
-            seed=seed,
-            tie_tolerance=tie_tolerance,
-        )
+    reversal_probabilities, tie_probabilities = pairwise_reversal_and_tie_probability(
+        open_samples,
+        closed_development_samples,
+        replicates=bootstrap_replicates,
+        seed=seed,
+        tie_tolerance=tie_tolerance,
     )
     open_difference_intervals = paired_system_difference_intervals(
         open_samples,
@@ -1417,19 +1341,13 @@ def analyze_rankings(
         cluster_component_layout=open_clusters.component_layout,
         open_mean_errors=tuple(sorted(open_errors.items())),
         biased_mean_errors=tuple(sorted(biased_errors.items())),
-        closed_development_mean_errors=tuple(
-            sorted(closed_dev_errors.items())
-        ),
+        closed_development_mean_errors=tuple(sorted(closed_dev_errors.items())),
         closed_test_mean_errors=tuple(sorted(closed_test_errors.items())),
         open_ranks=tuple(sorted(open_ranks.items())),
         biased_ranks=tuple(sorted(biased_ranks.items())),
         closed_ranks=tuple(sorted(closed_ranks.items())),
-        open_closed_kendall_tau=(
-            open_tau if math.isfinite(open_tau) else None
-        ),
-        biased_closed_kendall_tau=(
-            biased_tau if math.isfinite(biased_tau) else None
-        ),
+        open_closed_kendall_tau=(open_tau if math.isfinite(open_tau) else None),
+        biased_closed_kendall_tau=(biased_tau if math.isfinite(biased_tau) else None),
         open_bootstrap_ranks=bootstrap_ranks(
             open_samples,
             replicates=bootstrap_replicates,
@@ -1442,16 +1360,10 @@ def analyze_rankings(
             seed=seed,
             tie_tolerance=tie_tolerance,
         ),
-        pairwise_reversal_probabilities=tuple(
-            sorted(reversal_probabilities.items())
-        ),
+        pairwise_reversal_probabilities=tuple(sorted(reversal_probabilities.items())),
         pairwise_tie_probabilities=tuple(sorted(tie_probabilities.items())),
-        pairwise_open_difference_intervals=(
-            open_difference_intervals
-        ),
-        pairwise_closed_difference_intervals=(
-            closed_difference_intervals
-        ),
+        pairwise_open_difference_intervals=(open_difference_intervals),
+        pairwise_closed_difference_intervals=(closed_difference_intervals),
         pairwise_open_closed_shift_intervals=regime_shift_intervals,
         credible_pairwise_reversals=credible_reversals,
         open_partial_order=open_partial_order,
@@ -1520,18 +1432,13 @@ class ExperimentCResult:
         self.assert_terminal_battery_identity()
         return {
             "experiment": "C",
-            "fixed_histories": [
-                history.to_dict() for history in self.fixed_histories
-            ],
+            "fixed_histories": [history.to_dict() for history in self.fixed_histories],
             "terminal_batteries": [
                 battery.to_dict() for battery in self.terminal_batteries
             ],
-            "replay_results": [
-                replay.to_dict() for replay in self.replay_results
-            ],
+            "replay_results": [replay.to_dict() for replay in self.replay_results],
             "endogenous_trajectories": [
-                trajectory.to_dict()
-                for trajectory in self.endogenous_trajectories
+                trajectory.to_dict() for trajectory in self.endogenous_trajectories
             ],
             "rows": [row.to_dict() for row in self.rows],
             "rankings": self.rankings.to_dict(),
@@ -1607,9 +1514,7 @@ def run_experiment_c(
     if trajectories_per_cell <= 0:
         raise ValueError("trajectories_per_cell must be positive")
     all_ids = [
-        user.user_id
-        for population in split_populations.values()
-        for user in population
+        user.user_id for population in split_populations.values() for user in population
     ]
     if len(all_ids) != len(set(all_ids)):
         raise ValueError("development and test user IDs must be disjoint")
@@ -1624,9 +1529,7 @@ def run_experiment_c(
     if len(updater_registry) < 2:
         raise ValueError("Experiment C requires at least two updaters")
     if bootstrap_replicates <= 0:
-        raise ValueError(
-            "Experiment C requires positive bootstrap_replicates"
-        )
+        raise ValueError("Experiment C requires positive bootstrap_replicates")
     if tie_tolerance < 0:
         raise ValueError("tie_tolerance must be non-negative")
     for key, updater in updater_registry.items():
@@ -1656,8 +1559,7 @@ def run_experiment_c(
             raise ValueError("policy registry keys must equal policy IDs")
     declared_response = response_model or RandomUtilityModel()
     batteries = {
-        domain.domain_id: build_terminal_battery(domain)
-        for domain in domain_specs
+        domain.domain_id: build_terminal_battery(domain) for domain in domain_specs
     }
     histories: list[FixedHistory] = []
     replay_results: list[ReplayResult] = []
@@ -1709,9 +1611,7 @@ def run_experiment_c(
                             replay = replay_history(
                                 history,
                                 updater,
-                                replay_id=(
-                                    f"{history.history_id}:replay:{updater_id}"
-                                ),
+                                replay_id=(f"{history.history_id}:replay:{updater_id}"),
                             )
                             replay_results.append(replay)
                             system_projection_score = evaluate_terminal_battery(
@@ -1719,12 +1619,10 @@ def run_experiment_c(
                                 user,
                                 battery,
                             )
-                            native_decoder_evaluations = (
-                                evaluate_native_decoders(
-                                    replay.terminal_state.opaque_state,
-                                    user,
-                                    battery,
-                                )
+                            native_decoder_evaluations = evaluate_native_decoders(
+                                replay.terminal_state.opaque_state,
+                                user,
+                                battery,
                             )
                             score, score_basis = _ranking_score(
                                 system_projection_score,
@@ -1748,13 +1646,9 @@ def run_experiment_c(
                                     event_signatures=replay.event_signatures,
                                     battery_id=battery.battery_id,
                                     battery_digest=battery.battery_digest,
-                                    predicted_option_ids=(
-                                        score.predicted_option_ids
-                                    ),
+                                    predicted_option_ids=(score.predicted_option_ids),
                                     score_basis=score_basis,
-                                    system_projection_score=(
-                                        system_projection_score
-                                    ),
+                                    system_projection_score=(system_projection_score),
                                     native_decoder_evaluations=(
                                         native_decoder_evaluations
                                     ),
@@ -1771,9 +1665,7 @@ def run_experiment_c(
                             seed=seed,
                             initial_profile_condition="empty",
                             response_model=declared_response,
-                            trajectory_id=(
-                                f"{paired_key}:closed:{updater_id}"
-                            ),
+                            trajectory_id=(f"{paired_key}:closed:{updater_id}"),
                             crn_key=f"{paired_key}:closed",
                             scenario_catalog=scenario_catalog,
                             conversation_bank=conversation_bank,
@@ -1785,12 +1677,10 @@ def run_experiment_c(
                             user,
                             battery,
                         )
-                        native_decoder_evaluations = (
-                            evaluate_native_decoders(
-                                closed.terminal_opaque_state,
-                                user,
-                                battery,
-                            )
+                        native_decoder_evaluations = evaluate_native_decoders(
+                            closed.terminal_opaque_state,
+                            user,
+                            battery,
                         )
                         closed_score, score_basis = _ranking_score(
                             system_projection_score,
@@ -1805,18 +1695,12 @@ def run_experiment_c(
                                 domain_id=domain.domain_id,
                                 updater_id=updater_id,
                                 profile_error=closed_score.profile_brier,
-                                behavioral_accuracy=(
-                                    closed_score.behavioral_accuracy
-                                ),
+                                behavioral_accuracy=(closed_score.behavioral_accuracy),
                                 cross_context_accuracy=(
                                     closed_score.cross_context_accuracy
                                 ),
-                                intrinsic_regret=(
-                                    closed_score.mean_intrinsic_regret
-                                ),
-                                history_digest=_audit_digest(
-                                    closed.audit_record
-                                ),
+                                intrinsic_regret=(closed_score.mean_intrinsic_regret),
+                                history_digest=_audit_digest(closed.audit_record),
                                 event_signatures=_audit_event_signatures(
                                     closed.audit_record
                                 ),
@@ -1826,12 +1710,8 @@ def run_experiment_c(
                                     closed_score.predicted_option_ids
                                 ),
                                 score_basis=score_basis,
-                                system_projection_score=(
-                                    system_projection_score
-                                ),
-                                native_decoder_evaluations=(
-                                    native_decoder_evaluations
-                                ),
+                                system_projection_score=(system_projection_score),
+                                native_decoder_evaluations=(native_decoder_evaluations),
                                 ranking_score=closed_score,
                             )
                         )

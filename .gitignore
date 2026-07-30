@@ -44,6 +44,8 @@ runs/
 analyses/
 artifacts/local/
 artifacts/tmp/
+artifacts/experiment-b-case*/
+artifacts/experiment-b-multimodel*/
 **/.failed-runs/
 **/.llm-journals/
 *.provider-execution.lock

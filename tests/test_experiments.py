@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
+from pathlib import Path
 import unittest
 
-from cape_loop.beliefs import PreferenceBelief
+from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
 from cape_loop.domains import TRAVEL
 from cape_loop.elicitation import MECHANISMS, build_matched_anchor_set
 from cape_loop.experiments import (
@@ -23,11 +25,13 @@ from cape_loop.metrics import marginal_brier, marginal_l1
 from cape_loop.native import EpisodicMemoryUpdater
 from cape_loop.policies import (
     BalancedPolicy,
+    ExploratoryPolicy,
     HardFilterPolicy,
     SoftProfileConditionedPolicy,
 )
 from cape_loop.population import initial_profile_belief
 from cape_loop.response import RandomUtilityModel
+from cape_loop.scenarios import load_scenario_catalog
 from cape_loop.schemas import LatentUser, ProfileUpdate, Susceptibility
 from cape_loop.updaters import (
     FittedActionAwareUpdater,
@@ -148,6 +152,24 @@ class MatchedProvenanceTests(unittest.TestCase):
             matched.eligible(user, response, minimum_probability=0.05)
         )
 
+    def test_matched_anchor_position_is_shared_across_mechanisms(self) -> None:
+        matched = build_matched_anchor_set(
+            TRAVEL,
+            scenario_id="counterbalanced-anchor",
+        )
+        for anchor_first in (False, True):
+            with self.subTest(anchor_first=anchor_first):
+                reordered = matched.with_anchor_position(
+                    anchor_first=anchor_first
+                )
+                expected_position = 0 if anchor_first else 1
+                for context in reordered.contexts.values():
+                    self.assertEqual(
+                        context.ranking.index(reordered.anchor_option_id),
+                        expected_position,
+                    )
+                reordered.validate_invariants()
+
     def test_update_views_enforce_context_and_provenance_boundaries(self) -> None:
         matched = build_matched_anchor_set(TRAVEL, scenario_id="views")
         context = matched.context("default")
@@ -254,6 +276,71 @@ class MatchedProvenanceTests(unittest.TestCase):
 
 
 class ExperimentATests(unittest.TestCase):
+    def test_catalog_scenarios_and_anchor_positions_are_crossed(self) -> None:
+        path = Path("data/scenarios/scenario-catalog-v1.json")
+        catalog = load_scenario_catalog(
+            path,
+            expected_sha256=sha256(path.read_bytes()).hexdigest(),
+        ).catalog
+        users = tuple(
+            LatentUser(
+                f"allocation-user-{index:02d}",
+                (2, -1, 1),
+                Susceptibility(0.35, 0.45, 0.65),
+            )
+            for index in range(16)
+        )
+        result = run_provenance_audit(
+            users=users,
+            domains=(TRAVEL,),
+            updaters={"no_update": NoUpdateUpdater()},
+            mechanisms=("balanced",),
+            response_modes=("controlled_anchor",),
+            seed=1729,
+            scenario_catalog=catalog,
+        )
+
+        by_user_target: dict[tuple[str, int], list[object]] = {}
+        direction_counts: dict[tuple[int, str, int], int] = {}
+        for row in result.rows:
+            by_user_target.setdefault(
+                (row.user_id, row.target_attribute),
+                [],
+            ).append(row)
+            key = (
+                row.target_attribute,
+                row.context.scenario_id,
+                row.anchor_direction,
+            )
+            direction_counts[key] = direction_counts.get(key, 0) + 1
+
+        for paired in by_user_target.values():
+            self.assertEqual(len(paired), 2)
+            self.assertEqual(
+                len({row.context.scenario_id for row in paired}),
+                1,
+            )
+            self.assertEqual(
+                {
+                    row.context.ranking.index(row.selected_option_id)
+                    for row in paired
+                },
+                {0, 1},
+            )
+
+        for target in range(3):
+            scenario_ids = {
+                scenario.scenario_id
+                for scenario in catalog.eligible("travel", "test", target)
+            }
+            for direction in (-1, 1):
+                counts = [
+                    direction_counts.get((target, scenario_id, direction), 0)
+                    for scenario_id in scenario_ids
+                ]
+                self.assertGreater(min(counts), 0)
+                self.assertLessEqual(max(counts) - min(counts), 1)
+
     def test_scenario_is_shared_across_users_but_trial_ids_are_unique(
         self,
     ) -> None:
@@ -646,6 +733,85 @@ class ClosedLoopTests(unittest.TestCase):
         )
         self.assertEqual(negative, repeated)
         self.assertNotEqual(negative.signature(), positive.signature())
+
+    def test_exploratory_policy_bounds_target_exposure(self) -> None:
+        policy = ExploratoryPolicy()
+        counts = [0, 0, 0]
+        for turn in range(12):
+            action = policy.action(
+                TRAVEL,
+                PreferenceBelief.uniform(),
+                turn=turn,
+                master_seed=8,
+                trajectory_id="balanced-exploration",
+                target_counts=tuple(counts),
+            )
+            target = action.context.target_attribute
+            self.assertIsNotNone(target)
+            counts[int(target)] += 1
+            self.assertLessEqual(max(counts) - min(counts), 1)
+        self.assertEqual(counts, [4, 4, 4])
+
+        for turn in range(12, 16):
+            action = policy.action(
+                TRAVEL,
+                PreferenceBelief.uniform(),
+                turn=turn,
+                master_seed=8,
+                trajectory_id="balanced-exploration",
+                target_counts=tuple(counts),
+            )
+            target = action.context.target_attribute
+            self.assertIsNotNone(target)
+            counts[int(target)] += 1
+            self.assertLessEqual(max(counts) - min(counts), 1)
+        self.assertEqual(sorted(counts), [5, 5, 6])
+        self.assertEqual(max(counts), 6)
+
+    def test_exploratory_counts_reach_both_production_policy_callers(self) -> None:
+        entropy_skewed = PreferenceBelief.from_marginals(
+            MarginalPreferenceBelief(
+                (
+                    (0.49, 0.49, 0.01, 0.01),
+                    (0.40, 0.40, 0.10, 0.10),
+                    (0.25, 0.25, 0.25, 0.25),
+                )
+            )
+        )
+        trajectory = run_trajectory(
+            user=user_fixture(),
+            domain=TRAVEL,
+            policy=ExploratoryPolicy(),
+            updater=NoUpdateUpdater(),
+            turns=12,
+            seed=8,
+            initial_belief=entropy_skewed,
+            trajectory_id="balanced-exploration-closed-loop",
+        )
+        closed_loop_counts = [
+            sum(turn.target_attribute == target for turn in trajectory.turns)
+            for target in range(3)
+        ]
+        self.assertEqual(closed_loop_counts, [4, 4, 4])
+
+        history = generate_fixed_history(
+            user=user_fixture(),
+            domain=TRAVEL,
+            policy=ExploratoryPolicy(),
+            turns=16,
+            seed=8,
+            reference_belief=entropy_skewed,
+            history_id="balanced-exploration-fixed-history",
+        )
+        fixed_history_counts = [
+            sum(
+                event.context.target_attribute == target
+                for event in history.events
+            )
+            for target in range(3)
+        ]
+        self.assertEqual(sorted(fixed_history_counts), [5, 5, 6])
+        self.assertEqual(max(fixed_history_counts), 6)
 
     def test_experiment_b_crossing_decomposition_and_report_predicate(self) -> None:
         updater_list = (

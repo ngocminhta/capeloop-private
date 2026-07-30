@@ -207,6 +207,13 @@ zero retries; do not raise these ceilings merely to make a design pass.
 | Experiment C | 816 | 1,671,168 |
 | Gate 6 OAT | 576 | 1,179,648 |
 
+The listed B presets are ceiling-safe transport pilots, but their current
+three-turn horizon normally cannot revisit an updated attribute and therefore
+cannot exercise the declared later-action criterion. Redesign B to use at
+least six turns and a smaller paid factor set before collecting a scientific
+pilot; one two-domain, eight-user, `llm_full_context`-only six-turn design fits
+at 816 calls including calibration.
+
 The bounded offline Gate 4 source produces 640 decoder requests per model and
 80 native-action requests. Its selected zero-retry plan reserves 4,469,348
 Claude tokens, 4,201,828 Gemini tokens, and 2,396,907 OpenAI native-action

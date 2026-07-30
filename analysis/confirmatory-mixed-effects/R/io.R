@@ -1052,6 +1052,7 @@ normalize_experiment_b <- function(source) {
     "trajectory_id",
     "user_id",
     "domain_id",
+    "scenario_id",
     "crn_key",
     "updater_id",
     "policy_id",
@@ -1139,6 +1140,14 @@ normalize_experiment_b <- function(source) {
       ),
       scenario = paste(
         source$run_id,
+        require_scalar_character(
+          row$scenario_id,
+          paste0(label, ".scenario_id")
+        ),
+        sep = "::"
+      ),
+      crn_set = paste(
+        source$run_id,
         require_scalar_character(row$crn_key, paste0(label, ".crn_key")),
         sep = "::"
       ),
@@ -1210,7 +1219,7 @@ normalize_experiment_b <- function(source) {
     "trajectory_id",
     "user",
     "domain",
-    "scenario",
+    "crn_set",
     "updater",
     "policy",
     "initial_profile",
@@ -1413,6 +1422,9 @@ validate_analysis_rows <- function(
   rows$domain <- set_reference(rows$domain, domain_reference, "domain")
   rows$user <- factor(rows$user)
   rows$scenario <- factor(rows$scenario)
+  if (identical(experiment, "B")) {
+    rows$crn_set <- factor(rows$crn_set)
+  }
 
   if (identical(experiment, "A")) {
     required <- unlist(experiment_spec$required_mechanisms, use.names = FALSE)

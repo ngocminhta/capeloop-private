@@ -24,7 +24,7 @@ FORMULAS = {
     ),
     "B": (
         "terminal_error ~ updater * policy * initial_profile + domain + turn + "
-        "(1 + policy | user) + (1 | scenario)"
+        "(1 + policy | user) + (1 | scenario) + (1 | crn_set)"
     ),
 }
 
@@ -35,7 +35,7 @@ PROPOSAL_FORMULAS = {
     ),
     "B": (
         "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + "
-        "(1 + Policy | User) + (1 | Scenario)"
+        "(1 + Policy | User) + (1 | Scenario) + (1 | CRNSet)"
     ),
 }
 
@@ -106,7 +106,8 @@ EXPERIMENT_SEMANTICS = {
         ),
         "required_policies": ["balanced", "soft_profile_conditioned"],
         "required_initial_profiles": ["incorrect"],
-        "scenario_mapping": "run_id + crn_key",
+        "scenario_mapping": "run_id + turn.scenario_id",
+        "crn_set_mapping": "run_id + crn_key",
         "user_mapping": "run_id + user_id",
     },
 }

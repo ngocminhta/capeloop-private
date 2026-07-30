@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import io
+import json
+import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from hashlib import sha256
-import io
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 from unittest.mock import patch
 
 from cape_loop.artifacts import RunArtifacts, source_tree_digest, verify_run
+from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
 from cape_loop.calibration import CalibrationExample, fit_temperature
 from cape_loop.cli import main as cli_main
 from cape_loop.config import (
@@ -20,7 +21,6 @@ from cape_loop.config import (
     LLMSection,
     load_config,
 )
-from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
 from cape_loop.domains import TRAVEL
 from cape_loop.elicitation import build_matched_anchor_set
 from cape_loop.human_study import (
@@ -37,8 +37,9 @@ from cape_loop.llm_exchange import (
     ReplayProvider,
 )
 from cape_loop.policies import SoftProfileConditionedPolicy
-from cape_loop.schema_export import export_schemas
 from cape_loop.runner import _llm_input_manifest
+from cape_loop.schema_export import export_schemas
+from cape_loop.schemas import Observation, PolicyProvenance
 from cape_loop.splits import (
     assert_terminal_templates_held_out,
     build_split_manifest,
@@ -48,7 +49,6 @@ from cape_loop.updaters import (
     UpdateViewKind,
     make_update_view,
 )
-from cape_loop.schemas import Observation, PolicyProvenance
 from cape_loop.verbalization import (
     allowed_verbalizations,
     validate_surface_response,
@@ -276,10 +276,10 @@ class ExchangeTests(unittest.TestCase):
                 "model_id": "rounded-provider-model",
                 "beliefs": {
                     "attribute_1": {
-                        "-2": 0.440232,
-                        "-1": 0.316871,
-                        "+1": 0.148197,
-                        "+2": 0.094701,
+                        "-2": 0.1176,
+                        "-1": 0.2059,
+                        "+1": 0.3529,
+                        "+2": 0.3235,
                     },
                     "attribute_2": {
                         "-2": 0.25,
@@ -303,6 +303,15 @@ class ExchangeTests(unittest.TestCase):
         belief = MarginalPreferenceBelief(rows)
         self.assertAlmostEqual(sum(belief.marginal(0)), 1.0)
         self.assertEqual(LLMResponse.parse(response.to_dict()), response)
+        outside_rounding_tolerance = response.to_dict()
+        outside_rounding_tolerance["beliefs"]["attribute_1"] = {
+            "-2": 0.117,
+            "-1": 0.205,
+            "+1": 0.352,
+            "+2": 0.323,
+        }
+        with self.assertRaisesRegex(ValueError, "do not sum to one"):
+            LLMResponse.parse(outside_rounding_tolerance)
 
     def test_llm_replay_updater_binds_prompt_and_updates_profile(self) -> None:
         matched = build_matched_anchor_set(TRAVEL, scenario_id="llm-replay")
@@ -420,6 +429,7 @@ class ExchangeTests(unittest.TestCase):
                 "secret-crn",
                 "user-7",
                 "soft_profile_conditioned",
+                *action.context.option_ids,
             ):
                 self.assertNotIn(forbidden, serialized)
             self.assertEqual(
@@ -487,9 +497,7 @@ class ReproducibilitySupportTests(unittest.TestCase):
             run.finalize({"status": "smoke"})
             ok, errors = verify_run(run.path)
             self.assertTrue(ok, errors)
-            (run.path / "metrics" / "summary.json").write_text(
-                "{}\n", encoding="utf-8"
-            )
+            (run.path / "metrics" / "summary.json").write_text("{}\n", encoding="utf-8")
             ok, errors = verify_run(run.path)
             self.assertFalse(ok)
             self.assertTrue(any("checksum mismatch" in error for error in errors))
@@ -528,9 +536,7 @@ class ReproducibilitySupportTests(unittest.TestCase):
             )
             ok, errors = verify_run(run_path)
             self.assertFalse(ok)
-            self.assertTrue(
-                any("unsafe checksum path" in error for error in errors)
-            )
+            self.assertTrue(any("unsafe checksum path" in error for error in errors))
 
             run = RunArtifacts.create(AppConfig(), root=root / "artifacts")
             run.finalize({"status": "smoke"})
@@ -581,9 +587,7 @@ class ReproducibilitySupportTests(unittest.TestCase):
             checksum_path = run.path / "SHA256SUMS"
             manifest_line = next(
                 line
-                for line in checksum_path.read_text(
-                    encoding="utf-8"
-                ).splitlines()
+                for line in checksum_path.read_text(encoding="utf-8").splitlines()
                 if line.endswith("  manifest.json")
             )
             checksum_path.write_text(
@@ -597,22 +601,16 @@ class ReproducibilitySupportTests(unittest.TestCase):
             )
             ok, errors = verify_run(run.path)
             self.assertFalse(ok)
-            self.assertTrue(
-                any("unsafe checksum path" in error for error in errors)
-            )
+            self.assertTrue(any("unsafe checksum path" in error for error in errors))
 
             run.write_checksums()
             checksum_path.write_text(
-                checksum_path.read_text(encoding="utf-8")
-                + manifest_line
-                + "\n",
+                checksum_path.read_text(encoding="utf-8") + manifest_line + "\n",
                 encoding="utf-8",
             )
             ok, errors = verify_run(run.path)
             self.assertFalse(ok)
-            self.assertTrue(
-                any("duplicate checksum path" in error for error in errors)
-            )
+            self.assertTrue(any("duplicate checksum path" in error for error in errors))
 
     def test_artifact_verification_requires_completed_run_semantics(self) -> None:
         with TemporaryDirectory() as directory:
@@ -743,21 +741,17 @@ class LanguageAndStudyTests(unittest.TestCase):
                 row["display_id"]: row
                 for row in (
                     json.loads(line)
-                    for line in (
-                        output / "participant-items.jsonl"
-                    ).read_text(encoding="utf-8").splitlines()
+                    for line in (output / "participant-items.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
                 )
             }
             codebook = json.loads(
-                (output / "researcher-codebook.json").read_text(
-                    encoding="utf-8"
-                )
+                (output / "researcher-codebook.json").read_text(encoding="utf-8")
             )
             volunteered_ids = {
                 display_id
-                for display_id, entry in codebook[
-                    "items_by_display_id"
-                ].items()
+                for display_id, entry in codebook["items_by_display_id"].items()
                 if entry["condition"] == "volunteered"
             }
             self.assertEqual(len(volunteered_ids), 2)

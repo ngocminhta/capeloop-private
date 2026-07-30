@@ -38,6 +38,8 @@ is the reproducibility baseline.
 | --- | --- | ---: |
 | Understand the study | [Scientific design](scientific-design.md) and [Experiments](experiments.md) | No |
 | Inspect one natural conversation, real model update, and its metrics | [Run one understandable live scenario](#run-one-understandable-live-scenario) | Exactly one |
+| Inspect one matched, multi-turn Experiment B user case | [Run one multi-turn Experiment B case](#run-one-multi-turn-experiment-b-case) | 6 logical by default; at most 6 physical |
+| Audit and review scenario calibration | [Inspect and validate the scenario catalog](#inspect-and-validate-the-scenario-catalog) | No |
 | Inspect components and information boundaries | [Architecture](architecture.md) | No |
 | Validate or edit TOML | [Configuration](configuration.md) | No |
 | Author the frozen natural-language scenario bank | [Inspect and validate the scenario catalog](#inspect-and-validate-the-scenario-catalog) | Only with `--execute-live` |
@@ -124,6 +126,81 @@ multiple updaters, calibration, or inference. Its artifacts are marked
 demonstration/debugging only, not paper-eligible, and not claim-eligible. Use a
 reviewed configuration for an actual experiment.
 
+## Run one multi-turn Experiment B case
+
+Experiment B cannot be illustrated faithfully with only one turn: it asks
+whether a stored profile shapes later evidence and actions. The bounded
+diagnostic therefore fixes one simulated travel user with an intentionally
+incorrect initial profile and runs two matched branches:
+
+- three turns under the balanced policy by default; and
+- three turns under the soft-profile-conditioned policy by default.
+
+The evaluated `llm_full_context` updater makes one selected-model update after
+each turn, for six logical updates by default and at most six paid calls; an
+identical content-addressed request can be reused locally. The same-history
+exact action-aware shadow runs locally and makes no provider call. Load the
+ignored credential and choose a new output directory:
+
+```bash
+set -a
+source .env
+set +a
+PYTHONPATH=src python -m cape_loop demo experiment-b-case \
+  artifacts/experiment-b-case --execute-live
+```
+
+Defaults pin `google/gemini-3.6-flash` to `google-vertex/global`, disable
+retries and fallback, and use a 40-second per-call timeout. The output layout
+matches the one-scenario diagnostic: read `conversation.md` first, then use
+`result.json`, `conversation.jsonl`, and the `llm/` request, response, audit,
+attempt, and provider-manifest files for exact inspection.
+
+For this multi-turn command, `llm/logical-request-events.jsonl` contains one
+small binding row for every logical update. `llm/requests.jsonl` contains each
+distinct full request once, so it remains compatible with the repository's
+strict request reader even when a logical update reuses identical prompt
+content.
+
+Use `--turns 3`, `6`, `9`, or `12` to select a complete attribute cycle. Two
+policy branches make the logical update ceiling `2 × turns`; physical calls
+can be lower when content-addressed prompts are identical. The timeout is per
+physical call, so longer cycles can take more than five minutes.
+
+The three-turn default is the shortest transport and output-format check. It
+shows every attribute once, but normally gives an update no later action on the
+same attribute to influence. Use at least `--turns 6` when checking the
+later-action mechanism; the 2026-07-29 multi-model diagnostic first observed
+profile-influenced presentation actions at that horizon.
+
+OpenRouter model switching uses the same command. Specify the model's intended
+reasoning effort explicitly; for example:
+
+```bash
+PYTHONPATH=src python -m cape_loop demo experiment-b-case \
+  artifacts/experiment-b-case-claude \
+  --model anthropic/claude-sonnet-5 \
+  --reasoning-effort low \
+  --execute-live
+```
+
+The same command supports the direct OpenAI primary writer:
+
+```bash
+PYTHONPATH=src python -m cape_loop demo experiment-b-case \
+  artifacts/experiment-b-case-openai \
+  --provider openai \
+  --model gpt-5.6-sol \
+  --reasoning-effort medium \
+  --execute-live
+```
+
+This is one **simulated-user case**, not one repeated frozen scenario. At six
+or more turns, each branch revisits attributes so a later-action effect is
+possible. The command is marked diagnostic-only, paper-ineligible, and
+claim-ineligible; the full Experiment B pilot still requires a revised,
+reviewed TOML design, adequate users, calibration, and inference.
+
 ## Validate a configuration
 
 Configurations are strict, schema-versioned TOML:
@@ -166,13 +243,49 @@ execution:
 PYTHONPATH=src python -c 'from cape_loop import load_config; from cape_loop.scenarios import load_scenario_catalog; c = load_config("configs/smoke.toml"); x = load_scenario_catalog(c.scenarios.catalog_file, expected_sha256=c.scenarios.catalog_sha256); print(x.catalog.coverage_report())'
 ```
 
-The current report has 24 scenarios and 24 families: one train, one
-development, and two test scenarios for each domain×attribute cell. It also
-reports 24 provisional scenarios, zero approved scenarios, and
+The current report has 48 scenarios and 48 families: one train, one
+development, and six test scenarios for each domain×attribute cell. It also
+reports 48 provisional scenarios, zero approved scenarios, and
 `paper_eligible = false`. This is deliberate: the catalog is usable for
 simulation and bounded pilots, but its independent surface and scientific
 human reviews are incomplete. The acceptance policy is in
 [Scientific design](scientific-design.md#scenario-catalog-and-quality-policy).
+
+Generate the complete prospective audit and human-review packet before a live
+experiment:
+
+```bash
+PYTHONPATH=src python -m cape_loop scenarios audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/scenario-audit-test16 \
+  --split test --turns 16
+```
+
+No API key is read and no model is called. The output directory must be new:
+
+- `scenario-audit.json` contains the declared response-model grid, per-cell
+  no-repeat capacity, machine warnings, review counts, and separate
+  engineering/recorded-scientific/paper readiness;
+- `scenario-review.md` is the detailed researcher packet: it exposes feature
+  roles and gives six labeled preview surfaces per scenario for fact alignment
+  and scientific inspection;
+- `scenario-surface-review-blinded.md` uses only opaque item/surface labels and
+  rendered dialogue so independent reviewers can rate naturalness and
+  neutrality without seeing targets, features, roles, splits, or mechanism
+  labels; and
+- the machine audit separately renders all 40
+  anchor×order×mechanism×selection cases per scenario for hygiene checks.
+
+The current test bank passes the code-only finite-support probability
+guardrails and has enough unique stimuli for a 16-turn cyclic trajectory
+without reuse. The same capacity holds for the v2 exploratory policy because
+it covers every attribute once per complete three-turn block. Unknown
+unconstrained adaptive policies have a stricter worst-case requirement. Its
+automated, surface, and scientific reviews remain incomplete. Machine
+warnings are review prompts, never automatic approval. Do not edit or replace
+stimuli after inspecting evaluated-model outcomes. Catalog review-status
+strings are not verified evidence; scientific readiness remains false until a
+future version-bound human-evidence importer verifies the completed protocol.
 
 `config validate` checks the `[scenarios]` field syntax; the strict loader above
 also reads, hashes, and validates the external catalog. A hash mismatch aborts
@@ -180,9 +293,17 @@ before provider or run-artifact construction.
 
 The companion
 [`data/scenarios/conversation-templates-v1.json`](../data/scenarios/conversation-templates-v1.json)
-contains one frozen template family per scenario. OpenRouter authors only its
-neutral base wording and display names; code supplies the fixed treatment
-sentence and `I choose {selected_name}.` To generate a candidate bank:
+contains one frozen template family per scenario. Its 48 current visible bases
+were project-standardized outcome-blind onto three source-neutral frames: each
+frame appears 16 times and twice within each six-scenario test
+domain×target cell. Every template has source
+`project-standardized-neutral-frame-v1-unreviewed`. A separate historical log
+records 24 OpenRouter-assisted candidate-authoring calls; it does not attribute
+the current standardized text to that provider. Code supplies the fixed
+treatment sentence and `I choose {selected_name}.` A/B are assigned by visible
+position at runtime, and structured evaluated-model inputs receive only
+`presented_option_N` aliases, not semantic catalog IDs. To generate a new
+OpenRouter-assisted candidate bank:
 
 ```bash
 cape-loop conversations generate-openrouter \

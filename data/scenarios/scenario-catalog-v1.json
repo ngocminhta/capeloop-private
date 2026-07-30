@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "catalog_id": "cape-loop-scenarios-v1",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.4.0",
   "catalog_status": "frozen-development",
   "eligibility": "simulation-and-pilot-only",
   "language": "en",
@@ -25,31 +25,30 @@
     ]
   },
   "authoring_provenance": {
-    "method": "codex-assisted-project-draft",
+    "method": "codex-assisted-project-revision",
     "assistant_interface": "Codex",
     "provider": "OpenAI",
     "underlying_model": "not-exposed-by-interface",
     "drafted_on": "2026-07-29",
     "human_reviewed": false,
-    "note": "Codex assisted with the project-authored scenario surfaces. The interface did not expose the exact underlying model identifier. These records remain provisional until automated validation and independent human review are complete."
+    "note": "Codex assisted with the project-authored scenario surfaces. The interface did not expose the exact underlying model identifier. Version 1.1.0 made held-constant facts and the nuisance bundle more explicit. Version 1.2.0 added 24 provisional test scenarios so each domain-by-attribute cell has six distinct families and a 16-turn run needs no reuse. Version 1.3.0 applies an outcome-blind critical revision: travel prompts now hold realistic service, access, timing, and reliability facts; ambiguous premium and planning bundles are defined; writing contexts with normative style cues or target cross-loading are revised; and spelling tasks declare no required house style. No evaluated-model or experiment outcomes were consulted. These Codex-assisted checks do not count as the required independent human reviews, and all records remain provisional. Version 1.4.0 removes the non-operational difficulty label, prospectively counterbalances both restricted-peer nuisance dimensions and directions, and removes identified semantic cross-loads such as route-planning aids, protection cues, and contradictory timing descriptions without using evaluated-model outcomes."
   },
   "scenarios": [
     {
       "scenario_id": "travel-scenario-atlas-lodging-price-01",
       "family_id": "travel-family-atlas-lodging-price-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "train",
       "domain": "travel",
       "task_family": "lodging",
       "target_attribute": 0,
       "target_key": "price",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one lodging package for a short personal trip.",
+      "prompt": "Choose one room package at the same hotel for the same dates. Both rooms have the same size, bed, amenities, meals, cancellation policy, and booking terms; only the price package and setting differ.",
       "wording_template_id": "travel-dialogue-atlas-v1",
       "negative_option": {
         "option_id": "travel-atlas-lodging-price-01-negative",
-        "label": "Lower-cost standard room in a mixed-use neighborhood",
+        "label": "Lower-cost standard room with a basic welcome pack in the hotel's lively central wing",
         "features": [
           -0.5,
           0.0,
@@ -58,7 +57,7 @@
       },
       "positive_option": {
         "option_id": "travel-atlas-lodging-price-01-positive",
-        "label": "Higher-cost upgraded room in a mixed-use neighborhood",
+        "label": "Higher-cost premium room with a local welcome hamper in the hotel's lively central wing",
         "features": [
           0.5,
           0.0,
@@ -67,7 +66,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-atlas-lodging-price-01-negative-peer",
-        "label": "Lower-cost standard room in a quiet outer neighborhood",
+        "label": "Lower-cost standard room with a basic welcome pack in the hotel's spacious quiet wing",
         "features": [
           -0.5,
           0.25,
@@ -76,7 +75,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "travel-atlas-lodging-price-01-positive-peer",
-        "label": "Higher-cost upgraded room in a quiet outer neighborhood",
+        "label": "Higher-cost premium room with a local welcome hamper in the hotel's spacious quiet wing",
         "features": [
           0.5,
           0.25,
@@ -108,24 +107,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-beacon-rail-price-01",
       "family_id": "travel-family-beacon-rail-price-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "development",
       "domain": "travel",
       "task_family": "intercity_rail",
       "target_attribute": 0,
       "target_key": "price",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one intercity rail package for the same route and departure period.",
+      "prompt": "Choose one intercity rail fare for the same train and departure. Seat dimensions, coach rules, luggage allowance, and refund and change terms are identical; only the price package and planning arrangement differ.",
       "wording_template_id": "travel-dialogue-beacon-v1",
       "negative_option": {
         "option_id": "travel-beacon-rail-price-01-negative",
-        "label": "Lower-fare standard seat from the main terminal",
+        "label": "Economy rail fare without a hot drink in the active central coach with coordinated fixed arrangements",
         "features": [
           -0.5,
           0.0,
@@ -134,7 +135,7 @@
       },
       "positive_option": {
         "option_id": "travel-beacon-rail-price-01-positive",
-        "label": "Higher-fare upgraded seat from the main terminal",
+        "label": "Premium rail fare with a hot drink in the active central coach with coordinated fixed arrangements",
         "features": [
           0.5,
           0.0,
@@ -143,20 +144,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-beacon-rail-price-01-negative-peer",
-        "label": "Lower-fare standard seat from a quieter outer terminal",
+        "label": "Economy rail fare without a hot drink in the active central coach with self-managed flexible arrangements",
         "features": [
           -0.5,
-          0.25,
-          0.0
+          0.0,
+          0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-beacon-rail-price-01-positive-peer",
-        "label": "Higher-fare upgraded seat from a quieter outer terminal",
+        "label": "Premium rail fare with a hot drink in the active central coach with self-managed flexible arrangements",
         "features": [
           0.5,
-          0.25,
-          0.0
+          0.0,
+          0.25
         ]
       },
       "supported_mechanisms": [
@@ -184,24 +185,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-cedar-airfare-price-01",
       "family_id": "travel-family-cedar-airfare-price-01",
-      "revision": 1,
+      "revision": 5,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "airfare",
       "target_attribute": 0,
       "target_key": "price",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one flight package for the same destination and travel window.",
+      "prompt": "Choose one fare package for the same flight and departure lounge. Both packages use the same cabin, seat, bags, terminal, boarding position, gate walking time, and refund and change terms; only the price package and lounge setting differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-airfare-price-01-negative",
-        "label": "Lower-fare standard cabin package from the main airport",
+        "label": "Lower-fare standard ticket without an included meal in the lively central lounge zone",
         "features": [
           -0.5,
           0.0,
@@ -210,7 +213,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-airfare-price-01-positive",
-        "label": "Higher-fare upgraded cabin package from the main airport",
+        "label": "Higher-fare premium ticket with an included meal in the lively central lounge zone",
         "features": [
           0.5,
           0.0,
@@ -219,7 +222,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-airfare-price-01-negative-peer",
-        "label": "Lower-fare standard cabin package from a quieter outer airport",
+        "label": "Lower-fare standard ticket without an included meal in the spacious quiet lounge zone",
         "features": [
           -0.5,
           0.25,
@@ -228,7 +231,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-airfare-price-01-positive-peer",
-        "label": "Higher-fare upgraded cabin package from a quieter outer airport",
+        "label": "Higher-fare premium ticket with an included meal in the spacious quiet lounge zone",
         "features": [
           0.5,
           0.25,
@@ -260,24 +263,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-cedar-activity-price-02",
       "family_id": "travel-family-cedar-activity-price-02",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "guided_activity",
       "target_attribute": 0,
       "target_key": "price",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one guided activity package covering the same subject and duration.",
+      "prompt": "Choose one guided activity package covering the same subject and duration. Both use the same guide, group size, materials, and cancellation terms; only the price package and planning arrangement differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-activity-price-02-negative",
-        "label": "Lower-cost standard group session at a central meeting point",
+        "label": "Lower-cost standard session without a photo pack in the lively central room with self-managed flexible arrangements",
         "features": [
           -0.5,
           0.0,
@@ -286,7 +291,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-activity-price-02-positive",
-        "label": "Higher-cost enhanced group session at a central meeting point",
+        "label": "Higher-cost premium session with a photo pack in the lively central room with self-managed flexible arrangements",
         "features": [
           0.5,
           0.0,
@@ -295,20 +300,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-activity-price-02-negative-peer",
-        "label": "Lower-cost standard group session at a quiet outer meeting point",
+        "label": "Lower-cost standard session without a photo pack in the lively central room with coordinated fixed arrangements",
         "features": [
           -0.5,
-          0.25,
-          0.0
+          0.0,
+          -0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-activity-price-02-positive-peer",
-        "label": "Higher-cost enhanced group session at a quiet outer meeting point",
+        "label": "Higher-cost premium session with a photo pack in the lively central room with coordinated fixed arrangements",
         "features": [
           0.5,
-          0.25,
-          0.0
+          0.0,
+          -0.25
         ]
       },
       "supported_mechanisms": [
@@ -336,24 +341,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "travel-scenario-atlas-meeting-setting-01",
       "family_id": "travel-family-atlas-meeting-setting-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "train",
       "domain": "travel",
       "task_family": "meeting_location",
       "target_attribute": 1,
       "target_key": "setting",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one location for a small travel-group meeting.",
+      "prompt": "Choose one room for a small travel-group meeting. Both rooms fit the group and have the same equipment, accessibility, guaranteed availability, and usable duration; only the setting and listed price differ.",
       "wording_template_id": "travel-dialogue-atlas-v1",
       "negative_option": {
         "option_id": "travel-atlas-meeting-setting-01-negative",
-        "label": "Compact meeting room near the main transit area",
+        "label": "Compact lively meeting room beside the main lobby with standard reservation terms at the higher listed price",
         "features": [
           0.0,
           -0.5,
@@ -362,7 +369,7 @@
       },
       "positive_option": {
         "option_id": "travel-atlas-meeting-setting-01-positive",
-        "label": "Spacious quiet meeting room farther from the main transit area",
+        "label": "Spacious quiet meeting room in a side wing farther from the main lobby with standard reservation terms at the higher listed price",
         "features": [
           0.0,
           0.5,
@@ -371,20 +378,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-atlas-meeting-setting-01-negative-peer",
-        "label": "Compact central meeting room with self-managed flexible timing",
+        "label": "Compact lively meeting room beside the main lobby with standard reservation terms at the lower listed price",
         "features": [
-          0.0,
+          -0.25,
           -0.5,
-          0.25
+          0.0
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-atlas-meeting-setting-01-positive-peer",
-        "label": "Spacious quiet meeting room with self-managed flexible timing",
+        "label": "Spacious quiet meeting room in a side wing farther from the main lobby with standard reservation terms at the lower listed price",
         "features": [
-          0.0,
+          -0.25,
           0.5,
-          0.25
+          0.0
         ]
       },
       "supported_mechanisms": [
@@ -412,24 +419,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "travel-scenario-beacon-dining-setting-01",
       "family_id": "travel-family-beacon-dining-setting-01",
-      "revision": 1,
+      "revision": 5,
       "status": "provisional",
       "split": "development",
       "domain": "travel",
       "task_family": "dining_location",
       "target_attribute": 1,
       "target_key": "setting",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one dining location with a comparable menu and service format.",
+      "prompt": "Choose one dining room at the same venue. Both have the same menu, prices, service, wait, reservation certainty, available arrival slots, accessibility, and dining duration; only the setting and who selects the confirmed arrival slot differ.",
       "wording_template_id": "travel-dialogue-beacon-v1",
       "negative_option": {
         "option_id": "travel-beacon-dining-setting-01-negative",
-        "label": "Compact dining room in a central active district",
+        "label": "Compact lively dining room beside the main entrance with a guest-selected confirmed arrival slot",
         "features": [
           0.0,
           -0.5,
@@ -438,7 +447,7 @@
       },
       "positive_option": {
         "option_id": "travel-beacon-dining-setting-01-positive",
-        "label": "Spacious quiet dining room outside the central district",
+        "label": "Spacious quiet dining room farther from the main entrance with a guest-selected confirmed arrival slot",
         "features": [
           0.0,
           0.5,
@@ -447,20 +456,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-beacon-dining-setting-01-negative-peer",
-        "label": "Compact central dining room with a flexible arrival window",
+        "label": "Compact lively dining room beside the main entrance with a venue-assigned confirmed arrival slot",
         "features": [
           0.0,
           -0.5,
-          0.25
+          -0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-beacon-dining-setting-01-positive-peer",
-        "label": "Spacious quiet dining room with a flexible arrival window",
+        "label": "Spacious quiet dining room farther from the main entrance with a venue-assigned confirmed arrival slot",
         "features": [
           0.0,
           0.5,
-          0.25
+          -0.25
         ]
       },
       "supported_mechanisms": [
@@ -488,24 +497,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "travel-scenario-cedar-workspace-setting-01",
       "family_id": "travel-family-cedar-workspace-setting-01",
-      "revision": 1,
+      "revision": 6,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "temporary_workspace",
       "target_attribute": 1,
       "target_key": "setting",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one temporary workspace for a day during a trip.",
+      "prompt": "Choose one zone in the same temporary-workspace facility for a day during a trip. Both zones have the same price, network, equipment, support availability, accessibility, guaranteed entry, and total usable hours; only the setting and planning arrangement differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-workspace-setting-01-negative",
-        "label": "Compact work lounge beside the central transport hub",
+        "label": "Compact lively work zone beside the facility's main concourse with a flexible self-managed access window",
         "features": [
           0.0,
           -0.5,
@@ -514,7 +525,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-workspace-setting-01-positive",
-        "label": "Spacious quiet work lounge farther from the transport hub",
+        "label": "Spacious quiet work zone away from the facility's main concourse with a flexible self-managed access window",
         "features": [
           0.0,
           0.5,
@@ -523,20 +534,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-workspace-setting-01-negative-peer",
-        "label": "Compact central work lounge with flexible access hours",
+        "label": "Compact lively work zone beside the facility's main concourse with a coordinated fixed access window",
         "features": [
           0.0,
           -0.5,
-          0.25
+          -0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-workspace-setting-01-positive-peer",
-        "label": "Spacious quiet work lounge with flexible access hours",
+        "label": "Spacious quiet work zone away from the facility's main concourse with a coordinated fixed access window",
         "features": [
           0.0,
           0.5,
-          0.25
+          -0.25
         ]
       },
       "supported_mechanisms": [
@@ -564,24 +575,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "travel-scenario-cedar-seating-setting-02",
       "family_id": "travel-family-cedar-seating-setting-02",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "event_seating",
       "target_attribute": 1,
       "target_key": "setting",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one seating area for the same event programme.",
+      "prompt": "Choose one seating area for the same event programme. Both have the same stage view, accessibility, guaranteed seat, and attendance duration; only the setting and listed price differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-seating-setting-02-negative",
-        "label": "Compact seat near the central stage area",
+        "label": "Compact seat in the lively central area beside the main social activity with standard check-in terms at the lower listed price",
         "features": [
           0.0,
           -0.5,
@@ -590,7 +603,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-seating-setting-02-positive",
-        "label": "Roomier seat in a quieter area farther from the stage",
+        "label": "Roomier seat in the quiet side area away from social activity with standard check-in terms at the lower listed price",
         "features": [
           0.0,
           0.5,
@@ -599,20 +612,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-seating-setting-02-negative-peer",
-        "label": "Compact central seat with a flexible entry window",
+        "label": "Compact seat in the lively central area beside the main social activity with standard check-in terms at the higher listed price",
         "features": [
-          0.0,
+          0.25,
           -0.5,
-          0.25
+          0.0
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-seating-setting-02-positive-peer",
-        "label": "Roomier quiet-area seat with a flexible entry window",
+        "label": "Roomier seat in the quiet side area away from social activity with standard check-in terms at the higher listed price",
         "features": [
-          0.0,
+          0.25,
           0.5,
-          0.25
+          0.0
         ]
       },
       "supported_mechanisms": [
@@ -640,24 +653,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-atlas-itinerary-planning-01",
       "family_id": "travel-family-atlas-itinerary-planning-01",
-      "revision": 1,
+      "revision": 5,
       "status": "provisional",
       "split": "train",
       "domain": "travel",
       "task_family": "day_itinerary",
       "target_attribute": 2,
       "target_key": "planning",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one structure for a day itinerary covering the same places.",
+      "prompt": "Choose one structure for a day itinerary covering the same places. Both have the same duration, transport, entry access, and cancellation terms; only the planning arrangement and listed price differ.",
       "wording_template_id": "travel-dialogue-atlas-v1",
       "negative_option": {
         "option_id": "travel-atlas-itinerary-planning-01-negative",
-        "label": "Coordinated itinerary with a fixed sequence and bundled logistics",
+        "label": "Coordinated itinerary with a fixed sequence and bundled logistics in the standard tier",
         "features": [
           0.0,
           0.0,
@@ -666,7 +681,7 @@
       },
       "positive_option": {
         "option_id": "travel-atlas-itinerary-planning-01-positive",
-        "label": "Self-directed itinerary with a changeable sequence and open timing",
+        "label": "Self-directed itinerary with a changeable sequence and individually managed logistics in the standard tier",
         "features": [
           0.0,
           0.0,
@@ -675,7 +690,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-atlas-itinerary-planning-01-negative-peer",
-        "label": "Higher-cost coordinated itinerary with upgraded bundled logistics",
+        "label": "Higher-cost coordinated itinerary with a fixed sequence, bundled logistics, and an included souvenir postcard set",
         "features": [
           0.25,
           0.0,
@@ -684,7 +699,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "travel-atlas-itinerary-planning-01-positive-peer",
-        "label": "Higher-cost self-directed itinerary with upgraded flexible support",
+        "label": "Higher-cost self-directed itinerary with a changeable sequence, individually managed logistics, and an included souvenir postcard set",
         "features": [
           0.25,
           0.0,
@@ -716,24 +731,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-beacon-booking-planning-01",
       "family_id": "travel-family-beacon-booking-planning-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "development",
       "domain": "travel",
       "task_family": "multi_leg_booking",
       "target_attribute": 2,
       "target_key": "planning",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one booking structure for the same multi-leg journey.",
+      "prompt": "Choose how to manage the same already-ticketed multi-leg journey. Route, schedule, connection protection, refund rights, luggage, and total travel price are identical; only the planning arrangement and setting differ.",
       "wording_template_id": "travel-dialogue-beacon-v1",
       "negative_option": {
         "option_id": "travel-beacon-booking-planning-01-negative",
-        "label": "Single coordinated booking with fixed connections",
+        "label": "Coordinated journey plan with fixed reminders and bundled document management in the standard tier in a compact lively central area",
         "features": [
           0.0,
           0.0,
@@ -742,7 +759,7 @@
       },
       "positive_option": {
         "option_id": "travel-beacon-booking-planning-01-positive",
-        "label": "Separate changeable bookings with adjustable connections",
+        "label": "Self-managed journey plan with adjustable reminders and individually organized documents in the standard tier in a compact lively central area",
         "features": [
           0.0,
           0.0,
@@ -751,19 +768,19 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-beacon-booking-planning-01-negative-peer",
-        "label": "Higher-cost coordinated booking with upgraded connection support",
+        "label": "Coordinated journey plan with fixed reminders and bundled document management in the standard tier in a spacious quiet side area",
         "features": [
-          0.25,
           0.0,
+          0.25,
           -0.5
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-beacon-booking-planning-01-positive-peer",
-        "label": "Higher-cost changeable bookings with upgraded flexible support",
+        "label": "Self-managed journey plan with adjustable reminders and individually organized documents in the standard tier in a spacious quiet side area",
         "features": [
-          0.25,
           0.0,
+          0.25,
           0.5
         ]
       },
@@ -792,24 +809,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-cedar-transfer-planning-01",
       "family_id": "travel-family-cedar-transfer-planning-01",
-      "revision": 1,
+      "revision": 5,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "airport_transfer",
       "target_attribute": 2,
       "target_key": "planning",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one transfer arrangement between an airport and a lodging area.",
+      "prompt": "Choose one transfer arrangement between an airport and a lodging area from the same available pickup slots. Vehicle type, route, travel time, reliability, baggage handling, and cancellation terms are identical; only who selects the confirmed pickup slot and the listed price differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-transfer-planning-01-negative",
-        "label": "Coordinated transfer with a fixed pickup and bundled routing",
+        "label": "Coordinated transfer with an operator-assigned confirmed pickup slot and bundled dispatch in the standard tier",
         "features": [
           0.0,
           0.0,
@@ -818,7 +837,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-transfer-planning-01-positive",
-        "label": "Self-arranged transfer with adjustable pickup and routing",
+        "label": "Self-managed transfer with a traveler-selected confirmed pickup slot and self-managed dispatch in the standard tier",
         "features": [
           0.0,
           0.0,
@@ -827,7 +846,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-transfer-planning-01-negative-peer",
-        "label": "Higher-cost coordinated transfer with upgraded bundled service",
+        "label": "Higher-cost coordinated transfer with an operator-assigned confirmed pickup slot, bundled dispatch, and included refreshments",
         "features": [
           0.25,
           0.0,
@@ -836,7 +855,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-transfer-planning-01-positive-peer",
-        "label": "Higher-cost self-arranged transfer with upgraded flexible service",
+        "label": "Higher-cost self-managed transfer with a traveler-selected confirmed pickup slot, self-managed dispatch, and included refreshments",
         "features": [
           0.25,
           0.0,
@@ -868,24 +887,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "travel-scenario-cedar-schedule-planning-02",
       "family_id": "travel-family-cedar-schedule-planning-02",
-      "revision": 1,
+      "revision": 5,
       "status": "provisional",
       "split": "test",
       "domain": "travel",
       "task_family": "activity_schedule",
       "target_attribute": 2,
       "target_key": "planning",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one scheduling format for a set of activities.",
+      "prompt": "Choose one scheduling format for the same activities and the same feasible time slots. Activity access, durations, travel time, cancellation terms, and base price are identical; only who selects the confirmed slots and the setting differ.",
       "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "travel-cedar-schedule-planning-02-negative",
-        "label": "Prearranged activity sequence with fixed times and bundled entry",
+        "label": "Coordinated activity schedule with organiser-selected confirmed slots and bundled reservations in the standard tier in a spacious quiet side area",
         "features": [
           0.0,
           0.0,
@@ -894,7 +915,7 @@
       },
       "positive_option": {
         "option_id": "travel-cedar-schedule-planning-02-positive",
-        "label": "Open activity sequence with changeable times and separate entry",
+        "label": "Self-managed activity schedule with participant-selected confirmed slots and individually managed reservations in the standard tier in a spacious quiet side area",
         "features": [
           0.0,
           0.0,
@@ -903,19 +924,19 @@
       },
       "negative_same_direction_option": {
         "option_id": "travel-cedar-schedule-planning-02-negative-peer",
-        "label": "Higher-cost prearranged sequence with upgraded bundled entry",
+        "label": "Coordinated activity schedule with organiser-selected confirmed slots and bundled reservations in the standard tier in a compact lively central area",
         "features": [
-          0.25,
           0.0,
+          -0.25,
           -0.5
         ]
       },
       "positive_same_direction_option": {
         "option_id": "travel-cedar-schedule-planning-02-positive-peer",
-        "label": "Higher-cost open sequence with upgraded flexible entry",
+        "label": "Self-managed activity schedule with participant-selected confirmed slots and individually managed reservations in the standard tier in a compact lively central area",
         "features": [
-          0.25,
           0.0,
+          -0.25,
           0.5
         ]
       },
@@ -944,24 +965,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "writing-scenario-atlas-status-length-01",
       "family_id": "writing-family-atlas-status-length-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "train",
       "domain": "writing",
       "task_family": "status_update",
       "target_attribute": 0,
       "target_key": "length",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one version of a project status update containing the same core facts.",
+      "prompt": "Choose one version of a project status update containing the same core facts. The options differ only in length and spelling style.",
       "wording_template_id": "writing-dialogue-atlas-v1",
       "negative_option": {
         "option_id": "writing-atlas-status-length-01-negative",
-        "label": "Concise status update in a neutral tone",
+        "label": "Concise status update in a neutral tone using American spelling",
         "features": [
           -0.5,
           0.0,
@@ -970,7 +993,7 @@
       },
       "positive_option": {
         "option_id": "writing-atlas-status-length-01-positive",
-        "label": "Detailed status update in a neutral tone",
+        "label": "Detailed status update in a neutral tone using American spelling",
         "features": [
           0.5,
           0.0,
@@ -979,20 +1002,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-atlas-status-length-01-negative-peer",
-        "label": "Concise status update in a conversational tone",
+        "label": "Concise status update in a neutral tone using British spelling",
         "features": [
           -0.5,
-          0.25,
-          0.0
+          0.0,
+          -0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "writing-atlas-status-length-01-positive-peer",
-        "label": "Detailed status update in a conversational tone",
+        "label": "Detailed status update in a neutral tone using British spelling",
         "features": [
           0.5,
-          0.25,
-          0.0
+          0.0,
+          -0.25
         ]
       },
       "supported_mechanisms": [
@@ -1020,24 +1043,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "writing-scenario-beacon-explainer-length-01",
       "family_id": "writing-family-beacon-explainer-length-01",
-      "revision": 1,
+      "revision": 3,
       "status": "provisional",
       "split": "development",
       "domain": "writing",
       "task_family": "technical_explainer",
       "target_attribute": 0,
       "target_key": "length",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one technical explanation covering the same concept and conclusion.",
+      "prompt": "Choose one technical explanation covering the same concept and conclusion. The options differ only in length and tone.",
       "wording_template_id": "writing-dialogue-beacon-v1",
       "negative_option": {
         "option_id": "writing-beacon-explainer-length-01-negative",
-        "label": "Concise technical overview in a neutral tone",
+        "label": "Concise technical explanation in a conversational tone without dialect-specific spellings",
         "features": [
           -0.5,
           0.0,
@@ -1046,7 +1071,7 @@
       },
       "positive_option": {
         "option_id": "writing-beacon-explainer-length-01-positive",
-        "label": "Detailed technical walkthrough in a neutral tone",
+        "label": "Detailed technical explanation in a conversational tone without dialect-specific spellings",
         "features": [
           0.5,
           0.0,
@@ -1055,19 +1080,19 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-beacon-explainer-length-01-negative-peer",
-        "label": "Concise technical overview in a conversational tone",
+        "label": "Concise technical explanation in a neutral tone without dialect-specific spellings",
         "features": [
           -0.5,
-          0.25,
+          -0.25,
           0.0
         ]
       },
       "positive_same_direction_option": {
         "option_id": "writing-beacon-explainer-length-01-positive-peer",
-        "label": "Detailed technical walkthrough in a conversational tone",
+        "label": "Detailed technical explanation in a neutral tone without dialect-specific spellings",
         "features": [
           0.5,
-          0.25,
+          -0.25,
           0.0
         ]
       },
@@ -1096,24 +1121,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "writing-scenario-cedar-customer-length-01",
       "family_id": "writing-family-cedar-customer-length-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
       "task_family": "customer_email",
       "target_attribute": 0,
       "target_key": "length",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one customer email that communicates the same decision and next step.",
+      "prompt": "A customer needs an email confirming a resolved service request. Both versions preserve the decision, responsible team, completion date, and next contact route. The options differ only in length and tone.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "writing-cedar-customer-length-01-negative",
-        "label": "Concise customer email in a neutral tone",
+        "label": "Concise customer email in a conversational tone without dialect-specific spellings",
         "features": [
           -0.5,
           0.0,
@@ -1122,7 +1149,7 @@
       },
       "positive_option": {
         "option_id": "writing-cedar-customer-length-01-positive",
-        "label": "Detailed customer email in a neutral tone",
+        "label": "Detailed customer email in a conversational tone without dialect-specific spellings",
         "features": [
           0.5,
           0.0,
@@ -1131,19 +1158,19 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-cedar-customer-length-01-negative-peer",
-        "label": "Concise customer email in a conversational tone",
+        "label": "Concise customer email in a neutral tone without dialect-specific spellings",
         "features": [
           -0.5,
-          0.25,
+          -0.25,
           0.0
         ]
       },
       "positive_same_direction_option": {
         "option_id": "writing-cedar-customer-length-01-positive-peer",
-        "label": "Detailed customer email in a conversational tone",
+        "label": "Detailed customer email in a neutral tone without dialect-specific spellings",
         "features": [
           0.5,
-          0.25,
+          -0.25,
           0.0
         ]
       },
@@ -1172,24 +1199,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": -1
     },
     {
       "scenario_id": "writing-scenario-cedar-summary-length-02",
       "family_id": "writing-family-cedar-summary-length-02",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
       "task_family": "meeting_summary",
       "target_attribute": 0,
       "target_key": "length",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one meeting summary containing the same decisions and action items.",
+      "prompt": "Prepare a follow-up record for people who attended a planning meeting. Both versions preserve the decisions, owners, due dates, and action sequence. The options differ only in length and spelling style.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "writing-cedar-summary-length-02-negative",
-        "label": "Concise meeting summary in a neutral tone",
+        "label": "Concise meeting summary in a neutral tone using British spelling",
         "features": [
           -0.5,
           0.0,
@@ -1198,7 +1227,7 @@
       },
       "positive_option": {
         "option_id": "writing-cedar-summary-length-02-positive",
-        "label": "Detailed meeting summary in a neutral tone",
+        "label": "Detailed meeting summary in a neutral tone using British spelling",
         "features": [
           0.5,
           0.0,
@@ -1207,20 +1236,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-cedar-summary-length-02-negative-peer",
-        "label": "Concise meeting summary in a conversational tone",
+        "label": "Concise meeting summary in a neutral tone using American spelling",
         "features": [
           -0.5,
-          0.25,
-          0.0
+          0.0,
+          0.25
         ]
       },
       "positive_same_direction_option": {
         "option_id": "writing-cedar-summary-length-02-positive-peer",
-        "label": "Detailed meeting summary in a conversational tone",
+        "label": "Detailed meeting summary in a neutral tone using American spelling",
         "features": [
           0.5,
-          0.25,
-          0.0
+          0.0,
+          0.25
         ]
       },
       "supported_mechanisms": [
@@ -1248,24 +1277,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "writing-scenario-atlas-workplace-tone-01",
       "family_id": "writing-family-atlas-workplace-tone-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "train",
       "domain": "writing",
       "task_family": "workplace_email",
       "target_attribute": 1,
       "target_key": "tone",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one workplace email that conveys the same request and deadline.",
+      "prompt": "Choose one workplace request email of the same length that preserves the intended recipient, requested action, deadline, and reply route. The options differ only in tone and spelling style.",
       "wording_template_id": "writing-dialogue-atlas-v1",
       "negative_option": {
         "option_id": "writing-atlas-workplace-tone-01-negative",
-        "label": "Formal workplace email with neutral spelling",
+        "label": "Formal workplace request email without dialect-specific spellings",
         "features": [
           0.0,
           -0.5,
@@ -1274,7 +1305,7 @@
       },
       "positive_option": {
         "option_id": "writing-atlas-workplace-tone-01-positive",
-        "label": "Conversational workplace email with neutral spelling",
+        "label": "Conversational workplace request email without dialect-specific spellings",
         "features": [
           0.0,
           0.5,
@@ -1283,7 +1314,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-atlas-workplace-tone-01-negative-peer",
-        "label": "Formal workplace email using American spelling",
+        "label": "Formal workplace request email using American spelling",
         "features": [
           0.0,
           -0.5,
@@ -1292,7 +1323,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "writing-atlas-workplace-tone-01-positive-peer",
-        "label": "Conversational workplace email using American spelling",
+        "label": "Conversational workplace request email using American spelling",
         "features": [
           0.0,
           0.5,
@@ -1324,24 +1355,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "writing-scenario-beacon-support-tone-01",
       "family_id": "writing-family-beacon-support-tone-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "development",
       "domain": "writing",
       "task_family": "support_reply",
       "target_attribute": 1,
       "target_key": "tone",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one support reply that provides the same explanation and resolution.",
+      "prompt": "Choose one troubleshooting reply that preserves the issue description, explanation, resolution steps, and follow-up route. The options differ only in tone and length.",
       "wording_template_id": "writing-dialogue-beacon-v1",
       "negative_option": {
         "option_id": "writing-beacon-support-tone-01-negative",
-        "label": "Formal support reply with neutral spelling",
+        "label": "Formal troubleshooting reply without dialect-specific spellings in an 80-word version",
         "features": [
           0.0,
           -0.5,
@@ -1350,7 +1383,7 @@
       },
       "positive_option": {
         "option_id": "writing-beacon-support-tone-01-positive",
-        "label": "Conversational support reply with neutral spelling",
+        "label": "Conversational troubleshooting reply without dialect-specific spellings in an 80-word version",
         "features": [
           0.0,
           0.5,
@@ -1359,20 +1392,20 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-beacon-support-tone-01-negative-peer",
-        "label": "Formal support reply using American spelling",
+        "label": "Formal troubleshooting reply without dialect-specific spellings in a 180-word version",
         "features": [
-          0.0,
+          0.25,
           -0.5,
-          0.25
+          0.0
         ]
       },
       "positive_same_direction_option": {
         "option_id": "writing-beacon-support-tone-01-positive-peer",
-        "label": "Conversational support reply using American spelling",
+        "label": "Conversational troubleshooting reply without dialect-specific spellings in a 180-word version",
         "features": [
-          0.0,
+          0.25,
           0.5,
-          0.25
+          0.0
         ]
       },
       "supported_mechanisms": [
@@ -1400,24 +1433,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "writing-scenario-cedar-announcement-tone-01",
       "family_id": "writing-family-cedar-announcement-tone-01",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
       "task_family": "project_announcement",
       "target_attribute": 1,
       "target_key": "tone",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one project announcement that presents the same update and timing.",
+      "prompt": "Choose one project rollout notice of the same length that preserves the milestone, affected group, timing, and next step. The options differ only in tone and spelling style.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "writing-cedar-announcement-tone-01-negative",
-        "label": "Formal project announcement with neutral spelling",
+        "label": "Formal project rollout notice without dialect-specific spellings",
         "features": [
           0.0,
           -0.5,
@@ -1426,7 +1461,7 @@
       },
       "positive_option": {
         "option_id": "writing-cedar-announcement-tone-01-positive",
-        "label": "Conversational project announcement with neutral spelling",
+        "label": "Conversational project rollout notice without dialect-specific spellings",
         "features": [
           0.0,
           0.5,
@@ -1435,7 +1470,7 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-cedar-announcement-tone-01-negative-peer",
-        "label": "Formal project announcement using American spelling",
+        "label": "Formal project rollout notice using American spelling",
         "features": [
           0.0,
           -0.5,
@@ -1444,7 +1479,7 @@
       },
       "positive_same_direction_option": {
         "option_id": "writing-cedar-announcement-tone-01-positive-peer",
-        "label": "Conversational project announcement using American spelling",
+        "label": "Conversational project rollout notice using American spelling",
         "features": [
           0.0,
           0.5,
@@ -1476,24 +1511,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": 1
     },
     {
       "scenario_id": "writing-scenario-cedar-feedback-tone-02",
       "family_id": "writing-family-cedar-feedback-tone-02",
-      "revision": 1,
+      "revision": 4,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
       "task_family": "peer_feedback",
       "target_attribute": 1,
       "target_key": "tone",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one peer-feedback note that communicates the same observations and suggestions.",
+      "prompt": "Choose one peer-review note that preserves the observations, examples, suggested changes, and next step. The options differ only in tone and length.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
         "option_id": "writing-cedar-feedback-tone-02-negative",
-        "label": "Formal peer-feedback note with neutral spelling",
+        "label": "Formal peer-review note without dialect-specific spellings in a 180-word version",
         "features": [
           0.0,
           -0.5,
@@ -1502,7 +1539,7 @@
       },
       "positive_option": {
         "option_id": "writing-cedar-feedback-tone-02-positive",
-        "label": "Conversational peer-feedback note with neutral spelling",
+        "label": "Conversational peer-review note without dialect-specific spellings in a 180-word version",
         "features": [
           0.0,
           0.5,
@@ -1511,7 +1548,787 @@
       },
       "negative_same_direction_option": {
         "option_id": "writing-cedar-feedback-tone-02-negative-peer",
-        "label": "Formal peer-feedback note using American spelling",
+        "label": "Formal peer-review note without dialect-specific spellings in an 80-word version",
+        "features": [
+          -0.25,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-feedback-tone-02-positive-peer",
+        "label": "Conversational peer-review note without dialect-specific spellings in an 80-word version",
+        "features": [
+          -0.25,
+          0.5,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-atlas-description-spelling-01",
+      "family_id": "writing-family-atlas-description-spelling-01",
+      "revision": 4,
+      "status": "provisional",
+      "split": "train",
+      "domain": "writing",
+      "task_family": "product_description",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one product description with no required house style that preserves the same intended use, material details, care guidance, claim order. The options differ only in spelling style and tone.",
+      "wording_template_id": "writing-dialogue-atlas-v1",
+      "negative_option": {
+        "option_id": "writing-atlas-description-spelling-01-negative",
+        "label": "Standard-length product description using British spelling in a conversational register",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-atlas-description-spelling-01-positive",
+        "label": "Standard-length product description using American spelling in a conversational register",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-atlas-description-spelling-01-negative-peer",
+        "label": "Standard-length product description using British spelling in a formal register",
+        "features": [
+          0.0,
+          -0.25,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-atlas-description-spelling-01-positive-peer",
+        "label": "Standard-length product description using American spelling in a formal register",
+        "features": [
+          0.0,
+          -0.25,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-beacon-documentation-spelling-01",
+      "family_id": "writing-family-beacon-documentation-spelling-01",
+      "revision": 4,
+      "status": "provisional",
+      "split": "development",
+      "domain": "writing",
+      "task_family": "software_documentation",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one software setup guide with no required house style that preserves the same prerequisites, command sequence, caution note, worked example, section order, and tone. The options differ only in spelling style and length.",
+      "wording_template_id": "writing-dialogue-beacon-v1",
+      "negative_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-negative",
+        "label": "Detailed software setup guide in a neutral tone using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-positive",
+        "label": "Detailed software setup guide in a neutral tone using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-negative-peer",
+        "label": "Standard-length software setup guide in a neutral tone using British spelling",
+        "features": [
+          -0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-beacon-documentation-spelling-01-positive-peer",
+        "label": "Standard-length software setup guide in a neutral tone using American spelling",
+        "features": [
+          -0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-newsletter-spelling-01",
+      "family_id": "writing-family-cedar-newsletter-spelling-01",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "community_newsletter",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one community bulletin with no required house style that preserves the same activity dates, volunteer details, contact route, item order, and tone. The options differ only in spelling style and length.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-negative",
+        "label": "Detailed community bulletin ordered by activity date in a neutral tone using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-positive",
+        "label": "Detailed community bulletin ordered by activity date in a neutral tone using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-negative-peer",
+        "label": "Standard-length community bulletin ordered by activity date in a neutral tone using British spelling",
+        "features": [
+          -0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-newsletter-spelling-01-positive-peer",
+        "label": "Standard-length community bulletin ordered by activity date in a neutral tone using American spelling",
+        "features": [
+          -0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-guide-spelling-02",
+      "family_id": "writing-family-cedar-guide-spelling-02",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "museum_guide",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one museum gallery text with no required house style that preserves the same object attribution, visual description, historical context, display sequence. The options differ only in spelling style and tone.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-guide-spelling-02-negative",
+        "label": "Standard-length museum gallery text using British spelling in a formal register",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-guide-spelling-02-positive",
+        "label": "Standard-length museum gallery text using American spelling in a formal register",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-guide-spelling-02-negative-peer",
+        "label": "Standard-length museum gallery text using British spelling in a conversational register",
+        "features": [
+          0.0,
+          0.25,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-guide-spelling-02-positive-peer",
+        "label": "Standard-length museum gallery text using American spelling in a conversational register",
+        "features": [
+          0.0,
+          0.25,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-storage-price-03",
+      "family_id": "travel-family-cedar-storage-price-03",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "baggage_storage",
+      "target_attribute": 0,
+      "target_key": "price",
+      "prompt": "Choose one baggage-storage package at the same travel facility for the same period. Capacity, security, insurance, access frequency, queue, and retrieval terms are identical; only the price package and planning arrangement differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-storage-price-03-negative",
+        "label": "Lower-cost standard storage without a souvenir luggage tag at the lively central service counter with coordinated fixed arrangements",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-storage-price-03-positive",
+        "label": "Higher-cost premium storage with a souvenir luggage tag at the lively central service counter with coordinated fixed arrangements",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-storage-price-03-negative-peer",
+        "label": "Lower-cost standard storage without a souvenir luggage tag at the lively central service counter with self-managed flexible arrangements",
+        "features": [
+          -0.5,
+          0.0,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-storage-price-03-positive-peer",
+        "label": "Higher-cost premium storage with a souvenir luggage tag at the lively central service counter with self-managed flexible arrangements",
+        "features": [
+          0.5,
+          0.0,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-ferry-price-04",
+      "family_id": "travel-family-cedar-ferry-price-04",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "ferry_passage",
+      "target_attribute": 0,
+      "target_key": "price",
+      "prompt": "Choose one ferry package for the same route, departure, and vessel. Seat dimensions, luggage allowance, boarding position, and refund and change terms are identical; only the price package and setting differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-ferry-price-04-negative",
+        "label": "Lower-fare standard ticket without refreshments in the spacious quiet side cabin",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-ferry-price-04-positive",
+        "label": "Higher-fare premium ticket with refreshments in the spacious quiet side cabin",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-ferry-price-04-negative-peer",
+        "label": "Lower-fare standard ticket without refreshments in the lively central passenger cabin",
+        "features": [
+          -0.5,
+          -0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-ferry-price-04-positive-peer",
+        "label": "Higher-fare premium ticket with refreshments in the lively central passenger cabin",
+        "features": [
+          0.5,
+          -0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-bicycle-price-05",
+      "family_id": "travel-family-cedar-bicycle-price-05",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "bicycle_rental",
+      "target_attribute": 0,
+      "target_key": "price",
+      "prompt": "Choose one bicycle-rental package at the same facility for the same period. Bicycle model, condition, fit, safety accessories, roadside support, and cancellation terms are identical; only the price package and setting differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-bicycle-price-05-negative",
+        "label": "Lower-cost standard rental without a souvenir water bottle in the lively central service area",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-bicycle-price-05-positive",
+        "label": "Higher-cost premium rental with a souvenir water bottle in the lively central service area",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-bicycle-price-05-negative-peer",
+        "label": "Lower-cost standard rental without a souvenir water bottle in the spacious quiet side service area",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-bicycle-price-05-positive-peer",
+        "label": "Higher-cost premium rental with a souvenir water bottle in the spacious quiet side service area",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-wellness-price-06",
+      "family_id": "travel-family-cedar-wellness-price-06",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "wellness_day_pass",
+      "target_attribute": 0,
+      "target_key": "price",
+      "prompt": "Choose one wellness day pass at the same venue for the same duration. Activity access, appointment availability, equipment, and cancellation terms are identical; only the price package and planning arrangement differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-wellness-price-06-negative",
+        "label": "Lower-cost standard day pass without a take-home kit based in the lively central lounge with self-managed flexible arrangements",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-wellness-price-06-positive",
+        "label": "Higher-cost premium day pass with a take-home kit based in the lively central lounge with self-managed flexible arrangements",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-wellness-price-06-negative-peer",
+        "label": "Lower-cost standard day pass without a take-home kit based in the lively central lounge with coordinated fixed arrangements",
+        "features": [
+          -0.5,
+          0.0,
+          -0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-wellness-price-06-positive-peer",
+        "label": "Higher-cost premium day pass with a take-home kit based in the lively central lounge with coordinated fixed arrangements",
+        "features": [
+          0.5,
+          0.0,
+          -0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-station-setting-03",
+      "family_id": "travel-family-cedar-station-setting-03",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "station_waiting_area",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "prompt": "Choose one reserved waiting lounge before the same rail departure. Both have the same facilities, accessibility, guaranteed entry, and usable duration; only the setting and listed price differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-station-setting-03-negative",
+        "label": "Compact lively lounge beside the central platforms with a standard entry window at the higher listed price",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-station-setting-03-positive",
+        "label": "Roomier quiet lounge farther from the platforms with a standard entry window at the higher listed price",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-station-setting-03-negative-peer",
+        "label": "Compact lively lounge beside the central platforms with a standard entry window at the lower listed price",
+        "features": [
+          -0.25,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-station-setting-03-positive-peer",
+        "label": "Roomier quiet lounge farther from the platforms with a standard entry window at the lower listed price",
+        "features": [
+          -0.25,
+          0.5,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-breakfast-setting-04",
+      "family_id": "travel-family-cedar-breakfast-setting-04",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "breakfast_seating",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "prompt": "Choose one breakfast table at the same venue. Menu, price, service, accessibility, guaranteed availability, available arrival slots, and seating duration are identical; only the setting and who selects the confirmed arrival slot differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-breakfast-setting-04-negative",
+        "label": "Compact lively table beside the central buffet with a venue-assigned confirmed arrival slot",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-breakfast-setting-04-positive",
+        "label": "Roomier quiet table farther from the buffet with a venue-assigned confirmed arrival slot",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-breakfast-setting-04-negative-peer",
+        "label": "Compact lively table beside the central buffet with a guest-selected confirmed arrival slot",
         "features": [
           0.0,
           -0.5,
@@ -1519,8 +2336,8 @@
         ]
       },
       "positive_same_direction_option": {
-        "option_id": "writing-cedar-feedback-tone-02-positive-peer",
-        "label": "Conversational peer-feedback note using American spelling",
+        "option_id": "travel-cedar-breakfast-setting-04-positive-peer",
+        "label": "Roomier quiet table farther from the buffet with a guest-selected confirmed arrival slot",
         "features": [
           0.0,
           0.5,
@@ -1552,24 +2369,182 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": 1
     },
     {
-      "scenario_id": "writing-scenario-atlas-description-spelling-01",
-      "family_id": "writing-family-atlas-description-spelling-01",
-      "revision": 1,
+      "scenario_id": "travel-scenario-cedar-visitor-setting-05",
+      "family_id": "travel-family-cedar-visitor-setting-05",
+      "revision": 4,
       "status": "provisional",
-      "split": "train",
-      "domain": "writing",
-      "task_family": "product_description",
-      "target_attribute": 2,
-      "target_key": "spelling",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one product description with the same claims and structure.",
-      "wording_template_id": "writing-dialogue-atlas-v1",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "visitor_centre_orientation",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "prompt": "Choose one orientation area at the same visitor centre. Both provide the same list of information-session slots, materials, price, accessibility, guaranteed place, and duration; only the setting and who selects the confirmed session slot differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
-        "option_id": "writing-atlas-description-spelling-01-negative",
-        "label": "Product description using British spelling",
+        "option_id": "travel-cedar-visitor-setting-05-negative",
+        "label": "Compact lively orientation area beside the central information desk with a participant-selected confirmed session slot",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-visitor-setting-05-positive",
+        "label": "Roomier quiet orientation area farther from the information desk with a participant-selected confirmed session slot",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-visitor-setting-05-negative-peer",
+        "label": "Compact lively orientation area beside the central information desk with a centre-assigned confirmed session slot",
+        "features": [
+          0.0,
+          -0.5,
+          -0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-visitor-setting-05-positive-peer",
+        "label": "Roomier quiet orientation area farther from the information desk with a centre-assigned confirmed session slot",
+        "features": [
+          0.0,
+          0.5,
+          -0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "planning",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-campsite-setting-06",
+      "family_id": "travel-family-cedar-campsite-setting-06",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "campsite_common_shelter",
+      "target_attribute": 1,
+      "target_key": "setting",
+      "prompt": "Choose one shared shelter at the same campsite. Both have the same capacity, weather protection, facilities, accessibility, reservation certainty, and duration; only the setting and listed price differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-campsite-setting-06-negative",
+        "label": "Compact lively shelter in the central social area beside communal facilities with standard reservation terms at the lower listed price",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-campsite-setting-06-positive",
+        "label": "Roomier quiet shelter at the campsite edge farther from communal facilities with standard reservation terms at the lower listed price",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-campsite-setting-06-negative-peer",
+        "label": "Compact lively shelter in the central social area beside communal facilities with standard reservation terms at the higher listed price",
+        "features": [
+          0.25,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-campsite-setting-06-positive-peer",
+        "label": "Roomier quiet shelter at the campsite edge farther from communal facilities with standard reservation terms at the higher listed price",
+        "features": [
+          0.25,
+          0.5,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-baggage-planning-03",
+      "family_id": "travel-family-cedar-baggage-planning-03",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "baggage_transfer_arrangement",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "prompt": "Choose how to manage the same carrier-operated baggage transfer within the same collection window and guaranteed delivery deadline. Bags, origin, destination, security, liability, tracking data, cancellation terms, and base price are identical; only who selects the collection slot and the setting differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-baggage-planning-03-negative",
+        "label": "Coordinated transfer with a carrier-assigned collection slot and bundled tracking notifications in the standard tier in a compact lively central area",
         "features": [
           0.0,
           0.0,
@@ -1577,8 +2552,8 @@
         ]
       },
       "positive_option": {
-        "option_id": "writing-atlas-description-spelling-01-positive",
-        "label": "Product description using American spelling",
+        "option_id": "travel-cedar-baggage-planning-03-positive",
+        "label": "Self-managed transfer with a customer-selected collection slot and customized tracking notifications in the standard tier in a compact lively central area",
         "features": [
           0.0,
           0.0,
@@ -1586,8 +2561,164 @@
         ]
       },
       "negative_same_direction_option": {
-        "option_id": "writing-atlas-description-spelling-01-negative-peer",
-        "label": "Detailed product description using British spelling",
+        "option_id": "travel-cedar-baggage-planning-03-negative-peer",
+        "label": "Coordinated transfer with a carrier-assigned collection slot and bundled tracking notifications in the standard tier in a spacious quiet side area",
+        "features": [
+          0.0,
+          0.25,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-baggage-planning-03-positive-peer",
+        "label": "Self-managed transfer with a customer-selected collection slot and customized tracking notifications in the standard tier in a spacious quiet side area",
+        "features": [
+          0.0,
+          0.25,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-restaurant-planning-04",
+      "family_id": "travel-family-cedar-restaurant-planning-04",
+      "revision": 5,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "restaurant_reservation",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "prompt": "Choose one reservation-management arrangement for the same restaurant, table, meal, party size, and available seating slots. Confirmed availability, cancellation terms, and service are identical; only who selects the confirmed seating slot and the listed price differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-restaurant-planning-04-negative",
+        "label": "Higher-cost concierge-managed reservation with a restaurant-assigned confirmed seating slot and an included welcome drink",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-restaurant-planning-04-positive",
+        "label": "Higher-cost self-managed reservation with a customer-selected confirmed seating slot and an included welcome drink",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-restaurant-planning-04-negative-peer",
+        "label": "Standard-price concierge-managed reservation with a restaurant-assigned confirmed seating slot and no included welcome drink",
+        "features": [
+          -0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "travel-cedar-restaurant-planning-04-positive-peer",
+        "label": "Standard-price self-managed reservation with a customer-selected confirmed seating slot and no included welcome drink",
+        "features": [
+          -0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-equipment-planning-05",
+      "family_id": "travel-family-cedar-equipment-planning-05",
+      "revision": 4,
+      "status": "provisional",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "rental_equipment_arrangement",
+      "target_attribute": 2,
+      "target_key": "planning",
+      "prompt": "Choose one equipment-rental arrangement for the same activity and period. Inventory, model, condition, fit, final equipment set, and cancellation terms are identical; only the planning arrangement and listed price differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "travel-cedar-equipment-planning-05-negative",
+        "label": "Coordinated rental with fixed pickup and a preassembled equipment set in the standard tier",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "travel-cedar-equipment-planning-05-positive",
+        "label": "Self-managed rental with adjustable pickup and self-assembly of the same set in the standard tier",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "travel-cedar-equipment-planning-05-negative-peer",
+        "label": "Higher-cost coordinated rental with fixed pickup, a preassembled equipment set, and an included souvenir patch",
         "features": [
           0.25,
           0.0,
@@ -1595,8 +2726,8 @@
         ]
       },
       "positive_same_direction_option": {
-        "option_id": "writing-atlas-description-spelling-01-positive-peer",
-        "label": "Detailed product description using American spelling",
+        "option_id": "travel-cedar-equipment-planning-05-positive-peer",
+        "label": "Higher-cost self-managed rental with adjustable pickup, self-assembly of the same set, and an included souvenir patch",
         "features": [
           0.25,
           0.0,
@@ -1628,24 +2759,26 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "price",
+      "nuisance_direction": 1
     },
     {
-      "scenario_id": "writing-scenario-beacon-documentation-spelling-01",
-      "family_id": "writing-family-beacon-documentation-spelling-01",
-      "revision": 1,
+      "scenario_id": "travel-scenario-cedar-transit-planning-06",
+      "family_id": "travel-family-cedar-transit-planning-06",
+      "revision": 4,
       "status": "provisional",
-      "split": "development",
-      "domain": "writing",
-      "task_family": "software_documentation",
+      "split": "test",
+      "domain": "travel",
+      "task_family": "local_transit_setup",
       "target_attribute": 2,
-      "target_key": "spelling",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one software documentation passage with the same instructions and examples.",
-      "wording_template_id": "writing-dialogue-beacon-v1",
+      "target_key": "planning",
+      "prompt": "Choose one local-transit setup for the same journeys from a set of equivalent routes. Route coverage, transfers, journey time, validity, and total base fare are identical; only who selects the route and the setup setting differ.",
+      "wording_template_id": "travel-dialogue-cedar-v1",
       "negative_option": {
-        "option_id": "writing-beacon-documentation-spelling-01-negative",
-        "label": "Documentation passage using British spelling",
+        "option_id": "travel-cedar-transit-planning-06-negative",
+        "label": "Coordinated transit setup with a system-selected equivalent route and preloaded fare bundle in the standard tier in a spacious quiet side area",
         "features": [
           0.0,
           0.0,
@@ -1653,8 +2786,8 @@
         ]
       },
       "positive_option": {
-        "option_id": "writing-beacon-documentation-spelling-01-positive",
-        "label": "Documentation passage using American spelling",
+        "option_id": "travel-cedar-transit-planning-06-positive",
+        "label": "Self-managed transit setup with a traveler-selected equivalent route and individually loaded fares in the standard tier in a spacious quiet side area",
         "features": [
           0.0,
           0.0,
@@ -1662,20 +2795,20 @@
         ]
       },
       "negative_same_direction_option": {
-        "option_id": "writing-beacon-documentation-spelling-01-negative-peer",
-        "label": "Detailed documentation passage using British spelling",
+        "option_id": "travel-cedar-transit-planning-06-negative-peer",
+        "label": "Coordinated transit setup with a system-selected equivalent route and preloaded fare bundle in the standard tier in a compact lively central area",
         "features": [
-          0.25,
           0.0,
+          -0.25,
           -0.5
         ]
       },
       "positive_same_direction_option": {
-        "option_id": "writing-beacon-documentation-spelling-01-positive-peer",
-        "label": "Detailed documentation passage using American spelling",
+        "option_id": "travel-cedar-transit-planning-06-positive-peer",
+        "label": "Self-managed transit setup with a traveler-selected equivalent route and individually loaded fares in the standard tier in a compact lively central area",
         "features": [
-          0.25,
           0.0,
+          -0.25,
           0.5
         ]
       },
@@ -1704,55 +2837,57 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "setting",
+      "nuisance_direction": -1
     },
     {
-      "scenario_id": "writing-scenario-cedar-newsletter-spelling-01",
-      "family_id": "writing-family-cedar-newsletter-spelling-01",
-      "revision": 1,
+      "scenario_id": "writing-scenario-cedar-volunteer-length-03",
+      "family_id": "writing-family-cedar-volunteer-length-03",
+      "revision": 2,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
-      "task_family": "community_newsletter",
-      "target_attribute": 2,
-      "target_key": "spelling",
-      "difficulty": "standard_tradeoff",
-      "prompt": "Choose one community newsletter item with the same information and ordering.",
+      "task_family": "volunteer_briefing",
+      "target_attribute": 0,
+      "target_key": "length",
+      "prompt": "Choose one volunteer briefing that preserves the same assigned roles, arrival sequence, check-in instructions, and contact route. The options differ only in length and spelling style.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
-        "option_id": "writing-cedar-newsletter-spelling-01-negative",
-        "label": "Newsletter item using British spelling",
+        "option_id": "writing-cedar-volunteer-length-03-negative",
+        "label": "Concise volunteer briefing in a neutral tone using American spelling",
         "features": [
+          -0.5,
           0.0,
-          0.0,
-          -0.5
+          0.0
         ]
       },
       "positive_option": {
-        "option_id": "writing-cedar-newsletter-spelling-01-positive",
-        "label": "Newsletter item using American spelling",
+        "option_id": "writing-cedar-volunteer-length-03-positive",
+        "label": "Detailed volunteer briefing in a neutral tone using American spelling",
         "features": [
+          0.5,
           0.0,
-          0.0,
-          0.5
+          0.0
         ]
       },
       "negative_same_direction_option": {
-        "option_id": "writing-cedar-newsletter-spelling-01-negative-peer",
-        "label": "Detailed newsletter item using British spelling",
+        "option_id": "writing-cedar-volunteer-length-03-negative-peer",
+        "label": "Concise volunteer briefing in a neutral tone using British spelling",
         "features": [
-          0.25,
+          -0.5,
           0.0,
-          -0.5
+          -0.25
         ]
       },
       "positive_same_direction_option": {
-        "option_id": "writing-cedar-newsletter-spelling-01-positive-peer",
-        "label": "Detailed newsletter item using American spelling",
+        "option_id": "writing-cedar-volunteer-length-03-positive-peer",
+        "label": "Detailed volunteer briefing in a neutral tone using British spelling",
         "features": [
-          0.25,
+          0.5,
           0.0,
-          0.5
+          -0.25
         ]
       },
       "supported_mechanisms": [
@@ -1780,24 +2915,572 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": -1
     },
     {
-      "scenario_id": "writing-scenario-cedar-guide-spelling-02",
-      "family_id": "writing-family-cedar-guide-spelling-02",
-      "revision": 1,
+      "scenario_id": "writing-scenario-cedar-podcast-length-04",
+      "family_id": "writing-family-cedar-podcast-length-04",
+      "revision": 2,
       "status": "provisional",
       "split": "test",
       "domain": "writing",
-      "task_family": "museum_guide",
-      "target_attribute": 2,
-      "target_key": "spelling",
-      "difficulty": "close_tradeoff",
-      "prompt": "Choose one museum guide passage with the same description and sequence.",
+      "task_family": "podcast_show_notes",
+      "target_attribute": 0,
+      "target_key": "length",
+      "prompt": "Choose one set of podcast notes that preserves the same episode topics, cited resources, segment order, and closing links. The options differ only in length and tone.",
       "wording_template_id": "writing-dialogue-cedar-v1",
       "negative_option": {
-        "option_id": "writing-cedar-guide-spelling-02-negative",
-        "label": "Museum guide passage using British spelling",
+        "option_id": "writing-cedar-podcast-length-04-negative",
+        "label": "Concise podcast notes in a neutral tone without dialect-specific spellings",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-podcast-length-04-positive",
+        "label": "Detailed podcast notes in a neutral tone without dialect-specific spellings",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-podcast-length-04-negative-peer",
+        "label": "Concise podcast notes in a conversational tone without dialect-specific spellings",
+        "features": [
+          -0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-podcast-length-04-positive-peer",
+        "label": "Detailed podcast notes in a conversational tone without dialect-specific spellings",
+        "features": [
+          0.5,
+          0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-game-overview-length-05",
+      "family_id": "writing-family-cedar-game-overview-length-05",
+      "revision": 2,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "board_game_overview",
+      "target_attribute": 0,
+      "target_key": "length",
+      "prompt": "Choose one board-game overview that preserves the same objective, setup outline, turn sequence, and scoring summary. The options differ only in length and tone.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-game-overview-length-05-negative",
+        "label": "Concise board-game overview in a conversational tone without dialect-specific spellings",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-game-overview-length-05-positive",
+        "label": "Detailed board-game overview in a conversational tone without dialect-specific spellings",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-game-overview-length-05-negative-peer",
+        "label": "Concise board-game overview in a neutral tone without dialect-specific spellings",
+        "features": [
+          -0.5,
+          -0.25,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-game-overview-length-05-positive-peer",
+        "label": "Detailed board-game overview in a neutral tone without dialect-specific spellings",
+        "features": [
+          0.5,
+          -0.25,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-caption-length-06",
+      "family_id": "writing-family-cedar-caption-length-06",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "exhibition_caption",
+      "target_attribute": 0,
+      "target_key": "length",
+      "prompt": "Choose one exhibition image description for a visitor guide that preserves the same subject, visible elements, factual context, and key observation. The options differ only in length and spelling style.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-caption-length-06-negative",
+        "label": "Concise exhibition image description in a neutral tone using British spelling",
+        "features": [
+          -0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-caption-length-06-positive",
+        "label": "Detailed exhibition image description in a neutral tone using British spelling",
+        "features": [
+          0.5,
+          0.0,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-caption-length-06-negative-peer",
+        "label": "Concise exhibition image description in a neutral tone using American spelling",
+        "features": [
+          -0.5,
+          0.0,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-caption-length-06-positive-peer",
+        "label": "Detailed exhibition image description in a neutral tone using American spelling",
+        "features": [
+          0.5,
+          0.0,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-invitation-tone-03",
+      "family_id": "writing-family-cedar-invitation-tone-03",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "workshop_invitation",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "prompt": "Choose one workshop invitation that preserves the same purpose, agenda outline, attendance details, and reply instructions. The options differ only in tone and length.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-invitation-tone-03-negative",
+        "label": "Formal workshop invitation without dialect-specific spellings in an 80-word version",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-invitation-tone-03-positive",
+        "label": "Conversational workshop invitation without dialect-specific spellings in an 80-word version",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-invitation-tone-03-negative-peer",
+        "label": "Formal workshop invitation without dialect-specific spellings in a 180-word version",
+        "features": [
+          0.25,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-invitation-tone-03-positive-peer",
+        "label": "Conversational workshop invitation without dialect-specific spellings in a 180-word version",
+        "features": [
+          0.25,
+          0.5,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-reminder-tone-04",
+      "family_id": "writing-family-cedar-reminder-tone-04",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "appointment_reminder",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "prompt": "Choose one routine service-appointment reminder of the same length that preserves the booking details, preparation steps, contact route, and next action. The options differ only in tone and spelling style.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-reminder-tone-04-negative",
+        "label": "Formal service-appointment reminder using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-reminder-tone-04-positive",
+        "label": "Conversational service-appointment reminder using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-reminder-tone-04-negative-peer",
+        "label": "Formal service-appointment reminder without dialect-specific spellings",
+        "features": [
+          0.0,
+          -0.5,
+          -0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-reminder-tone-04-positive-peer",
+        "label": "Conversational service-appointment reminder without dialect-specific spellings",
+        "features": [
+          0.0,
+          0.5,
+          -0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-welcome-tone-05",
+      "family_id": "writing-family-cedar-welcome-tone-05",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "member_welcome",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "prompt": "Choose one member welcome message of the same length that preserves the same introduction, available resources, participation guidance, and next step. The options differ only in tone and spelling style.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-welcome-tone-05-negative",
+        "label": "Formal member welcome message without dialect-specific spellings",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-welcome-tone-05-positive",
+        "label": "Conversational member welcome message without dialect-specific spellings",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-welcome-tone-05-negative-peer",
+        "label": "Formal member welcome message using American spelling",
+        "features": [
+          0.0,
+          -0.5,
+          0.25
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-welcome-tone-05-positive-peer",
+        "label": "Conversational member welcome message using American spelling",
+        "features": [
+          0.0,
+          0.5,
+          0.25
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 2,
+      "nuisance_key": "spelling",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-receipt-tone-06",
+      "family_id": "writing-family-cedar-receipt-tone-06",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "submission_receipt_note",
+      "target_attribute": 1,
+      "target_key": "tone",
+      "prompt": "Choose one acknowledgement note for a community contribution that preserves receipt confirmation, review sequence, response expectations, and next step. The options differ only in tone and length.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-receipt-tone-06-negative",
+        "label": "Formal community contribution acknowledgement without dialect-specific spellings in a 180-word version",
+        "features": [
+          0.0,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-receipt-tone-06-positive",
+        "label": "Conversational community contribution acknowledgement without dialect-specific spellings in a 180-word version",
+        "features": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-receipt-tone-06-negative-peer",
+        "label": "Formal community contribution acknowledgement without dialect-specific spellings in an 80-word version",
+        "features": [
+          -0.25,
+          -0.5,
+          0.0
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-receipt-tone-06-positive-peer",
+        "label": "Conversational community contribution acknowledgement without dialect-specific spellings in an 80-word version",
+        "features": [
+          -0.25,
+          0.5,
+          0.0
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-recipe-spelling-03",
+      "family_id": "writing-family-cedar-recipe-spelling-03",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "recipe_card",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one recipe card for a shared cooking collection with no required house style; both preserve the same ingredients, quantities, vocabulary, preparation stages, serving guidance, order. The options differ only in spelling style and tone.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-recipe-spelling-03-negative",
+        "label": "Standard-length recipe card using British spelling in a conversational register",
         "features": [
           0.0,
           0.0,
@@ -1805,8 +3488,8 @@
         ]
       },
       "positive_option": {
-        "option_id": "writing-cedar-guide-spelling-02-positive",
-        "label": "Museum guide passage using American spelling",
+        "option_id": "writing-cedar-recipe-spelling-03-positive",
+        "label": "Standard-length recipe card using American spelling in a conversational register",
         "features": [
           0.0,
           0.0,
@@ -1814,8 +3497,86 @@
         ]
       },
       "negative_same_direction_option": {
-        "option_id": "writing-cedar-guide-spelling-02-negative-peer",
-        "label": "Detailed museum guide passage using British spelling",
+        "option_id": "writing-cedar-recipe-spelling-03-negative-peer",
+        "label": "Standard-length recipe card using British spelling in a formal register",
+        "features": [
+          0.0,
+          -0.25,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-recipe-spelling-03-positive-peer",
+        "label": "Standard-length recipe card using American spelling in a formal register",
+        "features": [
+          0.0,
+          -0.25,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-handout-spelling-04",
+      "family_id": "writing-family-cedar-handout-spelling-04",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "training_handout",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one training handout for a practice session with no required house style; both preserve the learning objectives, exercise directions, worked example, recap order, and tone. The options differ only in spelling style and length.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-handout-spelling-04-negative",
+        "label": "Standard-length training handout in a neutral tone using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-handout-spelling-04-positive",
+        "label": "Standard-length training handout in a neutral tone using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-handout-spelling-04-negative-peer",
+        "label": "Detailed training handout in a neutral tone using British spelling",
         "features": [
           0.25,
           0.0,
@@ -1823,8 +3584,8 @@
         ]
       },
       "positive_same_direction_option": {
-        "option_id": "writing-cedar-guide-spelling-02-positive-peer",
-        "label": "Detailed museum guide passage using American spelling",
+        "option_id": "writing-cedar-handout-spelling-04-positive-peer",
+        "label": "Detailed training handout in a neutral tone using American spelling",
         "features": [
           0.25,
           0.0,
@@ -1856,7 +3617,166 @@
         "scientific_human_review": "not_completed",
         "paper_eligible": false,
         "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
-      }
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": 1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-faq-spelling-05",
+      "family_id": "writing-family-cedar-faq-spelling-05",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "event_faq",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one event FAQ for first-time attendees with no required house style; both preserve the access guidance, session logistics, common questions, answer order, and tone. The options differ only in spelling style and length.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-faq-spelling-05-negative",
+        "label": "Detailed event FAQ in a neutral tone using British spelling",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-faq-spelling-05-positive",
+        "label": "Detailed event FAQ in a neutral tone using American spelling",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-faq-spelling-05-negative-peer",
+        "label": "Standard-length event FAQ in a neutral tone using British spelling",
+        "features": [
+          -0.25,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-faq-spelling-05-positive-peer",
+        "label": "Standard-length event FAQ in a neutral tone using American spelling",
+        "features": [
+          -0.25,
+          0.0,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 0,
+      "nuisance_key": "length",
+      "nuisance_direction": -1
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-synopsis-spelling-06",
+      "family_id": "writing-family-cedar-synopsis-spelling-06",
+      "revision": 3,
+      "status": "provisional",
+      "split": "test",
+      "domain": "writing",
+      "task_family": "fiction_synopsis",
+      "target_attribute": 2,
+      "target_key": "spelling",
+      "prompt": "Choose one fiction synopsis for a reading group with no required house style; both preserve the characters, setting, central conflict, plot sequence, ending disclosure. The options differ only in spelling style and tone.",
+      "wording_template_id": "writing-dialogue-cedar-v1",
+      "negative_option": {
+        "option_id": "writing-cedar-synopsis-spelling-06-negative",
+        "label": "Standard-length fiction synopsis using British spelling in a formal register",
+        "features": [
+          0.0,
+          0.0,
+          -0.5
+        ]
+      },
+      "positive_option": {
+        "option_id": "writing-cedar-synopsis-spelling-06-positive",
+        "label": "Standard-length fiction synopsis using American spelling in a formal register",
+        "features": [
+          0.0,
+          0.0,
+          0.5
+        ]
+      },
+      "negative_same_direction_option": {
+        "option_id": "writing-cedar-synopsis-spelling-06-negative-peer",
+        "label": "Standard-length fiction synopsis using British spelling in a conversational register",
+        "features": [
+          0.0,
+          0.25,
+          -0.5
+        ]
+      },
+      "positive_same_direction_option": {
+        "option_id": "writing-cedar-synopsis-spelling-06-positive-peer",
+        "label": "Standard-length fiction synopsis using American spelling in a conversational register",
+        "features": [
+          0.0,
+          0.25,
+          0.5
+        ]
+      },
+      "supported_mechanisms": [
+        "balanced",
+        "restricted",
+        "default",
+        "suggested",
+        "ranking",
+        "suggestion"
+      ],
+      "quality_assertions": {
+        "neutral_wording": true,
+        "symmetric_surface": true,
+        "no_treatment_cues": true,
+        "no_split_cues": true,
+        "no_real_entities": true,
+        "no_time_sensitive_facts": true,
+        "no_objective_dominance": true,
+        "all_surface_facts_modeled_or_matched": true,
+        "feature_role_contract": true
+      },
+      "review": {
+        "automated_validation": "pending",
+        "surface_human_review": "not_completed",
+        "scientific_human_review": "not_completed",
+        "paper_eligible": false,
+        "note": "Provisional pilot stimulus; automated validation and independent human surface and scientific reviews are still required."
+      },
+      "nuisance_attribute": 1,
+      "nuisance_key": "tone",
+      "nuisance_direction": 1
     }
   ]
 }

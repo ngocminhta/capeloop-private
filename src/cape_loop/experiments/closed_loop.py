@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from ..beliefs import (
@@ -34,10 +34,12 @@ from ..policies import (
 from ..population import (
     INITIAL_PROFILE_KINDS,
     add_prior_uncertainty,
+)
+from ..population import (
     initial_profile_belief as _population_initial_profile_belief,
 )
 from ..response import RandomUtilityModel, regret
-from ..scenarios import ScenarioCatalog, materialize_context
+from ..scenarios import ScenarioCatalog, ScenarioSpec, materialize_context
 from ..schemas import (
     InteractionRecord,
     LatentUser,
@@ -52,7 +54,6 @@ from ..updaters import (
     build_updater_registry,
     make_update_view,
 )
-
 
 INITIAL_PROFILE_CONDITIONS = INITIAL_PROFILE_KINDS
 
@@ -85,6 +86,7 @@ class ClosedLoopTurn:
     turn: int
     event_id: str
     context_id: str
+    scenario_id: str
     policy_id: str
     target_attribute: int
     selected_option_id: str
@@ -124,6 +126,7 @@ class ClosedLoopTurn:
             "turn": self.turn,
             "event_id": self.event_id,
             "context_id": self.context_id,
+            "scenario_id": self.scenario_id,
             "policy_id": self.policy_id,
             "target_attribute": self.target_attribute,
             "selected_option_id": self.selected_option_id,
@@ -132,15 +135,9 @@ class ClosedLoopTurn:
             "wrong_mass_after": list(self.wrong_mass_after),
             "shadow_wrong_mass_before": list(self.shadow_wrong_mass_before),
             "shadow_wrong_mass_after": list(self.shadow_wrong_mass_after),
-            "system_false_confidence_gain": list(
-                self.system_false_confidence_gain
-            ),
-            "shadow_false_confidence_gain": list(
-                self.shadow_false_confidence_gain
-            ),
-            "laundered_confidence_gain": list(
-                self.laundered_confidence_gain
-            ),
+            "system_false_confidence_gain": list(self.system_false_confidence_gain),
+            "shadow_false_confidence_gain": list(self.shadow_false_confidence_gain),
+            "laundered_confidence_gain": list(self.laundered_confidence_gain),
             "action_aware_information_gain": self.action_aware_information_gain,
             "information_gain_state_space": self.information_gain_state_space,
             "intrinsic_regret": self.intrinsic_regret,
@@ -296,8 +293,7 @@ class ClosedLoopTrajectory:
             return 0.0
         total = len(self.audit_record.interactions)
         entropy = -math.fsum(
-            (count / total) * math.log(count / total)
-            for count in counts.values()
+            (count / total) * math.log(count / total) for count in counts.values()
         )
         return entropy / math.log(len(counts))
 
@@ -326,9 +322,7 @@ class ClosedLoopTrajectory:
 
     @property
     def cumulative_information_gain(self) -> float:
-        return math.fsum(
-            turn.action_aware_information_gain for turn in self.turns
-        )
+        return math.fsum(turn.action_aware_information_gain for turn in self.turns)
 
     @property
     def total_regret(self) -> float:
@@ -338,11 +332,9 @@ class ClosedLoopTrajectory:
     def same_history_shadow(self) -> bool:
         """The shadow consumes each actual event exactly once."""
 
-        return (
-            tuple(turn.event_id for turn in self.turns)
-            == tuple(interaction.record_id for interaction in self.audit_record.interactions)
-            and len(self.turns) == len(self.audit_record.interactions)
-        )
+        return tuple(turn.event_id for turn in self.turns) == tuple(
+            interaction.record_id for interaction in self.audit_record.interactions
+        ) and len(self.turns) == len(self.audit_record.interactions)
 
     def to_dict(self, *, include_truth: bool = False) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -366,17 +358,13 @@ class ClosedLoopTrajectory:
                 if self.terminal_shadow_joint_belief is None
                 else self.terminal_shadow_joint_belief.to_dict()
             ),
-            "terminal_native_state": _opaque_state_payload(
-                self.terminal_opaque_state
-            ),
+            "terminal_native_state": _opaque_state_payload(self.terminal_opaque_state),
             "terminal_error": self.terminal_error,
             "terminal_shadow_error": self.terminal_shadow_error,
             "terminal_shadow_to_system_marginal_kl": (
                 self.terminal_shadow_to_system_marginal_kl
             ),
-            "preference_dimension_coverage": (
-                self.preference_dimension_coverage
-            ),
+            "preference_dimension_coverage": (self.preference_dimension_coverage),
             "turns_to_full_preference_coverage": (
                 self.turns_to_full_preference_coverage
             ),
@@ -385,19 +373,13 @@ class ClosedLoopTrajectory:
             "profile_conditioned_exposure_rate": (
                 self.profile_conditioned_exposure_rate
             ),
-            "presentation_mechanism_count": (
-                self.presentation_mechanism_count
-            ),
-            "presentation_mechanism_evenness": (
-                self.presentation_mechanism_evenness
-            ),
+            "presentation_mechanism_count": (self.presentation_mechanism_count),
+            "presentation_mechanism_evenness": (self.presentation_mechanism_evenness),
             "cumulative_lcg": list(self.cumulative_lcg),
             "cumulative_information_gain": self.cumulative_information_gain,
             "total_regret": self.total_regret,
             "same_history_shadow": self.same_history_shadow,
-            "turns": [
-                turn.to_dict(include_truth=include_truth) for turn in self.turns
-            ],
+            "turns": [turn.to_dict(include_truth=include_truth) for turn in self.turns],
             "audit_record": self.audit_record.to_dict(),
         }
         if include_truth:
@@ -498,20 +480,39 @@ def run_trajectory(
     wrong = wrong_directions(user.theta)
     traces: list[ClosedLoopTurn] = []
     interactions: list[InteractionRecord] = []
+    scenario_occurrences = [0, 0, 0]
+    target_occurrences = [0, 0, 0]
 
-    def with_catalog(action: PolicyAction, turn: int) -> PolicyAction:
+    def with_catalog(
+        action: PolicyAction,
+        *,
+        advance: bool,
+        preferred_scenario: ScenarioSpec | None = None,
+    ) -> PolicyAction:
         if scenario_catalog is None:
             return action
         target = action.context.target_attribute
         if target is None:
             raise ValueError("catalog-backed policy action requires a target attribute")
-        scenario = scenario_catalog.select(
-            domain=domain.domain_id,
-            split=data_split,
-            target_attribute=target,
-            seed=seed,
-            selection_key=("closed-loop", common_key, turn),
-        )
+        if (
+            preferred_scenario is not None
+            and preferred_scenario.domain == domain.domain_id
+            and preferred_scenario.split == data_split
+            and preferred_scenario.target_attribute == target
+        ):
+            scenario = preferred_scenario
+        else:
+            occurrence = scenario_occurrences[target]
+            scenario = scenario_catalog.select_cycle(
+                domain=domain.domain_id,
+                split=data_split,
+                target_attribute=target,
+                seed=seed,
+                cycle_key=("closed-loop", common_key),
+                occurrence_index=occurrence,
+            )
+            if advance:
+                scenario_occurrences[target] += 1
         return PolicyAction(
             context=materialize_context(action.context, scenario),
             provenance=action.provenance,
@@ -519,21 +520,35 @@ def run_trajectory(
 
     for turn in range(turns):
         # The actual action uses only the updater's current public profile.
+        counts_before = tuple(target_occurrences)
+        raw_action = policy.action(
+            domain,
+            evaluated_state.belief,
+            turn=turn,
+            master_seed=seed,
+            trajectory_id=common_key,
+            target_counts=counts_before,
+        )
+        actual_target = raw_action.context.target_attribute
+        if actual_target is None:
+            raise ValueError("closed-loop policy action requires a target attribute")
+        target_occurrences[actual_target] += 1
         action = with_catalog(
-            policy.action(
-                domain,
-                evaluated_state.belief,
-                turn=turn,
-                master_seed=seed,
-                trajectory_id=common_key,
-            ),
-            turn,
+            raw_action,
+            advance=True,
+        )
+        actual_scenario = (
+            None
+            if scenario_catalog is None
+            else scenario_catalog.scenario(action.context.scenario_id)
         )
         # Evaluator-only, per-attribute counterfactuals remove the accumulated
         # update to one profile dimension while preserving all other
-        # policy-visible marginals and semantic randomness. This measures
-        # whether strengthening that attribute—not merely seeding it wrong—
-        # changed the subsequent action.
+        # policy-visible marginals and semantic randomness. They reuse the
+        # actual scenario whenever the target is unchanged and never consume
+        # the trajectory's scenario schedule. This measures whether
+        # strengthening that attribute—not stimulus drift or merely seeding it
+        # wrong—changed the subsequent action.
         counterfactual_actions = tuple(
             with_catalog(
                 policy.action(
@@ -546,8 +561,10 @@ def run_trajectory(
                     turn=turn,
                     master_seed=seed,
                     trajectory_id=common_key,
+                    target_counts=counts_before,
                 ),
-                turn,
+                advance=False,
+                preferred_scenario=actual_scenario,
             )
             for attribute in range(3)
         )
@@ -556,8 +573,7 @@ def run_trajectory(
             candidate.signature() for candidate in counterfactual_actions
         )
         attribute_influence = tuple(
-            action_signature != signature
-            for signature in counterfactual_signatures
+            action_signature != signature for signature in counterfactual_signatures
         )
         profile_influenced = any(attribute_influence)
         noise_key = ("closed-loop-crn", common_key, turn)
@@ -612,8 +628,7 @@ def run_trajectory(
         shadow_joint_after = shadow_state.joint_belief
 
         wrong_before = tuple(
-            before.sign_mass(attribute, wrong[attribute])
-            for attribute in range(3)
+            before.sign_mass(attribute, wrong[attribute]) for attribute in range(3)
         )
         wrong_after = tuple(
             evaluated_state.belief.sign_mass(attribute, wrong[attribute])
@@ -662,6 +677,7 @@ def run_trajectory(
                 turn=turn,
                 event_id=event_id,
                 context_id=action.context.context_id,
+                scenario_id=action.context.scenario_id,
                 policy_id=action.provenance.policy_id,
                 target_attribute=(
                     action.context.target_attribute
@@ -831,32 +847,25 @@ def assess_self_confirmation(
             wrong_direction=wrong[attribute],
         )
         cumulative_lcg = math.fsum(
-            turn.laundered_confidence_gain[attribute]
-            for turn in trajectory.turns
+            turn.laundered_confidence_gain[attribute] for turn in trajectory.turns
         )
 
         first_strengthening_turn = next(
             (
                 turn.turn
                 for turn in trajectory.turns
-                if turn.wrong_mass_after[attribute]
-                > initial_mass + tolerance
+                if turn.wrong_mass_after[attribute] > initial_mass + tolerance
             ),
             None,
         )
-        changed_later_action = (
-            first_strengthening_turn is not None
-            and any(
-                turn.turn > first_strengthening_turn
-                and turn.wrong_mass_before[attribute]
-                > initial_mass + tolerance
-                and turn.profile_attribute_influenced_action[attribute]
-                for turn in trajectory.turns
-            )
+        changed_later_action = first_strengthening_turn is not None and any(
+            turn.turn > first_strengthening_turn
+            and turn.wrong_mass_before[attribute] > initial_mass + tolerance
+            and turn.profile_attribute_influenced_action[attribute]
+            for turn in trajectory.turns
         )
         shadow_equivalent = (
-            terminal_shadow_mass
-            >= terminal_mass - shadow_equivalence_tolerance
+            terminal_shadow_mass >= terminal_mass - shadow_equivalence_tolerance
         )
         evidence = SelfConfirmationEvidence(
             remains_materially_wrong=terminal_mass >= materially_wrong_mass,
@@ -880,10 +889,7 @@ def assess_self_confirmation(
                 false_stable=(
                     terminal_mass >= materially_wrong_mass
                     and max(
-                        abs(
-                            turn.wrong_mass_after[attribute]
-                            - initial_mass
-                        )
+                        abs(turn.wrong_mass_after[attribute] - initial_mass)
                         for turn in trajectory.turns
                     )
                     <= false_stability_tolerance
@@ -934,9 +940,7 @@ class DecompositionRow:
             "evidence_selection_cost": self.evidence_selection_cost,
             "profile_attribution_cost": self.profile_attribution_cost,
             "balanced_attribution_cost": self.balanced_attribution_cost,
-            "self_confirmation_interaction": (
-                self.self_confirmation_interaction
-            ),
+            "self_confirmation_interaction": (self.self_confirmation_interaction),
         }
 
 
@@ -948,9 +952,7 @@ class ExperimentBResult:
 
     @property
     def reportable_self_confirming(self) -> tuple[SelfConfirmationAssessment, ...]:
-        return reportable_self_confirming_cases(
-            self.self_confirmation_assessments
-        )
+        return reportable_self_confirming_cases(self.self_confirmation_assessments)
 
     def to_dict(self, *, include_truth: bool = False) -> dict[str, Any]:
         return {
@@ -959,9 +961,7 @@ class ExperimentBResult:
                 trajectory.to_dict(include_truth=include_truth)
                 for trajectory in self.trajectories
             ],
-            "decomposition": [
-                row.to_dict() for row in self.decompositions
-            ],
+            "decomposition": [row.to_dict() for row in self.decompositions],
             "self_confirmation_assessments": [
                 assessment.to_dict()
                 for assessment in self.self_confirmation_assessments
@@ -1078,9 +1078,7 @@ def run_experiment_b(
                     )
                     for policy_id, policy in policy_registry.items():
                         for updater_id, updater in updater_registry.items():
-                            trajectory_id = (
-                                f"{paired_key}:{policy_id}:{updater_id}"
-                            )
+                            trajectory_id = f"{paired_key}:{policy_id}:{updater_id}"
                             trajectory = run_trajectory(
                                 user=user,
                                 domain=domain,
@@ -1115,9 +1113,7 @@ def run_experiment_b(
                                 assessments.extend(
                                     assess_self_confirmation(
                                         trajectory,
-                                        materially_wrong_mass=(
-                                            materially_wrong_mass
-                                        ),
+                                        materially_wrong_mass=(materially_wrong_mass),
                                         lcg_threshold=lcg_threshold,
                                         shadow_equivalence_tolerance=(
                                             shadow_equivalence_tolerance
@@ -1174,12 +1170,8 @@ def run_experiment_b(
                                     initial_profile_condition=condition,
                                     updater_id=updater_id,
                                     replicate=replicate,
-                                    profile_trajectory_id=(
-                                        profile.trajectory_id
-                                    ),
-                                    balanced_trajectory_id=(
-                                        balanced.trajectory_id
-                                    ),
+                                    profile_trajectory_id=(profile.trajectory_id),
+                                    balanced_trajectory_id=(balanced.trajectory_id),
                                     evidence_selection_cost=selection_cost(
                                         profile.terminal_shadow_error,
                                         balanced.terminal_shadow_error,

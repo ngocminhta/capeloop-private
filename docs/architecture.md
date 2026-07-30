@@ -122,6 +122,13 @@ dialogue, scenario, and paraphrase families are also split. Concrete overlap is
 checked at execution, and the result is retained in the split-leakage audit.
 Terminal identifiers are test-only.
 
+Official configurations opt into orthogonal v2 preference and susceptibility
+supports. Their deterministic joint allocator searches only legal balanced
+block variants, without using observations or model outputs, to reduce
+finite-sample theta–susceptibility association at the declared study horizons.
+Legacy configs and configs enabling only one v2 policy retain their exact
+historical/single-policy sequences.
+
 Initial structured profiles are `correct`, `incorrect`, `uncertain`, and
 `empty`. Empty is uniform; uncertain is weakly aligned with truth. These labels
 describe initialized state, not evidence about a real person.
@@ -152,12 +159,17 @@ interface.
 ### Frozen hybrid conversation surfaces
 
 `[scenarios] conversation_file` loads a `ConversationTemplateBank`. Each
-scenario has four neutral display names and one neutral base presentation.
+scenario has one four-name A–D pool and one neutral base presentation.
 Balanced, restricted, and ranking all use that same base wording; only the
 visible option pair or order changes. Code derives the default form by
 inserting a fixed default sentence and the suggested form by inserting a fixed
 suggestion sentence. It also fixes the user template to
 `I choose {selected_name}.`
+
+The name pool does not bind A/B/C/D permanently to semantic option roles.
+After ranking, the first visible option receives the A name and the second the
+B name. This prevents a negative/positive direction shortcut while keeping all
+matched treatment variants of one case aligned.
 
 The neutral authoring inputs are generated once, outside experimental
 execution, with:
@@ -187,7 +199,10 @@ the authoring model to rewrite every trial.
 The evaluated writer is a separate model call. Its model-facing projection
 uses readable option descriptions and a domain-specific codebook such as
 “`-2` strongly favors lower-cost; `+2` strongly favors higher-cost.” It omits
-internal feature vectors, target indices, split labels, and randomness keys.
+internal feature vectors, target indices, split labels, randomness keys, and
+catalog option IDs. The structured visible context uses per-presentation
+aliases such as `presented_option_1`; retained internal records keep original
+IDs for audit and pairing.
 Full-context and provenance-aware views receive the exact assistant/user
 dialogue; response-only receives the user reply and selected readable option as
 an intentional information ablation.
@@ -202,9 +217,11 @@ anchor eligibility.
 Policies receive a declared public profile view, domain/scenario state, and the
 semantic random source. They return both visible context and provenance.
 Implemented families cover balanced/randomized, softly profile-conditioned,
-exploratory, fixed mildly biased, and hard-filter stress conditions. A policy
-must not inspect latent truth except in explicitly labeled diagnostic
-generation that is never treated as a deployable condition.
+block-balanced exploratory, fixed mildly biased, and hard-filter stress
+conditions. The exploratory policy may use current marginal entropy to order
+the least-exposed attributes, but target counts remain within one at every
+prefix. A policy must not inspect latent truth except in explicitly labeled
+diagnostic generation that is never treated as a deployable condition.
 
 ### Belief, fitting, calibration, and updater protocol
 

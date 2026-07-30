@@ -33,15 +33,25 @@ statement.
 
 [`scenarios/scenario-catalog-v1.json`](scenarios/scenario-catalog-v1.json) is
 the canonical interaction-stimulus input used by every checked-in
-configuration. Version 1.0.0 contains 24 unique split-disjoint families:
-six train, six development, and twelve test scenarios, covering both domains
-and all three attributes. Runs copy and checksum-bind the exact consumed bytes;
-generated interactions and responses still belong under `runs/`, not here.
+configuration. Version 1.4.0 contains 48 unique split-disjoint families:
+six train, six development, and 36 test scenarios, covering both domains
+and all three attributes. Each test domain×attribute cell has six families,
+enough for a 16-turn three-attribute cyclic or v2 block-balanced exploratory
+trajectory without reuse. A custom adaptive policy that can select one
+attribute repeatedly has a larger, policy-specific capacity requirement.
+Version 1.4.0 preserves the earlier outcome-blind semantic revisions, removes
+the non-operational scenario-level categorization, and explicitly
+counterbalances restricted-peer nuisance attribute, direction, and their four
+joint combinations within every test cell. No
+evaluated-model output or experiment result was consulted. Runs copy and
+checksum-bind the exact consumed bytes; generated interactions and responses
+still belong under `runs/`, not here.
 
 The catalog is deliberately `frozen-development` and
-`simulation-and-pilot-only`. All 24 scenarios are provisional, none has
+`simulation-and-pilot-only`. All 48 scenarios are provisional, none has
 completed the required human surface and scientific reviews, and none is
-paper-eligible. Its Codex-assisted provenance is explicit in the file. The
+paper-eligible. Its project-authored synthetic provenance is explicit in the
+file. The
 normative good-scenario and review policy is in
 [Scientific design](../docs/scientific-design.md#scenario-catalog-and-quality-policy);
 the exact fields, coverage, and run artifacts are in
@@ -51,20 +61,49 @@ generated held-out terminal-v2 batteries remain separate from this catalog.
 ## Frozen conversation bank
 
 [`scenarios/conversation-templates-v1.json`](scenarios/conversation-templates-v1.json)
-contains one small natural-language template family for each of the 24
-scenarios. A pinned Claude model authored only neutral display names and a
-neutral presentation through OpenRouter. Repository code supplies the fixed
-default/suggestion wording and the fixed local reply, and the mathematical
-simulator—not Claude—selects the option.
+contains one small natural-language template family for each of the 48
+scenarios. The current visible bases were outcome-blind project-standardized
+onto three source-neutral frame families. Each frame appears exactly 16 times,
+and each six-scenario test domain×attribute cell contains two instances of
+each frame. The bank-level and all per-template `source` fields are
+`project-standardized-neutral-frame-v1-unreviewed`. This balances question
+frame across test cells; it is not a human naturalness or neutrality
+validation.
+
+The historical generation log still records 24 candidate bases and display
+name pools produced by the pinned Claude route through OpenRouter. Those
+provider outputs were authoring inputs before project standardization, not the
+declared source of the current visible frame text. Other historical candidate
+inputs were project-produced and correctly have no fabricated provider
+records.
+Repository code supplies the fixed default/suggestion wording and fixed local
+reply, and the mathematical simulator—not an authoring model—selects the
+option. Runtime treats the stored names as one scenario-specific A–D pool,
+assigns A/B by displayed position, and replaces internal option IDs with
+`presented_option_N` in evaluated-model prompts.
+
+The writing bank currently presents direct, controlled category descriptors
+rather than complete alternative passages. That is useful for the narrow
+mechanistic estimand, but it is not evidence that the same results generalize
+to natural document excerpts. An excerpt-based robustness bank must be
+authored, frozen, reviewed, and calibrated separately before making that
+broader claim.
 
 [`scenarios/conversation-templates-v1.generation.jsonl`](scenarios/conversation-templates-v1.generation.jsonl)
 is the readable 24-request/24-result authoring log. It contains no credential
-or authorization header. Both files are candidate research stimuli: they are
-valid for simulation and bounded pilots, but remain model-assisted,
-independently unreviewed, and not paper-eligible. Before a public evidence
+or authorization header. It is historical provenance for candidate language;
+it is not a claim that the provider authored the current standardized frames,
+and it is not an experiment-response file. The current bank remains a
+candidate research stimulus: it is valid for simulation and bounded pilots,
+but independently unreviewed and not paper-eligible. Before a public evidence
 release, confirm applicable provider-output terms and complete the surface and
 scientific reviews described in
 [Scientific design](../docs/scientific-design.md#scenario-catalog-and-quality-policy).
+
+Before using either file, run the outcome-free `cape-loop scenarios audit`
+command documented in [Getting started](../docs/getting-started.md#inspect-and-validate-the-scenario-catalog).
+Its JSON report and Markdown review packet are derived artifacts and belong
+under `artifacts/` or another ignored work directory, not in `data/`.
 
 ## Checked-in model declarations
 

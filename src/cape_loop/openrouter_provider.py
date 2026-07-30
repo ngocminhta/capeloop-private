@@ -227,6 +227,9 @@ def belief_json_schema(
         )
     probability_vector = {
         "type": "object",
+        "description": (
+            "A four-value probability distribution whose values sum to 1.0."
+        ),
         "additionalProperties": False,
         "properties": {
             value: probability for value in VALUES

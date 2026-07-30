@@ -11,27 +11,27 @@ can use the same state/result contract after validation by ``llm_exchange``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
-import math
 from typing import Any, Mapping, Protocol, runtime_checkable
 
 from .beliefs import (
+    THETA_STATES,
     JointThetaPsiBelief,
     MarginalPreferenceBelief,
     PreferenceBelief,
-    THETA_STATES,
 )
+from .domains import get_domain
 from .fitting import AwareConditionalLogitModel, UnawareSemanticDirectionModel
 from .inference import exact_aware_update, theta_bayes_update
-from .domains import get_domain
 from .llm_exchange import (
     ATTRIBUTES,
+    VALUES,
     CompletionProvider,
     LLMRequest,
     LLMResponse,
     ReplayProvider,
-    VALUES,
 )
 from .response import RandomUtilityModel
 from .schemas import (
@@ -54,6 +54,7 @@ class UpdateViewKind(str, Enum):
 
 # Readable alias used in configuration and documentation.
 InformationView = UpdateViewKind
+MODEL_VISIBLE_OPTION_ALIAS_POLICY = "presented-option-position-alias-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +88,7 @@ class UpdateView:
             if self.context is None:
                 raise ValueError("full-context views require visible context")
             if self.provenance is not None:
-                raise ValueError(
-                    "full-context views cannot contain policy provenance"
-                )
+                raise ValueError("full-context views cannot contain policy provenance")
         else:
             if self.context is None or self.provenance is None:
                 raise ValueError(
@@ -99,7 +98,10 @@ class UpdateView:
         if self.context is not None:
             if self.observation.selected_option_id not in self.context.option_ids:
                 raise ValueError("observation must select a displayed option")
-            if self.context.option(self.selected_option.option_id) != self.selected_option:
+            if (
+                self.context.option(self.selected_option.option_id)
+                != self.selected_option
+            ):
                 raise ValueError("selected_option differs from the visible context")
             if self.context.target_attribute != self.target_attribute:
                 raise ValueError("target_attribute differs from the visible context")
@@ -260,9 +262,7 @@ def _check_transition(
     view: UpdateView,
 ) -> None:
     if state.updater_id != updater_id:
-        raise ValueError(
-            f"state belongs to {state.updater_id!r}, not {updater_id!r}"
-        )
+        raise ValueError(f"state belongs to {state.updater_id!r}, not {updater_id!r}")
     if view.kind is not expected_view:
         raise ValueError(
             f"{updater_id} requires {expected_view.value}, got {view.kind.value}"
@@ -346,9 +346,7 @@ def _semantic_update(
             view.target_attribute,
             label,
         )
-        weights.append(
-            prior_probability * _tempered_probability(raw, evidence_scale)
-        )
+        weights.append(prior_probability * _tempered_probability(raw, evidence_scale))
     return PreferenceBelief.from_weights(weights)
 
 
@@ -412,11 +410,7 @@ def _provenance_evidence_weight(view: UpdateView) -> float:
             f"attribute_{view.target_attribute + 1}",
             snapshot.get(f"attribute_{view.target_attribute}", 0.0),
         )
-        if (
-            expected
-            and (1 if expected > 0.0 else -1)
-            == view.selected_direction
-        ):
+        if expected and (1 if expected > 0.0 else -1) == view.selected_direction:
             weight *= 0.70
     return weight
 
@@ -540,8 +534,8 @@ class FittedActionAwareUpdater:
 
 @dataclass(frozen=True, slots=True)
 class FittedActionUnawareUpdater:
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.0, 0.0, 0.0, 0.0)
     )
     updater_id: str = "fitted_action_unaware"
     view_kind: UpdateViewKind = UpdateViewKind.RESPONSE_ONLY
@@ -569,8 +563,8 @@ class FittedActionUnawareUpdater:
 class ResponseOnlyUpdater:
     """Inspectable provenance-blind writer receiving only the chosen item."""
 
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.35, 0.0, 0.0, 0.0)
     )
     updater_id: str = "response_only"
     view_kind: UpdateViewKind = UpdateViewKind.RESPONSE_ONLY
@@ -601,8 +595,8 @@ class ResponseOnlyUpdater:
 class FullContextBlindUpdater:
     """Full-dialogue proxy using option-set context but ignoring its causes."""
 
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.35, 0.0, 0.0, 0.0)
     )
     updater_id: str = "full_context_blind"
     view_kind: UpdateViewKind = UpdateViewKind.FULL_CONTEXT
@@ -642,8 +636,8 @@ class FullContextBlindUpdater:
 class ProvenanceDiscountUpdater:
     """Simple rule baseline that discounts visible elicitation treatments."""
 
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.35, 0.0, 0.0, 0.0)
     )
     updater_id: str = "provenance_discount"
     view_kind: UpdateViewKind = UpdateViewKind.FULL_CONTEXT
@@ -677,8 +671,8 @@ class ProvenanceDiscountUpdater:
 class ProvenanceAwareUpdater:
     """Diagnostic writer using visible context and structured policy metadata."""
 
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.35, 0.0, 0.0, 0.0)
     )
     updater_id: str = "provenance_aware"
     view_kind: UpdateViewKind = UpdateViewKind.PROVENANCE_AWARE
@@ -712,8 +706,8 @@ class ProvenanceAwareUpdater:
 class ConservativeUpdater:
     """Threshold writer that declines weak one-event generalizations."""
 
-    likelihood_model: UnawareSemanticDirectionModel = (
-        UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
+    likelihood_model: UnawareSemanticDirectionModel = UnawareSemanticDirectionModel(
+        (1.0, 0.0, 0.0, 0.0)
     )
     confidence_threshold: float = 0.68
     minimum_change: float = 0.04
@@ -821,32 +815,20 @@ class LLMReplayUpdater:
             result[f"attribute_{index}"] = {
                 "name": attribute.key,
                 "values": {
-                    "-2": (
-                        "strongly favors "
-                        f"{attribute.negative_label}"
-                    ),
-                    "-1": (
-                        "somewhat favors "
-                        f"{attribute.negative_label}"
-                    ),
-                    "+1": (
-                        "somewhat favors "
-                        f"{attribute.positive_label}"
-                    ),
-                    "+2": (
-                        "strongly favors "
-                        f"{attribute.positive_label}"
-                    ),
+                    "-2": (f"strongly favors {attribute.negative_label}"),
+                    "-1": (f"somewhat favors {attribute.negative_label}"),
+                    "+1": (f"somewhat favors {attribute.positive_label}"),
+                    "+2": (f"strongly favors {attribute.positive_label}"),
                 },
             }
         return result
 
     @staticmethod
-    def _visible_option(option: Option) -> dict[str, str]:
-        """Return only user-readable option material for an LLM prompt."""
+    def _visible_option(option: Option, alias: str) -> dict[str, str]:
+        """Return readable material under a non-semantic per-view alias."""
 
         return {
-            "option_id": option.option_id,
+            "option_id": alias,
             "description": option.label,
         }
 
@@ -857,15 +839,27 @@ class LLMReplayUpdater:
     ) -> LLMRequest:
         """Build the exact request without calling the completion provider."""
 
+        if view.context is None:
+            alias_by_id = {
+                view.selected_option.option_id: "selected_option",
+            }
+        else:
+            alias_by_id = {
+                option_id: f"presented_option_{index}"
+                for index, option_id in enumerate(
+                    view.context.ranking,
+                    start=1,
+                )
+            }
+        selected_alias = alias_by_id[view.observation.selected_option_id]
         observation: dict[str, Any] = {
-            "selected_option": view.observation.selected_option_id,
+            "selected_option": selected_alias,
             "user_message": view.observation.surface_response,
             "selected_option_record": self._visible_option(
-                view.selected_option
+                view.selected_option,
+                selected_alias,
             ),
-            "profile_schema": self._profile_schema(
-                view.selected_option.domain
-            ),
+            "profile_schema": self._profile_schema(view.selected_option.domain),
         }
         context = None
         if view.context is not None:
@@ -875,12 +869,25 @@ class LLMReplayUpdater:
                 # part of the user-visible elicitation context.
                 "domain": view.context.domain,
                 "options": [
-                    self._visible_option(option)
+                    self._visible_option(
+                        option,
+                        alias_by_id[option.option_id],
+                    )
                     for option in view.context.options
                 ],
-                "ranking": list(view.context.ranking),
-                "default": view.context.default_option_id,
-                "suggested_option": view.context.suggested_option_id,
+                "ranking": [
+                    alias_by_id[option_id] for option_id in view.context.ranking
+                ],
+                "default": (
+                    None
+                    if view.context.default_option_id is None
+                    else alias_by_id[view.context.default_option_id]
+                ),
+                "suggested_option": (
+                    None
+                    if view.context.suggested_option_id is None
+                    else alias_by_id[view.context.suggested_option_id]
+                ),
                 "question_type": view.context.question_type,
             }
             if view.context.prompt is not None:
@@ -903,9 +910,7 @@ class LLMReplayUpdater:
             prior=self._belief_payload(state.belief),
             observation=observation,
             context=context,
-            provenance=(
-                None if view.provenance is None else view.provenance.to_dict()
-            ),
+            provenance=(None if view.provenance is None else view.provenance.to_dict()),
         )
         # Event IDs are audit identifiers and may encode condition/user labels.
         # The replay key is therefore derived only from model-visible prompt
@@ -944,10 +949,7 @@ class LLMReplayUpdater:
                 self.updater_id,
                 state.belief,
                 belief,
-                delta=(
-                    f"external {response.model_id} response "
-                    f"{request.request_id}"
-                ),
+                delta=(f"external {response.model_id} response {request.request_id}"),
             ),
             (
                 ("evidence_weight", 1.0),
@@ -956,9 +958,7 @@ class LLMReplayUpdater:
                 ("external_model", True),
                 (
                     "execution_mode",
-                    "replay"
-                    if isinstance(self.provider, ReplayProvider)
-                    else "live",
+                    "replay" if isinstance(self.provider, ReplayProvider) else "live",
                 ),
             ),
         )
@@ -986,38 +986,31 @@ def build_updater(
         )
     if updater_id == "fitted_action_aware":
         return FittedActionAwareUpdater(
-            aware_model
-            or AwareConditionalLogitModel((1.0, 0.35, 0.80, 0.65))
+            aware_model or AwareConditionalLogitModel((1.0, 0.35, 0.80, 0.65))
         )
     if updater_id == "fitted_action_unaware":
         return FittedActionUnawareUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
         )
     if updater_id == "response_only":
         return ResponseOnlyUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
         )
     if updater_id == "full_context_blind":
         return FullContextBlindUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
         )
     if updater_id == "provenance_discount":
         return ProvenanceDiscountUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
         )
     if updater_id == "provenance_aware":
         return ProvenanceAwareUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.35, 0.0, 0.0, 0.0))
         )
     if updater_id == "conservative":
         return ConservativeUpdater(
-            unaware_model
-            or UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
+            unaware_model or UnawareSemanticDirectionModel((1.0, 0.0, 0.0, 0.0))
         )
     llm_views = {
         "llm_response_only": UpdateViewKind.RESPONSE_ONLY,
@@ -1026,9 +1019,7 @@ def build_updater(
     }
     if updater_id in llm_views:
         if replay_provider is None:
-            raise ValueError(
-                f"{updater_id} requires a configured completion provider"
-            )
+            raise ValueError(f"{updater_id} requires a configured completion provider")
         return LLMReplayUpdater(
             updater_id,
             llm_views[updater_id],
@@ -1067,6 +1058,5 @@ def updater_views(
     """Return the declared view manifest used by run metadata."""
 
     return {
-        updater_id: updater.view_kind.value
-        for updater_id, updater in updaters.items()
+        updater_id: updater.view_kind.value for updater_id, updater in updaters.items()
     }

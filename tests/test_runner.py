@@ -29,7 +29,7 @@ CONVERSATION_PATH = (
     / "conversation-templates-v1.json"
 )
 CATALOG_SHA256 = (
-    "67ad79b911a94811638ed320f7ddd1d4e8e8c1767f15419b9499c691badb6b3a"
+    "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
 )
 
 
@@ -451,15 +451,15 @@ class EndToEndRunnerTests(unittest.TestCase):
             )
             self.assertEqual(
                 conversation_manifest["scenario_count"],
-                24,
+                48,
             )
             self.assertEqual(summary["scenario_catalog"], input_manifest)
             self.assertEqual(
                 summary["conversation_templates"]["runtime_mode"],
                 "mathematical_choice_with_frozen_llm_dialogue",
             )
-            self.assertEqual(coverage["scenario_count"], 24)
-            self.assertEqual(coverage["family_count"], 24)
+            self.assertEqual(coverage["scenario_count"], 48)
+            self.assertEqual(coverage["family_count"], 48)
             self.assertFalse(coverage["paper_eligible"])
             self.assertEqual(
                 coverage["coverage_kind"],
@@ -685,6 +685,7 @@ class EndToEndRunnerTests(unittest.TestCase):
                     "trajectory_id",
                     "user_id",
                     "domain_id",
+                    "scenario_id",
                     "crn_key",
                     "updater_id",
                     "policy_id",

@@ -2,6 +2,75 @@
   "$id": "urn:cape-loop:schema:scenario-catalog:v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "catalog_status": {
+            "const": "frozen-development"
+          }
+        },
+        "required": [
+          "catalog_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "eligibility": {
+            "const": "simulation-and-pilot-only"
+          },
+          "scenarios": {
+            "items": {
+              "properties": {
+                "review": {
+                  "properties": {
+                    "paper_eligible": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "catalog_status": {
+            "const": "frozen-paper"
+          }
+        },
+        "required": [
+          "catalog_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "eligibility": {
+            "const": "paper-eligible"
+          },
+          "scenarios": {
+            "items": {
+              "properties": {
+                "review": {
+                  "properties": {
+                    "paper_eligible": {
+                      "const": true
+                    }
+                  }
+                },
+                "status": {
+                  "const": "approved"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "attribute_order": {
       "additionalProperties": false,
@@ -36,7 +105,10 @@
       "type": "string"
     },
     "catalog_status": {
-      "const": "frozen-development"
+      "enum": [
+        "frozen-development",
+        "frozen-paper"
+      ]
     },
     "catalog_version": {
       "minLength": 1,
@@ -47,7 +119,10 @@
       "type": "string"
     },
     "eligibility": {
-      "const": "simulation-and-pilot-only"
+      "enum": [
+        "simulation-and-pilot-only",
+        "paper-eligible"
+      ]
     },
     "frozen_on": {
       "minLength": 1,
@@ -97,15 +172,48 @@
                 }
               }
             }
+          },
+          {
+            "if": {
+              "properties": {
+                "review": {
+                  "properties": {
+                    "paper_eligible": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "paper_eligible"
+                  ]
+                }
+              },
+              "required": [
+                "review"
+              ]
+            },
+            "then": {
+              "properties": {
+                "review": {
+                  "properties": {
+                    "automated_validation": {
+                      "const": "passed"
+                    },
+                    "scientific_human_review": {
+                      "const": "passed"
+                    },
+                    "surface_human_review": {
+                      "const": "passed"
+                    }
+                  }
+                },
+                "status": {
+                  "const": "approved"
+                }
+              }
+            }
           }
         ],
         "properties": {
-          "difficulty": {
-            "enum": [
-              "standard_tradeoff",
-              "close_tradeoff"
-            ]
-          },
           "domain": {
             "enum": [
               "travel",
@@ -169,6 +277,21 @@
               "features"
             ],
             "type": "object"
+          },
+          "nuisance_attribute": {
+            "maximum": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nuisance_direction": {
+            "enum": [
+              -1,
+              1
+            ]
+          },
+          "nuisance_key": {
+            "minLength": 1,
+            "type": "string"
           },
           "positive_option": {
             "additionalProperties": false,
@@ -286,7 +409,7 @@
                 "type": "string"
               },
               "paper_eligible": {
-                "const": false
+                "type": "boolean"
               },
               "scientific_human_review": {
                 "enum": [
@@ -375,7 +498,9 @@
           "task_family",
           "target_attribute",
           "target_key",
-          "difficulty",
+          "nuisance_attribute",
+          "nuisance_key",
+          "nuisance_direction",
           "prompt",
           "wording_template_id",
           "negative_option",

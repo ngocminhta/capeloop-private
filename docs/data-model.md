@@ -34,15 +34,17 @@ Four layers must remain separate:
 | Layer | Producer | Canonical storage | Meaning |
 | --- | --- | --- | --- |
 | Synthetic interaction data | CAPE-Loop population, policy, response-model, and updater code | Verified `runs/<run-id>/`; JSON/JSONL with derived CSV tables | Controlled experimental world and simulator observations |
-| Frozen conversation surfaces | OpenRouter authors neutral bases/names; code expands fixed treatments/reply | `data/scenarios/conversation-templates-v1.json`; copied to `inputs/conversation-templates.json` in each consuming run | Natural-language realization of already-fixed choices, not a decision source |
+| Frozen conversation surfaces | Outcome-blind project standardization assigns three source-neutral frame families and neutral name pools; code expands fixed treatments/reply | `data/scenarios/conversation-templates-v1.json`; copied to `inputs/conversation-templates.json` in each consuming run | Natural-language realization of already-fixed choices, not a decision source |
 | External model data | Explicit OpenAI/OpenRouter collection or validated replay; optional direct decoder replications are separate | `llm/` in a completed run or a separately checksummed collection | External observations that are replayable but not regenerable |
 | Human data | Separately authorized participant study | De-identified imported JSONL plus protected codebook/protocol records | Deferred pragmatic validation |
 
 Repository code creates latent users, options, presentation contexts,
-mathematical choices, and reference updates. An LLM may author neutral base
+mathematical choices, and reference updates. An LLM may draft candidate neutral
 wording and display names in a separate OpenRouter workflow, but it receives no
 latent user, never selects an option, and never writes treatment sentences or
-user choices. Runtime code expands and renders the frozen inputs.
+user choices. The current visible bases were subsequently standardized by the
+project onto three source-neutral frame families. Runtime code expands and
+renders those frozen inputs.
 
 The generated latent preference has three coordinates:
 
@@ -53,8 +55,9 @@ theta_j in {-2, -1, +1, +2}
 Each user also has ranking, default, and suggestion susceptibility. Preference
 and susceptibility remain fixed within a trajectory. Travel and writing each
 use three controlled attributes. Scenario semantics are project-authored
-fixtures, and their frozen conversation surfaces are LLM-assisted,
-project-controlled language rather than scraped conversations.
+fixtures, and their current frozen conversation surfaces are
+project-standardized language rather than scraped conversations. Historical
+model-assisted candidate authoring remains recorded separately.
 
 The default response family is finite random utility. Presentation changes the
 probability of a response but never changes latent preference or intrinsic
@@ -95,10 +98,14 @@ cape-loop conversations generate-openrouter \
   --model anthropic/claude-sonnet-5 --execute-live
 ```
 
-The command writes the JSON bank and the readable provider-generation log
-`data/scenarios/conversation-templates-v1.generation.jsonl`. Subsequent runs
-consume the frozen JSON through `[scenarios] conversation_file`; the authoring
-log is provenance for the small input bank, not one row per simulated user.
+The command can write a candidate JSON bank and the readable
+provider-generation log
+`data/scenarios/conversation-templates-v1.generation.jsonl`. The tracked log
+preserves 24 historical candidate requests/results. The current tracked bank
+was outcome-blind project-standardized afterward, so the log is candidate
+authoring provenance rather than a provider-authorship claim for its visible
+frame text. Subsequent runs consume the frozen JSON through
+`[scenarios] conversation_file`; the log is not one row per simulated user.
 
 The offline Gate 4 and Experiment C external-rescore source configurations:
 
@@ -135,11 +142,19 @@ Its strict generated schema is
 The top level binds catalog identity/version/status, eligibility, language and
 locale, source and license, freeze dates, split and selection policies,
 per-domain attribute order, authoring provenance, and the scenario array.
+The loader accepts two coherent lifecycle states:
+`frozen-development` with `simulation-and-pilot-only`, or `frozen-paper` with
+`paper-eligible`. The latter is accepted only when every scenario is approved,
+all three recorded reviews pass, and every scenario is marked paper-eligible.
+This makes the release path executable without weakening the current
+development catalog's boundary.
 
 Each scenario records:
 
 - globally unique scenario and family IDs, revision, provisional/approved
-  status, split, domain, task family, target attribute/key, and difficulty;
+  status, split, domain, task family, and target attribute/key;
+- the one declared nuisance attribute/key and its signed direction for the
+  same-direction restricted peer;
 - a neutral prompt and opaque wording-template ID;
 - negative, positive, and two same-direction peer options, each with a unique
   ID, label, and exact three-number feature vector;
@@ -147,13 +162,20 @@ Each scenario records:
 - automated, surface-review, scientific-review, and paper-eligibility state.
 
 The base options are `-0.5` and `+0.5` only on the target coordinate. Each
-same-direction peer preserves that sign and adds `+0.25` on
-`(target + 1) mod 3`, matching the restricted-choice design. At runtime, the
-catalog supplies the scenario ID, task prompt, option labels/features, and
-wording-template ID to `InteractionContext`. The optional `prompt` property is
-emitted for catalog-backed records and included in full-context and
-provenance-aware runtime rendering. Legacy contexts without a catalog omit the
-optional property and remain valid.
+same-direction peer preserves that target value and adds either `-0.25` or
+`+0.25` on exactly one of the other two coordinates. Version 1.4 declares that
+coordinate and sign explicitly as `nuisance_attribute`, `nuisance_key`, and
+`nuisance_direction`. Within each test domain-by-target cell, the six
+scenarios cover both non-target attributes and both directions; across the
+complete test bank, each numeric scenario-anchor signature occurs three
+times. This counterbalancing is prospective structure, not evidence that the
+visible prose has been semantically validated.
+
+At runtime, the catalog supplies the scenario ID, task prompt, option
+labels/features, and wording-template ID to `InteractionContext`. The optional
+`prompt` property is emitted for catalog-backed records and included in
+full-context and provenance-aware runtime rendering. Legacy contexts without a
+catalog omit the optional property and remain valid.
 
 ### Frozen conversation-template input
 
@@ -170,7 +192,8 @@ Its top-level fields are exactly:
 }
 ```
 
-The transient OpenRouter response for one scenario contains only:
+The historical OpenRouter candidate-authoring response for one scenario
+contained only:
 
 ```text
 display_names
@@ -180,10 +203,19 @@ base_template
 `base_template` is neutral. It contains `{prompt}`, `{option_1_name}`,
 `{option_1_description}`, `{option_2_name}`, and
 `{option_2_description}` exactly once each and ends in a question. It contains
-no treatment placeholder. Code—not the authoring model—expands that response
-into the stored scenario record. The stored record contains its `scenario_id`,
-four display-name mappings, five `presentation_templates`, the fixed
-`choice_template`, and source metadata.
+no treatment placeholder. The candidate-authoring path expands that response
+into a scenario record containing its `scenario_id`, four display-name
+mappings, five `presentation_templates`, the fixed `choice_template`, and
+source metadata.
+
+The current stored bank was standardized after that candidate-authoring step;
+its visible wording is not attributed to the provider that drafted historical
+candidates. All 48 templates now carry
+`project-standardized-neutral-frame-v1-unreviewed` as their source and use one
+of three source-neutral base frames. Each frame appears exactly 16 times, and
+each appears twice in every six-scenario test domain-by-target cell. This
+outcome-blind machine balance reduces wording-frame confounding but is not
+evidence of semantic validity, naturalness, neutrality, or human approval.
 
 The stored forms remain compatible with the runtime renderer:
 
@@ -205,25 +237,83 @@ display_names
 source
 ```
 
+The four stored display-name mappings form a validated scenario-specific A–D
+name pool. They are not stable semantic labels at runtime. After the visible
+ranking is fixed, the first displayed option receives the pool's A name and
+the second receives its B name. Evaluated-model structured payloads separately
+replace internal catalog IDs with `presented_option_1`,
+`presented_option_2`, and so on. Internal IDs remain in retained audit records
+only.
+
 It receives neither latent truth nor numeric feature vectors. The structured
 option is selected first by the response model. The exact rendered assistant
 and user text then enters the observation and is therefore reused by every
 updater assigned the same event.
 
-Version 1.0.0 currently contains 24 scenarios, 24 distinct families, and 96
+Version 1.4.0 currently contains 48 scenarios, 48 distinct families, and 192
 globally unique option IDs:
 
 | Cell | Train | Development | Test |
 | --- | ---: | ---: | ---: |
-| Each travel attribute | 1 | 1 | 2 |
-| Each writing attribute | 1 | 1 | 2 |
-| Total scenarios | 6 | 6 | 12 |
+| Each travel attribute | 1 | 1 | 6 |
+| Each writing attribute | 1 | 1 | 6 |
+| Total scenarios | 6 | 6 | 36 |
 
-All 24 are provisional, none is approved, and none is paper-eligible. The
+All 48 are provisional, none is approved, and none is paper-eligible. The
 catalog is `frozen-development` and `simulation-and-pilot-only`; its presence
 does not make a generated run confirmatory evidence. The normative acceptance,
 rejection, drafting, and human-review rules are in
 [Scientific design](scientific-design.md#scenario-catalog-and-quality-policy).
+
+The current writing surfaces deliberately use direct category descriptions
+such as “formal,” “conversational,” “concise,” or “detailed.” They do not
+contain complete alternative documents. This makes the primary instrument a
+controlled test of whether an updater uses the declared causal context around
+a recognizable preference category. It does not establish generalization to
+natural drafting, subtle style inference, or full-text quality judgments. Such
+claims require a separately versioned, split-disjoint, reviewed, and pretested
+excerpt-based robustness bank.
+
+Within a longitudinal trajectory, each domain-by-attribute pool is traversed
+without replacement in a deterministic semantic-keyed order. Repetition starts
+only after that pool is exhausted. Consequently, the current six-scenario test
+cells cover a 16-turn cyclic trajectory without reuse (the three target cells
+are visited 6, 5, and 5 times). The v2 exploratory policy also keeps target
+counts within one at every prefix, so it visits every attribute once in each
+three-turn block and has the same per-cell capacity bound. A custom or unknown
+adaptive policy without that constraint is still audited conservatively as
+though all turns could target one cell. These are capacity properties only;
+they do not substitute for human review or semantic calibration.
+
+### Prospective scenario-audit artifacts
+
+`cape-loop scenarios audit CONFIG OUTPUT_DIR` writes three derived,
+outcome-free files:
+
+```text
+scenario-audit.json                    # machine design/readiness report
+scenario-review.md                     # metadata-visible researcher workbook
+scenario-surface-review-blinded.md     # opaque dialogue-only review packet
+```
+
+The JSON distinguishes engineering-pilot, recorded-scientific-pilot, and paper
+readiness. It includes the config-bound response coefficients, the complete
+theta-by-susceptibility probability grid, both order-averaged estimands and
+physical per-order binary-response bounds, policy-aware no-repeat capacity by
+cell, raw label-length heuristics, rendered-language flags, cross-split lexical
+overlap, within-selected-split lexical redundancy, exact cross-split
+task-family reuse, and recorded review counts. The JSON also reports that the
+72 test scenario-anchor instances reduce to 24 unique numeric signatures,
+with each signature represented three times. It also reports joint
+nuisance-attribute×direction balance and source-neutral conversation-frame
+family balance.
+The machine hygiene pass exhaustively renders 40 cases per selected scenario;
+each Markdown packet keeps six previews per scenario. The blinded packet
+removes scenario IDs, splits, targets, nuisance metadata, feature vectors,
+option roles, and mechanism labels; the researcher packet retains those fields
+for semantic inspection. Lexical and length checks make no semantic-validity
+claim. None of these files changes catalog review fields or constitutes
+verified human evidence.
 
 Every configured catalog-backed run, including sensitivity, retains:
 
@@ -239,8 +329,9 @@ metrics/scenario-consumption.json
 The first file is the exact consumed byte sequence. The input manifest binds
 its SHA-256, ID, version, status, eligibility, selection policy, counts, and
 paper-eligibility flag. The availability coverage report enumerates every
-domain×split×attribute cell, family count, task families, and difficulties,
-and identifies itself as `coverage_kind = "catalog_availability"`. Realized
+domain×split×attribute cell, family count, task families, and declared
+nuisance-attribute/direction coverage, and identifies itself as
+`coverage_kind = "catalog_availability"`. Realized
 train/development consumption is separately recorded under
 `metrics/split-leakage-audit.json`, including missing
 mechanism×target×direction cells and scenarios. Checked-in experiment
@@ -534,12 +625,13 @@ The two implemented domains both have three attributes:
 
 `LatentUser.to_dict()` returns only `user_id`, `theta`, and
 `susceptibility`. The versioned release row in `population/users.jsonl` is
-produced by `population.user_state_record()` and has exactly:
+produced by `population.user_state_record()` and has exactly the following
+shape (the values are illustrative, not the first user under a public seed):
 
 ```json
 {
   "schema_version": 1,
-  "user_id": "travel-test-user-00000",
+  "user_id": "shared-test-user-00000",
   "domain": "travel",
   "theta": [-2, 1, 2],
   "susceptibility": {
@@ -555,6 +647,12 @@ produced by `population.user_state_record()` and has exactly:
 `development`, or `test`. The same shared latent user may appear once per
 selected domain in the population artifact. Latent user rows are
 simulator/evaluator data and must not be passed to an updater.
+
+For an experiment configured with \(N\) test users, the ordinary A–C
+preparation path generates \(N\) test users,
+\(\max(24,\min(128,4N))\) training users, and \(\max(8,N)\) development
+users. These are deterministic synthetic allocations, not sampled estimates
+of population prevalence.
 
 ## Option
 
@@ -953,7 +1051,7 @@ therefore writes narrow JSON Lines projections for routine analysis:
 | --- | --- | --- |
 | `analysis/experiment-a-rows.jsonl` | One evaluated updater×trial pair across both response modes | `schema_version`, one-based `source_record_index`, `trial_id`, `user_id`, `domain_id`, `scenario_id`, `updater_id`, `mechanism`, `prior_strength`, `response_mode`, `update_error` |
 | `analysis/experiment-a-exclusions.jsonl` | One excluded matched set | `schema_version`, `user_id`, `domain_id`, `target_attribute`, `anchor_direction`, `minimum_probability`, `choice_probabilities` |
-| `analysis/experiment-b-turns.jsonl` | One retained turn from one trajectory | `schema_version`, one-based `source_record_index`, zero-based `source_turn_index`, `trajectory_id`, `user_id`, `domain_id`, `crn_key`, `updater_id`, `policy_id`, `initial_profile_condition`, one-based `turn`, `terminal_error`, repeated `retained_terminal_error`, `same_history_shadow` |
+| `analysis/experiment-b-turns.jsonl` | One retained turn from one trajectory | `schema_version`, one-based `source_record_index`, zero-based `source_turn_index`, `trajectory_id`, `user_id`, `domain_id`, actual per-turn `scenario_id`, `crn_key`, `updater_id`, `policy_id`, `initial_profile_condition`, one-based `turn`, `terminal_error`, repeated `retained_terminal_error`, `same_history_shadow` |
 | `analysis/experiment-c-rows.jsonl` | One existing fixed-history or endogenous evaluation/ranking row | `schema_version`, one-based `source_record_index`, `split`, `regime`, `replicate`, `user_id`, `domain_id`, `updater_id`, `profile_error`, `behavioral_accuracy`, nullable `cross_context_accuracy`, `intrinsic_regret`, `score_basis`, `history_digest`, `battery_id`, `battery_digest` |
 
 Experiment A's `update_error` is its action-conditioned update error (ACUE).
@@ -961,7 +1059,12 @@ In Experiment B, `terminal_error` is the per-turn marginal Brier error;
 `retained_terminal_error` repeats the trajectory's retained terminal Brier and
 matches the last compact turn. `same_history_shadow` is a Boolean confirming
 that the shadow consumed the same retained history, not the full joint
-posterior.
+posterior. `scenario_id` names the stimulus actually displayed on that turn.
+`crn_key` instead identifies the complete counterfactual policy/updater twin
+set whose compatible choice draws and scenario-occurrence schedules share a
+common random-number key. These are different grouping variables: a branch can
+show a different scenario after its endogenous target sequence diverges while
+remaining in the same CRN set.
 
 These are deterministic projections, not independent sources of numerical
 truth. For a newly generated run they are written before finalization, listed
@@ -1305,7 +1408,18 @@ checksum file itself.
 `splits.json` contains `schema_version`, `seed`, and six string-to-split maps:
 `theta_groups`, `susceptibility_groups`, `option_templates`,
 `dialogue_templates`, `scenario_families`, and `paraphrase_templates`.
-Map values are `train`, `development`, or `test`.
+Map values are `train`, `development`, or `test`. A manifest using either v2
+population policy has `schema_version = 2` and also records the selected
+nonlegacy `theta_policy` and/or `susceptibility_policy`. An all-legacy manifest
+retains schema version 1 and omits those fields for exact replay compatibility.
+
+The official v2 policies use split-disjoint orthogonal supports: theta has 32
+train, 16 development, and 16 test profiles; susceptibility has nine profiles
+in each split. When both are active, user allocation uses a cached,
+outcome-blind joint block search that preserves the two balanced orders while
+reducing cross-coordinate contingency imbalance and linear association at the
+official sample horizons. It does not enumerate their Cartesian product for
+every small run and does not assert finite-sample independence.
 
 `metrics/split-leakage-audit.json` binds those declarations to the concrete
 assets consumed by the generators. It contains `status`, the six independent

@@ -199,7 +199,9 @@ _SCENARIO_RECORD = {
         "task_family",
         "target_attribute",
         "target_key",
-        "difficulty",
+        "nuisance_attribute",
+        "nuisance_key",
+        "nuisance_direction",
         "prompt",
         "wording_template_id",
         "negative_option",
@@ -228,7 +230,30 @@ _SCENARIO_RECORD = {
                     }
                 }
             },
-        }
+        },
+        {
+            "if": {
+                "properties": {
+                    "review": {
+                        "properties": {"paper_eligible": {"const": True}},
+                        "required": ["paper_eligible"],
+                    }
+                },
+                "required": ["review"],
+            },
+            "then": {
+                "properties": {
+                    "status": {"const": "approved"},
+                    "review": {
+                        "properties": {
+                            "automated_validation": {"const": "passed"},
+                            "surface_human_review": {"const": "passed"},
+                            "scientific_human_review": {"const": "passed"},
+                        }
+                    },
+                }
+            },
+        },
     ],
     "properties": {
         "scenario_id": _NONEMPTY_STRING,
@@ -244,9 +269,13 @@ _SCENARIO_RECORD = {
             "maximum": 2,
         },
         "target_key": _NONEMPTY_STRING,
-        "difficulty": {
-            "enum": ["standard_tradeoff", "close_tradeoff"]
+        "nuisance_attribute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
         },
+        "nuisance_key": _NONEMPTY_STRING,
+        "nuisance_direction": {"enum": [-1, 1]},
         "prompt": _NONEMPTY_STRING,
         "wording_template_id": _NONEMPTY_STRING,
         "negative_option": _SCENARIO_OPTION,
@@ -316,7 +345,7 @@ _SCENARIO_RECORD = {
                 "scientific_human_review": {
                     "enum": ["not_completed", "passed"]
                 },
-                "paper_eligible": {"const": False},
+                "paper_eligible": {"type": "boolean"},
                 "note": _NONEMPTY_STRING,
             },
         },
@@ -346,8 +375,12 @@ _SCENARIO_CATALOG_INPUT = {
         "input_kind": {"const": "scenario_catalog"},
         "catalog_id": _NONEMPTY_STRING,
         "catalog_version": _NONEMPTY_STRING,
-        "catalog_status": {"const": "frozen-development"},
-        "eligibility": {"const": "simulation-and-pilot-only"},
+        "catalog_status": {
+            "enum": ["frozen-development", "frozen-paper"]
+        },
+        "eligibility": {
+            "enum": ["simulation-and-pilot-only", "paper-eligible"]
+        },
         "selection_policy": {
             "const": "deterministic-stratified-v1"
         },
@@ -356,8 +389,36 @@ _SCENARIO_CATALOG_INPUT = {
         "retained_file": {"const": "inputs/scenario-catalog.json"},
         "scenario_count": {"type": "integer", "minimum": 1},
         "family_count": {"type": "integer", "minimum": 1},
-        "paper_eligible": {"const": False},
+        "paper_eligible": {"type": "boolean"},
     },
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "catalog_status": {"const": "frozen-development"}
+                },
+                "required": ["catalog_status"],
+            },
+            "then": {
+                "properties": {
+                    "eligibility": {"const": "simulation-and-pilot-only"},
+                    "paper_eligible": {"const": False},
+                }
+            },
+        },
+        {
+            "if": {
+                "properties": {"catalog_status": {"const": "frozen-paper"}},
+                "required": ["catalog_status"],
+            },
+            "then": {
+                "properties": {
+                    "eligibility": {"const": "paper-eligible"},
+                    "paper_eligible": {"const": True},
+                }
+            },
+        },
+    ],
 }
 
 _CONVERSATION_TEMPLATE_INPUT = {
@@ -705,12 +766,69 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "scenarios",
         ],
         "additionalProperties": False,
+        "allOf": [
+            {
+                "if": {
+                    "properties": {
+                        "catalog_status": {"const": "frozen-development"}
+                    },
+                    "required": ["catalog_status"],
+                },
+                "then": {
+                    "properties": {
+                        "eligibility": {
+                            "const": "simulation-and-pilot-only"
+                        },
+                        "scenarios": {
+                            "items": {
+                                "properties": {
+                                    "review": {
+                                        "properties": {
+                                            "paper_eligible": {"const": False}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+            },
+            {
+                "if": {
+                    "properties": {
+                        "catalog_status": {"const": "frozen-paper"}
+                    },
+                    "required": ["catalog_status"],
+                },
+                "then": {
+                    "properties": {
+                        "eligibility": {"const": "paper-eligible"},
+                        "scenarios": {
+                            "items": {
+                                "properties": {
+                                    "status": {"const": "approved"},
+                                    "review": {
+                                        "properties": {
+                                            "paper_eligible": {"const": True}
+                                        }
+                                    },
+                                }
+                            }
+                        },
+                    }
+                },
+            },
+        ],
         "properties": {
             "schema_version": {"const": 1},
             "catalog_id": _NONEMPTY_STRING,
             "catalog_version": _NONEMPTY_STRING,
-            "catalog_status": {"const": "frozen-development"},
-            "eligibility": {"const": "simulation-and-pilot-only"},
+            "catalog_status": {
+                "enum": ["frozen-development", "frozen-paper"]
+            },
+            "eligibility": {
+                "enum": ["simulation-and-pilot-only", "paper-eligible"]
+            },
             "language": _NONEMPTY_STRING,
             "locale": _NONEMPTY_STRING,
             "source": {"const": "project-authored-synthetic"},

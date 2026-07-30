@@ -67,6 +67,13 @@ to the source context and selected option. Experiment B independently checks
 terminal-v2 option IDs, feature vectors, wording IDs, and scenario families
 against its training material.
 
+Official v2 population construction balances each theta and susceptibility
+coordinate within incomplete allocation blocks, then applies an outcome-blind
+joint block search to reduce cross-coordinate contingency imbalance and linear
+association at the declared sample horizons. This controls avoidable
+population-composition dependence without changing arm assignment or claiming
+that the finite synthetic population is independent.
+
 ### Data splits and leakage controls
 
 A split is a collection of complete semantic groups, not a random row
@@ -112,25 +119,42 @@ release-review obligation.
 
 ### Catalog-backed deterministic selection
 
-Every checked-in configuration binds the canonical 1.0.0 catalog and its exact
-SHA-256. Selection first filters by domain, split, and target attribute, sorts
-eligible scenarios by stable ID, and chooses one with a semantic hash of the
-run seed, catalog identity/version, and an experiment-owned pairing key. It
-does not inspect latent preference, current profile, updater output, response,
-model performance, or sensitivity-grid coordinates. The catalog replaces
-generic surfaces inside existing cells; it is not an additional Cartesian
-factor and does not by itself increase the model-call budget.
+Every checked-in configuration binds the canonical 1.4.0 catalog and its exact
+SHA-256. Selection first filters by domain, split, and target attribute. For a
+longitudinal history, it derives one semantic-keyed permutation for that
+trajectory and cell, then consumes the permutation without replacement until
+the cell is exhausted. A later cycle repeats only when the planned horizon
+exceeds available scenarios. Single matched cases use the same deterministic
+selection contract. Neither path inspects latent preference, current profile,
+updater output, response, model performance, or sensitivity-grid coordinates.
+The catalog replaces generic surfaces inside existing cells; it is not an
+additional Cartesian factor and does not by itself increase the model-call
+budget.
+
+The six test scenarios per cell cover a 16-turn trajectory for the declared
+three-attribute cyclic policies. `exploratory` v2 is adaptive only within a
+block-balance constraint: it chooses among the least-exposed attributes using
+current marginal entropy, keeps target counts within one at every prefix, and
+therefore visits all three attributes once in each three-turn block. It has the
+same \(\lceil T/3\rceil\) per-cell no-repeat requirement. A custom or unknown
+adaptive policy without this constraint is still audited conservatively at
+\(T\) scenarios per eligible cell. When a declared design exceeds its pool,
+the runner cycles deterministically and reports the reuse rather than
+pretending it had no repeat.
 
 - **Training/development:** the existing example schedule selects
   deterministically from its own atlas/beacon pool before fitting or
   calibration.
-- **Experiment A:** selection is keyed by test-user index, attribute, and
-  anchor direction. All mechanisms, response modes, prior strengths, and
-  updaters within that matched case reuse the same scenario and anchor.
-- **Experiment B:** selection is keyed by the common trajectory-pair key and
-  turn. Policy/updater twins therefore retain the same scenario whenever they
-  target the same attribute, while presentation and endogenous response can
-  still differ.
+- **Experiment A:** selection cycles over test-user index within each
+  domain-by-attribute cell. The two anchor directions for one user and target
+  reuse the same scenario, and the anchor appears once in each physical
+  display position across that pair. All mechanisms, response modes, prior
+  strengths, and updaters retain that scenario/order assignment. Across
+  users, scenario counts within each anchor direction differ by at most one.
+- **Experiment B:** the without-replacement order is keyed by the common
+  trajectory-pair key. Policy/updater twins therefore retain the same scenario
+  whenever they have reached the same occurrence of an attribute, while
+  presentation and endogenous response can still differ.
 - **Experiment C:** development and test use their distinct catalog pools.
   Every updater replays each fixed history verbatim; fixed logger twins and
   same-target endogenous updater branches use paired scenario schedules.
@@ -162,15 +186,22 @@ For example, a restricted lodging surface is:
 > **User:** I choose Hotel A.
 
 The template-authoring model neither sees the latent user nor chooses Hotel A.
-It authors one neutral base presentation and neutral display names per scenario.
-Balanced, restricted, and ranking share that base wording. Code adds only the
-fixed default or suggestion sentence when that treatment is present and fixes
-the user reply. The resulting templates are reviewed as scenario inputs and
-reused across trials; runtime introduces no authoring-model call per event.
+It may draft a candidate neutral base presentation and display names. The
+current visible bases were subsequently project-standardized outcome-blind
+onto three source-neutral frames, balanced across test cells, and remain
+unreviewed. Balanced, restricted, and ranking share the selected base wording.
+Code adds only the fixed default or suggestion sentence when that treatment is
+present and fixes the user reply. The resulting templates are reviewed as
+scenario inputs and reused across trials; runtime introduces no
+authoring-model call per event.
 
 Full-context and provenance-aware evaluated LLMs receive the rendered dialogue,
 readable option descriptions, and a semantic attribute codebook. They do not
-receive numeric feature vectors or the internal target-attribute index.
+receive numeric feature vectors, the internal target-attribute index, or
+catalog option IDs. Structured options use position aliases such as
+`presented_option_1`; visible A/B names are also assigned by displayed position
+after ranking, so neither identifier permanently encodes a preference
+direction.
 Response-only receives the local reply and selected readable option as the
 deliberately information-poor ablation. The evaluated writer remains the model
 configured in `[llm]`; it is separate from the conversation author.
@@ -188,6 +219,24 @@ and records the complete conversation, turn, and outcome counts plus the
 displayed preview count; the exact summary keys are listed in
 [Data model](data-model.md#conversation-logs-and-readable-previews).
 
+Before spending on a live run, generate the prospective scenario packet:
+
+```bash
+PYTHONPATH=src python -m cape_loop scenarios audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/scenario-audit-b6 \
+  --split test --turns 6
+```
+
+This command makes no provider call and consumes no experiment outcome. Use
+`scenario-review.md` as the metadata-visible researcher workbook,
+`scenario-surface-review-blinded.md` for independent surface ratings, and
+`scenario-audit.json` for capacity, counterbalancing, overlap candidates,
+surface-hygiene flags, and complete finite-support simulator probabilities. A
+successful command is not scientific approval: readiness is reported
+separately for engineering, scientific-pilot, and paper use, and catalog status
+strings alone never count as verified human evidence.
+
 ## Experiment A: provenance audit
 
 Use:
@@ -202,6 +251,14 @@ For every selected test user, domain, target attribute, anchor direction,
 prior-strength stratum, mechanism, response mode, and updater, the runner
 constructs a matched anchor set from one deterministically selected cedar
 scenario.
+
+Scenario and physical order are paired before any response is sampled. For
+each user–domain–target cell, the negative- and positive-anchor cases use the
+same scenario; their display orders are opposite, so the anchor is first once
+and second once. The same assignment is then reused across mechanisms,
+response modes, prior strengths, and updaters. This prevents scenario identity
+or a one-sided position imbalance from being mistaken for an
+anchor-direction effect.
 
 `experiment.prior_strengths` crosses a declared concentration factor. At level
 `s`, the user-specific prior is `(1-s)` uniform joint mass plus `s`
@@ -518,6 +575,23 @@ Use:
 PYTHONPATH=src python -m cape_loop run configs/offline/experiment_b.toml
 ```
 
+To inspect the closed-loop mechanics before launching a pilot, the
+demonstration-only command
+
+```bash
+PYTHONPATH=src python -m cape_loop demo experiment-b-case \
+  artifacts/local/experiment-b-case --execute-live
+```
+
+runs one incorrect-profile user through matched balanced and
+soft-profile-conditioned branches, with three turns by default and one
+`llm_full_context` logical call per turn. The command also accepts 6, 9, or 12
+turns per branch; content-identical logical requests can share one physical
+provider response. Its output is not a sample from the factorial design and is
+never paper- or claim-eligible. Three turns exercise transport and structured
+updates, but normally do not revisit an attribute after it is updated. Use at
+least six turns to inspect the declared later-action mechanism.
+
 The bounded live pair is
 `configs/live/experiment_b_openai.toml` and
 `configs/live/experiment_b_openrouter.toml`. Both preserve balanced versus
@@ -525,6 +599,11 @@ soft-profile-conditioned policies and the ordinary/provenance-aware LLM arms.
 Each preflights 768 trajectory updates plus 96 development-calibration calls:
 864 physical attempts with retries disabled. The current request and token
 ceilings are defined and preflighted in [Live execution](live-execution.md).
+These current presets use three turns and therefore remain transport pilots,
+not scientifically informative Gate 2 pilots. Revise their horizon and paid
+factor set before collection; one domain, eight users, four initial-profile
+conditions, two policies, six turns, and `llm_full_context` alone require 384
+trajectory calls plus 24 calibration calls per model.
 
 ### Executed crossing
 
@@ -577,6 +656,14 @@ rotates ranking, default, and suggestion channels and applies the
 profile-consistent treatment with a probability determined by current profile
 confidence.
 
+The exploratory policy is `v2-balanced-coverage`. At each turn it restricts
+selection to the least-exposed attribute or attributes, then chooses the one
+with greatest current marginal entropy, with a deterministic index tie-break.
+Consequently, every complete three-turn block covers all three attributes and
+the prefix exposure counts can never differ by more than one. The order within
+the block can respond to the current public profile; total coverage cannot
+collapse onto one dimension.
+
 ### Decomposition and predicate
 
 Balanced versus profile-conditioned shadow paths supply evidence-selection
@@ -597,6 +684,11 @@ These are paired, cluster-aware nonparametric intervals. They are not a GLMM or
 a user-level mixed-effects model. The latter is implemented by the separate,
 version-pinned [R mixed-effects harness](../analysis/confirmatory-mixed-effects/README.md)
 and must be fitted on verified paper runs in the declared R environment.
+Its scenario random intercept uses the actual scenario displayed on each
+retained turn. Its separate CRN-set intercept uses the common key shared by the
+counterfactual policy/updater twin set. The CRN set is not a substitute
+scenario ID: endogenous branches can remain paired by random numbers while
+targeting different attributes and therefore displaying different scenarios.
 
 ### Pilot power for the frozen three-way interaction
 

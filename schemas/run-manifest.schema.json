@@ -113,20 +113,72 @@
         },
         "scenario_catalog": {
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "catalog_status": {
+                    "const": "frozen-development"
+                  }
+                },
+                "required": [
+                  "catalog_status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "eligibility": {
+                    "const": "simulation-and-pilot-only"
+                  },
+                  "paper_eligible": {
+                    "const": false
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "catalog_status": {
+                    "const": "frozen-paper"
+                  }
+                },
+                "required": [
+                  "catalog_status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "eligibility": {
+                    "const": "paper-eligible"
+                  },
+                  "paper_eligible": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          ],
           "properties": {
             "catalog_id": {
               "minLength": 1,
               "type": "string"
             },
             "catalog_status": {
-              "const": "frozen-development"
+              "enum": [
+                "frozen-development",
+                "frozen-paper"
+              ]
             },
             "catalog_version": {
               "minLength": 1,
               "type": "string"
             },
             "eligibility": {
-              "const": "simulation-and-pilot-only"
+              "enum": [
+                "simulation-and-pilot-only",
+                "paper-eligible"
+              ]
             },
             "family_count": {
               "minimum": 1,
@@ -136,7 +188,7 @@
               "const": "scenario_catalog"
             },
             "paper_eligible": {
-              "const": false
+              "type": "boolean"
             },
             "retained_file": {
               "const": "inputs/scenario-catalog.json"

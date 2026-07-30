@@ -26,11 +26,12 @@ recommended, or shown only beside other budget options. CAPE-Loop preserves that
 elicitation history and measures whether profile writers use it appropriately.
 
 The primary simulator is hybrid. A mathematical response model selects the
-option from a fixed latent user and visible choice context. OpenRouter authors
-only one neutral base presentation and four neutral display names per scenario.
-Repository code then renders the already-fixed choice. The evaluated profile
-writer receives meaningful language, while the authoring LLM never chooses for
-the simulated user or writes treatment-specific behavior.
+option from a fixed latent user and visible choice context. A separate
+outcome-blind authoring workflow can supply candidate base presentations and
+display names. The current visible bases were later project-standardized onto
+three source-neutral frames, balanced across test cells. Repository code then
+renders the already-fixed choice. Neither an authoring LLM nor repository
+wording chooses for the simulated user or writes treatment-specific behavior.
 
 For example, a restricted lodging scenario can appear to the evaluated model as:
 
@@ -81,20 +82,38 @@ completion boundary is in
 ## What CAPE-Loop provides
 
 - Fixed latent users with three preference dimensions and heterogeneous
-  susceptibility to ranking, defaults, and agent suggestions.
+  susceptibility to ranking, defaults, and agent suggestions. Official presets
+  use deterministic orthogonal split/allocation policies so small simulated
+  populations keep marginal preference and susceptibility counts within one
+  user in incomplete allocation blocks. When both policies are active, an
+  outcome-blind deterministic joint allocator also reduces avoidable
+  preference–susceptibility association at the official sample horizons.
 - Travel-planning and writing-assistance domains with controlled option
   attributes.
 - A checksum-bound
-  [24-scenario catalog](data/scenarios/scenario-catalog-v1.json) with
+  [48-scenario catalog](data/scenarios/scenario-catalog-v1.json) with
   split-disjoint train/development/test families and deterministic selection.
   The current catalog is provisional and usable only for simulation and
   bounded pilots; see the
   [scenario quality policy](docs/scientific-design.md#scenario-catalog-and-quality-policy).
-- A frozen
+- An outcome-free `scenarios audit` command that checks no-repeat capacity,
+  complete finite-support and physical per-order simulator probabilities,
+  raw surface-length symmetry, all rendered-language combinations, lexical
+  overlap/redundancy candidates, and review status, then writes a human-review
+  packet without approving anything. Capacity is policy aware, so adaptive
+  targeting does not inherit a false cyclic no-repeat guarantee.
+- A frozen, provisional
   [conversation-template bank](data/scenarios/conversation-templates-v1.json)
-  built from one OpenRouter-authored neutral base and display-name set per
-  scenario. Code expands the fixed treatments and choice reply, then renders
-  deterministically after the mathematical choice.
+  whose 48 visible bases are project-standardized over three source-neutral
+  frames: 16 uses per frame and two uses per frame in every six-scenario test
+  domain×target cell. Code expands the fixed treatments and choice reply, then
+  renders deterministically after the mathematical choice. Historical
+  candidate-authoring provenance remains separate; all bases are unreviewed.
+- An explicit estimand boundary: the present writing scenarios expose
+  controlled category descriptors such as “formal” and “conversational,” not
+  complete candidate passages. They test causal use of declared preference
+  evidence; broader claims about natural drafting require a separately frozen,
+  independently reviewed excerpt-based robustness bank.
 - Explicit separation between the user-visible interaction context and the
   internal policy provenance that generated it.
 - Exact action-aware Bayesian inference under the declared response model, with
@@ -166,6 +185,9 @@ PYTHONPATH=src python -m cape_loop doctor
 PYTHONPATH=src python -m unittest discover -s tests
 PYTHONPATH=src python -m cape_loop --help
 PYTHONPATH=src python -m cape_loop llm models
+PYTHONPATH=src python -m cape_loop scenarios audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/scenario-audit-b6 --split test --turns 6
 ```
 
 For the smallest end-to-end live walkthrough, load the ignored local
@@ -188,6 +210,28 @@ and adjacent metrics in ordinary language. The command is a paid
 demonstration/debugging aid, not an experiment sample or paper evidence. See
 [Getting started](docs/getting-started.md#run-one-understandable-live-scenario)
 for its controls and retained files.
+
+For one small but genuine multi-turn Experiment B execution path, run the
+matched diagnostic:
+
+```bash
+PYTHONPATH=src python -m cape_loop demo experiment-b-case \
+  artifacts/experiment-b-case --execute-live
+```
+
+By default it uses one fixed simulated user with an incorrect initial profile,
+then compares balanced and soft-profile-conditioned three-turn trajectories.
+This makes six logical profile updates with zero retries and at most six
+physical calls; a content-identical request can be reused locally. OpenRouter
+Gemini is the default, while `--model` switches OpenRouter models and
+`--provider openai` selects the direct OpenAI primary writer. Complete
+three-attribute cycles of 3, 6, 9, or 12 turns per branch are available through
+`--turns`; the logical-call ceiling is always twice the turn count. The
+three-turn default is a short transport check; use at least `--turns 6` to
+repeat every attribute and make a later profile-conditioned presentation
+action possible. Because Experiment B tests whether a profile affects later
+choices, this is one **user case**, not one repeated stimulus. Its artifacts
+are demonstration-only and cannot support a paper claim.
 
 Validate and run a checked-in TOML configuration:
 
@@ -301,11 +345,16 @@ contracts.
 
 CAPE-Loop does not download or repackage an existing benchmark. Repository code
 generates the latent users, mathematical choices, profile updates, and
-train/development/test membership. OpenRouter supplies only neutral base wording
-and display names. Repository code supplies the default/suggestion sentence and
-the exact local choice reply, so language cannot change the selected option or
-hidden state. Runs retain both the structured interaction and its exact
-rendered assistant/user exchange.
+train/development/test membership. The frozen provisional bank supplies only
+neutral base wording and display names. Its 48 visible bases were
+project-standardized outcome-blind onto three source-neutral frames; the
+historical OpenRouter log records candidate authoring, not provider authorship
+of the current text. Repository code supplies the default/suggestion sentence
+and the exact local choice reply, so language cannot change the selected option
+or hidden state. A/B names and structured option aliases are assigned by
+visible position, so internal split/attribute/direction IDs do not enter the
+evaluated model prompt. Runs retain both the structured interaction and its
+exact rendered assistant/user exchange.
 
 The small scenario catalog and frozen conversation templates are checked-in
 inputs. Generated populations and interactions are stored below
@@ -489,7 +538,9 @@ evidence workflows:
 These are ceiling-safe pilots, not power commitments or completed paper
 experiments. Configuration validation and live startup both recompute the
 whole-design preflight and fail before credential access when a workload no
-longer fits.
+longer fits. The current B pair is transport-safe but uses only three turns;
+revise it to repeat attributes before using it to investigate the later-action
+criterion.
 
 The runner retains the fitted parameters in
 `models/llm-calibration.json`, development raw responses in

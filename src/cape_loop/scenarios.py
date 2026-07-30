@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-import json
-import re
 
 from .artifacts import read_control_bytes
 from .domains import DATA_SPLITS, get_domain
 from .rng import semantic_seed
 from .schemas import InteractionContext, Option
 
-
 CATALOG_SCHEMA_VERSION = 1
 SELECTION_POLICY = "deterministic-stratified-v1"
+CATALOG_STATUSES = frozenset({"frozen-development", "frozen-paper"})
+CATALOG_ELIGIBILITIES = frozenset(
+    {"simulation-and-pilot-only", "paper-eligible"}
+)
 SUPPORTED_MECHANISMS = frozenset(
     {
         "balanced",
@@ -55,7 +58,9 @@ _SCENARIO_KEYS = {
     "task_family",
     "target_attribute",
     "target_key",
-    "difficulty",
+    "nuisance_attribute",
+    "nuisance_key",
+    "nuisance_direction",
     "prompt",
     "wording_template_id",
     "negative_option",
@@ -220,7 +225,9 @@ class ScenarioSpec:
     task_family: str
     target_attribute: int
     target_key: str
-    difficulty: str
+    nuisance_attribute: int
+    nuisance_key: str
+    nuisance_direction: int
     prompt: str
     wording_template_id: str
     negative_option: ScenarioOption
@@ -267,11 +274,33 @@ class ScenarioSpec:
             raise ValueError(
                 f"{label}.target_key is {target_key!r}; expected {expected_key!r}"
             )
-        difficulty = payload["difficulty"]
-        if difficulty not in {"standard_tradeoff", "close_tradeoff"}:
+        nuisance = payload["nuisance_attribute"]
+        if (
+            isinstance(nuisance, bool)
+            or not isinstance(nuisance, int)
+            or not 0 <= nuisance < 3
+            or nuisance == target
+        ):
             raise ValueError(
-                f"{label}.difficulty must be standard_tradeoff or close_tradeoff"
+                f"{label}.nuisance_attribute must be a non-target attribute"
             )
+        nuisance_key = _identifier(
+            payload["nuisance_key"],
+            f"{label}.nuisance_key",
+        )
+        expected_nuisance_key = get_domain(domain).attributes[nuisance].key
+        if nuisance_key != expected_nuisance_key:
+            raise ValueError(
+                f"{label}.nuisance_key is {nuisance_key!r}; "
+                f"expected {expected_nuisance_key!r}"
+            )
+        nuisance_direction = payload["nuisance_direction"]
+        if (
+            isinstance(nuisance_direction, bool)
+            or not isinstance(nuisance_direction, int)
+            or nuisance_direction not in {-1, 1}
+        ):
+            raise ValueError(f"{label}.nuisance_direction must be -1 or +1")
         prompt = _text(payload["prompt"], f"{label}.prompt", maximum=500)
         wording_template_id = _identifier(
             payload["wording_template_id"],
@@ -300,11 +329,10 @@ class ScenarioSpec:
         negative[target] = -0.5
         positive = [0.0, 0.0, 0.0]
         positive[target] = 0.5
-        nuisance = (target + 1) % 3
         negative_peer = list(negative)
-        negative_peer[nuisance] = 0.25
+        negative_peer[nuisance] = 0.25 * nuisance_direction
         positive_peer = list(positive)
-        positive_peer[nuisance] = 0.25
+        positive_peer[nuisance] = 0.25 * nuisance_direction
         expected_features = {
             "negative_option": tuple(negative),
             "positive_option": tuple(positive),
@@ -313,9 +341,7 @@ class ScenarioSpec:
         }
         for name, expected in expected_features.items():
             if options[name].features != expected:
-                raise ValueError(
-                    f"{label}.{name}.features must equal {list(expected)}"
-                )
+                raise ValueError(f"{label}.{name}.features must equal {list(expected)}")
         mechanisms = payload["supported_mechanisms"]
         if (
             not isinstance(mechanisms, list)
@@ -351,12 +377,8 @@ class ScenarioSpec:
             and review["scientific_human_review"] == "passed"
         )
         if status == "approved" and not reviews_complete:
-            raise ValueError(
-                f"{label} approved scenarios require every review to pass"
-            )
-        if review["paper_eligible"] and (
-            status != "approved" or not reviews_complete
-        ):
+            raise ValueError(f"{label} approved scenarios require every review to pass")
+        if review["paper_eligible"] and (status != "approved" or not reviews_complete):
             raise ValueError(
                 f"{label} paper eligibility requires approved status and "
                 "completed automated, surface, and scientific reviews"
@@ -372,17 +394,15 @@ class ScenarioSpec:
             task_family=task_family,
             target_attribute=target,
             target_key=target_key,
-            difficulty=difficulty,
+            nuisance_attribute=nuisance,
+            nuisance_key=nuisance_key,
+            nuisance_direction=nuisance_direction,
             prompt=prompt,
             wording_template_id=wording_template_id,
             negative_option=options["negative_option"],
             positive_option=options["positive_option"],
-            negative_same_direction_option=options[
-                "negative_same_direction_option"
-            ],
-            positive_same_direction_option=options[
-                "positive_same_direction_option"
-            ],
+            negative_same_direction_option=options["negative_same_direction_option"],
+            positive_same_direction_option=options["positive_same_direction_option"],
             supported_mechanisms=tuple(mechanisms),
             quality_assertions=dict(quality),
             review=dict(review),
@@ -401,6 +421,29 @@ class ScenarioSpec:
         for option in self.options:
             if option.features == features:
                 return option.materialize(self.domain)
+        # Generic policy contexts use a canonical positive nuisance peer.
+        # Catalog scenarios may reverse that peer contrast to counterbalance
+        # nuisance direction. Map the generic semantic role to the catalog role
+        # instead of requiring their nuisance coordinates to be identical.
+        target_value = features[self.target_attribute]
+        non_target = tuple(
+            value
+            for index, value in enumerate(features)
+            if index != self.target_attribute
+        )
+        if (
+            target_value in {-0.5, 0.5}
+            and sum(value != 0.0 for value in non_target) <= 1
+        ):
+            positive = target_value > 0.0
+            peer = any(value != 0.0 for value in non_target)
+            if positive and peer:
+                return self.positive_same_direction_option.materialize(self.domain)
+            if positive:
+                return self.positive_option.materialize(self.domain)
+            if peer:
+                return self.negative_same_direction_option.materialize(self.domain)
+            return self.negative_option.materialize(self.domain)
         raise ValueError(
             f"scenario {self.scenario_id} has no option for features {features}"
         )
@@ -452,25 +495,37 @@ class ScenarioCatalog:
                 "scenario families cross data splits: " + ", ".join(leaking)
             )
         leaking_wording = sorted(
-            wording
-            for wording, splits in wording_splits.items()
-            if len(splits) != 1
+            wording for wording, splits in wording_splits.items() if len(splits) != 1
         )
         if leaking_wording:
             raise ValueError(
-                "wording templates cross data splits: "
-                + ", ".join(leaking_wording)
+                "wording templates cross data splits: " + ", ".join(leaking_wording)
             )
-        if (
-            self.eligibility == "simulation-and-pilot-only"
-            and any(
-                bool(scenario.review["paper_eligible"])
-                for scenario in self.scenarios
-            )
+        if self.eligibility == "simulation-and-pilot-only" and any(
+            bool(scenario.review["paper_eligible"]) for scenario in self.scenarios
         ):
             raise ValueError(
                 "simulation-and-pilot-only catalogs cannot contain "
                 "paper-eligible scenarios"
+            )
+        if self.catalog_status == "frozen-paper":
+            if self.eligibility != "paper-eligible":
+                raise ValueError(
+                    "frozen-paper catalogs must declare paper-eligible"
+                )
+            if not all(
+                scenario.status == "approved"
+                and bool(scenario.review["paper_eligible"])
+                for scenario in self.scenarios
+            ):
+                raise ValueError(
+                    "frozen-paper catalogs require every scenario to be "
+                    "approved and paper-eligible"
+                )
+        elif self.eligibility != "simulation-and-pilot-only":
+            raise ValueError(
+                "frozen-development catalogs must declare "
+                "simulation-and-pilot-only"
             )
         for domain in ("travel", "writing"):
             for split in DATA_SPLITS:
@@ -521,10 +576,14 @@ class ScenarioCatalog:
             "catalog_version",
             maximum=40,
         )
-        if raw["catalog_status"] != "frozen-development":
-            raise ValueError("catalog_status must be frozen-development")
-        if raw["eligibility"] != "simulation-and-pilot-only":
-            raise ValueError("eligibility must be simulation-and-pilot-only")
+        if raw["catalog_status"] not in CATALOG_STATUSES:
+            raise ValueError(
+                f"catalog_status must be one of {sorted(CATALOG_STATUSES)}"
+            )
+        if raw["eligibility"] not in CATALOG_ELIGIBILITIES:
+            raise ValueError(
+                f"eligibility must be one of {sorted(CATALOG_ELIGIBILITIES)}"
+            )
         for field_name in (
             "language",
             "locale",
@@ -536,13 +595,9 @@ class ScenarioCatalog:
         if raw["source"] != "project-authored-synthetic":
             raise ValueError("source must be 'project-authored-synthetic'")
         if raw["split_policy"] != "scenario-family-disjoint-v1":
-            raise ValueError(
-                "split_policy must be 'scenario-family-disjoint-v1'"
-            )
+            raise ValueError("split_policy must be 'scenario-family-disjoint-v1'")
         if raw["selection_policy"] != SELECTION_POLICY:
-            raise ValueError(
-                f"selection_policy must be {SELECTION_POLICY!r}"
-            )
+            raise ValueError(f"selection_policy must be {SELECTION_POLICY!r}")
         attribute_order = _mapping(raw["attribute_order"], "attribute_order")
         if set(attribute_order) != {"travel", "writing"}:
             raise ValueError("attribute_order must contain travel and writing")
@@ -636,6 +691,57 @@ class ScenarioCatalog:
         ) % len(candidates)
         return candidates[index]
 
+    def select_cycle(
+        self,
+        *,
+        domain: str,
+        split: str,
+        target_attribute: int,
+        seed: int,
+        cycle_key: Any,
+        occurrence_index: int,
+    ) -> ScenarioSpec:
+        """Select without replacement until one target cell is exhausted.
+
+        ``cycle_key`` identifies the matched trajectory schedule.
+        Counterfactual branches with the same key therefore receive the same
+        scenario order, while successive occurrences of an attribute traverse
+        every available scenario before any scenario repeats.
+        """
+
+        if (
+            isinstance(occurrence_index, bool)
+            or not isinstance(occurrence_index, int)
+            or occurrence_index < 0
+        ):
+            raise ValueError("occurrence_index must be a non-negative integer")
+        candidates = self.eligible(domain, split, target_attribute)
+        if not candidates:
+            raise ValueError(
+                "no eligible catalog scenario for "
+                f"{domain}/{split}/attribute-{target_attribute}"
+            )
+        ordered = tuple(
+            sorted(
+                candidates,
+                key=lambda scenario: (
+                    semantic_seed(
+                        seed,
+                        "scenario-cycle-order",
+                        self.catalog_id,
+                        self.catalog_version,
+                        domain,
+                        split,
+                        target_attribute,
+                        cycle_key,
+                        scenario.scenario_id,
+                    ),
+                    scenario.scenario_id,
+                ),
+            )
+        )
+        return ordered[occurrence_index % len(ordered)]
+
     def scenario(self, scenario_id: str) -> ScenarioSpec:
         try:
             return self._by_id[scenario_id]
@@ -698,25 +804,27 @@ class ScenarioCatalog:
                             "task_families": sorted(
                                 {scenario.task_family for scenario in rows}
                             ),
-                            "difficulties": sorted(
-                                {scenario.difficulty for scenario in rows}
+                            "nuisance_designs": sorted(
+                                {
+                                    (
+                                        scenario.nuisance_key,
+                                        scenario.nuisance_direction,
+                                    )
+                                    for scenario in rows
+                                }
                             ),
                         }
                     )
         return {
             "schema_version": 1,
             "coverage_kind": "catalog_availability",
-            "realized_consumption_artifact": (
-                "metrics/split-leakage-audit.json"
-            ),
+            "realized_consumption_artifact": ("metrics/split-leakage-audit.json"),
             "catalog_id": self.catalog_id,
             "catalog_version": self.catalog_version,
             "catalog_status": self.catalog_status,
             "eligibility": self.eligibility,
             "scenario_count": len(self.scenarios),
-            "family_count": len(
-                {scenario.family_id for scenario in self.scenarios}
-            ),
+            "family_count": len({scenario.family_id for scenario in self.scenarios}),
             "approved_scenario_count": sum(
                 scenario.status == "approved" for scenario in self.scenarios
             ),
@@ -724,8 +832,7 @@ class ScenarioCatalog:
                 scenario.status == "provisional" for scenario in self.scenarios
             ),
             "paper_eligible": all(
-                bool(scenario.review["paper_eligible"])
-                for scenario in self.scenarios
+                bool(scenario.review["paper_eligible"]) for scenario in self.scenarios
             ),
             "cells": cells,
         }
@@ -790,9 +897,7 @@ def materialize_context(
     if context.domain != scenario.domain:
         raise ValueError("scenario domain does not match interaction context")
     if context.target_attribute != scenario.target_attribute:
-        raise ValueError(
-            "scenario target attribute does not match interaction context"
-        )
+        raise ValueError("scenario target attribute does not match interaction context")
     replacements = {
         option.option_id: scenario.option_for_features(option.features)
         for option in context.options
@@ -800,7 +905,9 @@ def materialize_context(
     return InteractionContext(
         context_id=f"{context.context_id}:scenario:{scenario.scenario_id}",
         options=tuple(replacements[option.option_id] for option in context.options),
-        ranking=tuple(replacements[option_id].option_id for option_id in context.ranking),
+        ranking=tuple(
+            replacements[option_id].option_id for option_id in context.ranking
+        ),
         domain=context.domain,
         scenario_id=scenario.scenario_id,
         turn_id=context.turn_id,

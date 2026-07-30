@@ -61,6 +61,20 @@ Each simulated user also has presentation susceptibility:
 
 Susceptibility changes choice probability. It does not enter intrinsic welfare.
 
+Official configurations use prospective orthogonal split/allocation policies
+for both latent components. The 64 theta profiles are partitioned into 32
+train, 16 development, and 16 test profiles with balanced coordinate levels
+and coordinate pairs. The 27 susceptibility profiles are partitioned into nine
+profiles per split with the same strength-two balance. Deterministic blocked
+orders keep each coordinate's realized counts within one user for incomplete
+blocks. When both v2 policies are active, a deterministic outcome-blind joint
+block search also reduces cross-coordinate categorical and linear association
+over the official sample horizons while preserving all marginal guarantees.
+This avoids letting an arbitrary index pairing distort marginal presentation
+effects, but it cannot make very small cross-tables independent. This is
+controlled design balance, not an empirical claim about the prevalence or
+independence of preferences and susceptibility in people.
+
 ## Context and provenance
 
 The visible context is:
@@ -130,10 +144,16 @@ fixed latent user
 
 The structured choice is therefore sampled before natural-language
 verbalization. The authoring model never receives latent truth and never chooses
-for the user. It authors only one neutral base presentation and display names
-per scenario. Balanced, restricted, and ranking share that wording. Code adds
-only the fixed default/suggestion sentence and fixes the user reply. Runtime
-does not call the author independently for each trial.
+for the user. A model-assisted workflow may draft candidate base presentations
+and display names, but the current 48 visible bases were subsequently
+standardized by the project, outcome-blind, onto three source-neutral frame
+families. Each frame appears exactly 16 times and twice within every
+six-scenario test domain-by-target cell; every template has source
+`project-standardized-neutral-frame-v1-unreviewed`. Balanced, restricted, and
+ranking share the selected neutral frame. Code adds only the fixed
+default/suggestion sentence and fixes the user reply. Runtime does not call an
+authoring model for experimental rows. Frame balance is a design control, not
+human validation of the prose.
 
 For example, a restricted lodging context can be rendered as:
 
@@ -147,6 +167,15 @@ Full-context and provenance-aware evaluated models see this dialogue and a
 semantic codebook for the domain attributes. They do not see numeric feature
 vectors or the target index. Response-only deliberately omits the assistant
 turn and unselected option as an ablation.
+
+Internal catalog option IDs are control-plane identifiers. They may contain
+split, attribute, and direction tokens for auditing, so they must never enter
+an evaluated-model prompt. Runtime projects them to
+`presented_option_1`, `presented_option_2`, and so on. Likewise, the concrete
+display-name stem comes from the frozen bank, but A and B are assigned by
+visible position after ranking rather than permanently attached to preference
+direction. A matched provenance set keeps the same mapping; counterbalanced
+orders exchange it.
 
 ## Scenario catalog and quality policy
 
@@ -163,8 +192,8 @@ A scenario is acceptable only when all of the following hold:
   constant, the target direction and three-coordinate feature order are
   correct, and the same anchor is unchanged across matched mechanisms;
 - the balanced pair opposes the target direction, each restricted peer keeps
-  that direction while varying only the declared nuisance coordinate, and no
-  option is objectively dominant or implausible;
+  that direction while varying only its explicitly declared nuisance
+  coordinate and sign, and no option is objectively dominant or implausible;
 - the prompt and labels are grammatical, choice-neutral, similarly specific,
   and contain no profile, hypothesis, split, mechanism, popularity,
   recommendation, moral, prestige, or expected-answer cue;
@@ -176,6 +205,100 @@ A scenario is acceptable only when all of the following hold:
 - it passes structural, feature, identifier, split, surface-overlap,
   probability-eligibility, and planned-coverage checks.
 
+The travel dimensions are declared preference **bundles**, not atomic causal
+attributes: budget versus premium tier, central/compact versus
+quieter/roomier setting, and coordinated convenience versus self-directed
+flexibility. A stimulus or paper statement must use that scope. It must not
+interpret the current `price`, `setting`, or `planning` key as an isolated
+effect of money, distance, noise, or service quality. Writing dimensions are
+length, tone, and spelling style, but their contextual appropriateness must
+still be reviewed.
+
+The present writing stimuli expose these categories directly in option
+descriptions rather than presenting complete candidate passages. This supports
+a narrow, high-internal-validity test of whether profile updates condition on
+the causal context around declared preference evidence. It does not support a
+broad claim about subtle style inference, natural drafting, or comparative
+text quality. Any such claim requires a separately versioned and split-disjoint
+excerpt robustness bank that passes the same blinded review and pretest before
+its outcomes are inspected.
+
+Before any scientifically interpretable pilot, freeze these outcome-independent
+calibration rules:
+
+1. Two independent reviewers map every visible fact to the target bundle, the
+   single declared nuisance bundle, or a fact held constant. Every disagreement
+   and cross-loading must be resolved; an unmodeled fact rejects the stimulus.
+2. In a separate blinded stimulus check, at least 90% of judgments must recover
+   the intended target direction and no more than 10% may assign either option
+   to an unintended dimension.
+3. After target language is masked, option descriptions must have a word-count
+   ratio between 0.85 and 1.15, equal fact counts, and no unmatched
+   recommendation, prestige, superlative, or quality cue. Neutral-attractiveness
+   ratings must fall inside a preregistered equivalence margin; the recommended
+   standardized margin is 0.20.
+4. A neutral choice pretest must give every balanced option at least 20% of
+   choices as a hard dominance screen. For primary calibrated stimuli,
+   preregister a stronger 30–70% compatibility target with an uncertainty or
+   equivalence rule and a sample size chosen for that rule. The 20% floor alone
+   is not evidence of semantic equivalence and is not a requirement for an
+   exact 50/50 result.
+5. Exhaustive rendering across scenario, mechanism, order, anchor direction,
+   and selected option must have zero punctuation, article, placeholder, or
+   treatment-isolation error. Independent surface reviewers must rate
+   naturalness and neutrality at least 4/5 at the scenario median.
+6. Token Jaccard at or above 0.60 over scenario-specific prompts and option
+   facts is a conservative machine trigger for blinded cross-split
+   near-duplicate adjudication; 0.65 is the corresponding within-selected-split
+   redundancy trigger. Neither threshold is automatic rejection. Shared
+   conversation scaffolding and position-assigned names are excluded. Semantic
+   families, revisions, and paraphrases remain in one split.
+7. Scenario allocation is without replacement within each trajectory until a
+   domain-by-attribute cell is exhausted. A horizon of \(T\) turns therefore
+   needs at least \(\lceil T/3\rceil\) scenarios in every used cell for the
+   declared three-attribute cyclic schedules. The v2 exploratory policy has the
+   same bound: it selects among the least-exposed dimensions and therefore
+   covers all three once per complete three-turn block. A custom or unknown
+   policy that can repeatedly target one attribute conservatively needs \(T\)
+   per cell. The present six test scenarios per cell support the maximum
+   16-turn cyclic and block-balanced exploratory references without reuse.
+   This capacity result does not approve their content.
+8. Equivalent numeric feature magnitudes require independent human evidence
+   that visible semantic contrasts have acceptably similar choice log-odds.
+   The evaluated models and A/B/C outcomes may not supply this calibration.
+   Otherwise, use prospectively validated scenario-specific strengths or
+   narrow the claim to fixed-catalog performance.
+9. Every human-review or pretest artifact must bind the exact catalog and
+   conversation-bank digests plus scenario IDs and revisions. Before collecting
+   judgments, preregister rater allocation, minimum sample size or precision
+   target, randomization, exclusions, aggregation unit, uncertainty interval,
+   and the rule for revisions. Point thresholds alone are not a sample-size
+   plan, and additional ratings or replacement stimuli may not be chosen after
+   inspecting evaluated-model outcomes.
+
+The command
+
+```bash
+cape-loop scenarios audit CONFIG OUTPUT_DIR --split test --turns 16
+```
+
+implements the outcome-free structural, capacity, rendered-surface, overlap,
+and simulator checks and writes a complete human-review packet. Its simulator
+guardrails retain the legacy order-averaged estimands, requiring balanced
+probabilities in 0.10–0.90 and restricted probabilities in 0.20–0.80. They
+also require both binary responses to remain strictly above the configured
+0.05 floor in every physical display order and mechanism, and require mean
+incremental ranking/default/suggestion effects in 0.02–0.20 over the complete
+declared finite support. Version 1.4 explicitly varies both possible nuisance
+attributes and both nuisance directions. The 72 test scenario-anchor instances
+therefore contain 24 unique numeric signatures, each represented three times.
+Prose still does not enter the mathematical response model. Within each
+six-item domain-by-target cell, both nuisance-attribute and
+direction marginals are 3/3 and the four joint combinations occur once or
+twice. These guardrails prevent a degenerate or forcing simulator, but they do
+not calibrate the semantic strength of prose and never promote a review field
+automatically.
+
 Reject a candidate when a feature mapping is ambiguous, a salient difference
 is unmodeled, one option is a generally better version of the other, treatment
 is encoded in the wording, cross-split reuse is plausible, or content was
@@ -183,16 +306,20 @@ chosen or edited after inspecting test outcomes. Rejection must not be hidden
 by silently drawing a replacement that produced a more favorable result.
 
 LLMs may draft candidate scenario wording and one neutral conversation base
-from a locked semantic specification. The conversation author supplies only
-neutral display names and a base presentation containing the declared
+from a locked semantic specification. A candidate conversation author supplies
+only neutral display names and a base presentation containing the declared
 placeholders. Code supplies all default/suggestion text and the exact
 `I choose {selected_name}.` reply after the mathematical simulator chooses.
 The author may not assign the split, generate latent users, choose an option,
 write treatment-specific language, explain a choice, evaluate itself, or
-approve its own stimulus. Authoring uses the separate OpenRouter command and
-produces a frozen bank plus a readable `.generation.jsonl`; it is never rerun
-per experimental row. Record the interface/provider, exact model when exposed,
-edits, and unavailable provenance explicitly. Never record credentials.
+approve its own stimulus. The historical OpenRouter authoring command and
+readable `.generation.jsonl` record candidate inputs and responses; they are
+not evidence that the provider authored the current standardized visible text,
+and the workflow is never rerun per experimental row. Project-produced
+candidate or standardized wording must carry explicit authorship and edit
+provenance without fabricated provider logs. Record the interface/provider,
+exact model when exposed, edits, standardization, and unavailable provenance
+explicitly. Never record credentials.
 
 The review sequence is:
 
@@ -205,15 +332,26 @@ The review sequence is:
 6. freeze the reviewed bytes and checksum before confirmatory or
    paper-evidence collection.
 
+Reviewers receive the semantic specification and rendered packet, but not
+evaluated-model identities, prompts, responses, or experiment results.
+Scenario authors and conversation-author models cannot be their own sole
+reviewers. All rejected candidates and revisions remain in the review record;
+do not redraw stimuli until a preferred hypothesis result appears.
+
 A scientific-content change requires a new scenario revision and catalog
 version, a new freeze, and a new checksum-bound run. Paper eligibility requires
-the automated and human reviews; machine validation alone is insufficient.
-The current 1.0.0 catalog and companion conversation bank are intentionally
+the automated and human reviews; machine validation alone is insufficient. A
+reviewed release uses the coherent catalog state `frozen-paper` plus
+`paper-eligible`, which the strict loader accepts only when every scenario is
+approved and all recorded reviews pass.
+The current 1.4.0 catalog and companion conversation bank are intentionally
 development inputs containing provisional model-assisted drafts. They are
 eligible for simulation and bounded pilots only. Their independent human
 surface and scientific reviews are incomplete, `paper_eligible` remains false,
-and they support no paper claim.
-Exact fields and the run binding are documented in
+and they support no paper claim. Version 1.4's nuisance counterbalancing is a
+machine-checked design property only; it is not human evidence of feature
+alignment, naturalness, neutrality, non-dominance, or equivalent semantic
+strength. Exact fields and the run binding are documented in
 [Data model](data-model.md#scenario-catalog-input).
 
 ## Inference references
@@ -268,6 +406,13 @@ The held response must have probability above the configured threshold under
 every context. This avoids making the audit depend on nearly impossible
 counterfactual observations.
 
+Experiment A pairs scenario and physical order prospectively. Within each
+user–domain–target cell, both anchor directions use the same catalog scenario,
+and the two cases put their anchor in opposite display positions. Mechanism,
+response-mode, prior-strength, and updater comparisons reuse that assignment.
+Across users, the deterministic scenario cycle keeps counts within each
+anchor-direction cell balanced to within one.
+
 There are two distinct analyses:
 
 - **Controlled identical-response audit:** a functional diagnostic of update
@@ -283,6 +428,12 @@ There are two distinct analyses:
 Every closed-loop trajectory has a shadow action-aware posterior updated from
 the exact same contexts and responses as the evaluated updater. It does not
 control the policy.
+
+The exploratory reference may adapt the order of dimensions using current
+marginal entropy, but not their aggregate coverage: it chooses only among the
+least-exposed dimensions, so every complete three-turn block contains all
+three. This prevents an entropy-driven trajectory from silently becoming a
+single-dimension exposure design.
 
 - **Evidence-selection cost** compares action-aware shadows under
   profile-conditioned and balanced evidence collection.

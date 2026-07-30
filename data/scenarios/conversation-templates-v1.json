@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "bank_id": "cape-loop-conversation-templates-v1",
-  "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed",
+  "source": "project-standardized-neutral-frame-v1-unreviewed",
   "templates": [
     {
       "scenario_id": "travel-scenario-atlas-itinerary-planning-01",
@@ -12,14 +12,14 @@
         "travel-atlas-itinerary-planning-01-positive-peer": "Itinerary D"
       },
       "presentation_templates": {
-        "balanced": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
-        "restricted": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
-        "default": "For this request — {prompt} {default_name} is preselected as the default. — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
-        "suggested": "For this request — {prompt} I suggest {suggested_name}. — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?",
-        "ranking": "For this request — {prompt} — I can outline {option_1_name}, which involves {option_1_description}, or {option_2_name}, which involves {option_2_description}; which would you like to go with?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-atlas-lodging-price-01",
@@ -30,14 +30,14 @@
         "travel-atlas-lodging-price-01-positive-peer": "Lodging D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "restricted": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "default": "{prompt} {default_name} is preselected as the default. I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "suggested": "{prompt} I suggest {suggested_name}. I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "ranking": "{prompt} I have two lodging options to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-atlas-meeting-setting-01",
@@ -48,32 +48,32 @@
         "travel-atlas-meeting-setting-01-positive-peer": "Room D"
       },
       "presentation_templates": {
-        "balanced": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
-        "restricted": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
-        "default": "Regarding this request — {prompt} {default_name} is preselected as the default. — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
-        "suggested": "Regarding this request — {prompt} I suggest {suggested_name}. — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?",
-        "ranking": "Regarding this request — {prompt} — I found two possibilities worth comparing: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}; which one would you like to go with?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-beacon-booking-planning-01",
       "display_names": {
-        "travel-beacon-booking-planning-01-negative": "Itinerary A",
-        "travel-beacon-booking-planning-01-positive": "Itinerary B",
-        "travel-beacon-booking-planning-01-negative-peer": "Itinerary C",
-        "travel-beacon-booking-planning-01-positive-peer": "Itinerary D"
+        "travel-beacon-booking-planning-01-negative": "Journey Plan A",
+        "travel-beacon-booking-planning-01-positive": "Journey Plan B",
+        "travel-beacon-booking-planning-01-negative-peer": "Journey Plan C",
+        "travel-beacon-booking-planning-01-positive-peer": "Journey Plan D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
-        "restricted": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
-        "default": "{prompt} {default_name} is preselected as the default. Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
-        "suggested": "{prompt} I suggest {suggested_name}. Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?",
-        "ranking": "{prompt} Here are the two booking structures to consider: {option_1_name} involves {option_1_description}, while {option_2_name} involves {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-beacon-dining-setting-01",
@@ -84,14 +84,14 @@
         "travel-beacon-dining-setting-01-positive-peer": "Dining Room D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
-        "restricted": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
-        "default": "{prompt} {default_name} is preselected as the default. I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
-        "suggested": "{prompt} I suggest {suggested_name}. I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?",
-        "ranking": "{prompt} I have two dining rooms to compare: {option_1_name} — {option_1_description}, and {option_2_name} — {option_2_description}. Which would you like to go with?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-beacon-rail-price-01",
@@ -102,14 +102,14 @@
         "travel-beacon-rail-price-01-positive-peer": "Rail Seat D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "restricted": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "default": "{prompt} {default_name} is preselected as the default. Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "suggested": "{prompt} I suggest {suggested_name}. Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "ranking": "{prompt} Here are two rail packages to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-activity-price-02",
@@ -120,14 +120,14 @@
         "travel-cedar-activity-price-02-positive-peer": "Session D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "restricted": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "default": "{prompt} {default_name} is preselected as the default. We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "suggested": "{prompt} I suggest {suggested_name}. We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?",
-        "ranking": "{prompt} We have two guided activity sessions to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to book?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-airfare-price-01",
@@ -138,32 +138,32 @@
         "travel-cedar-airfare-price-01-positive-peer": "Fare Package D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
-        "restricted": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
-        "default": "{prompt} {default_name} is preselected as the default. Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
-        "suggested": "{prompt} I suggest {suggested_name}. Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?",
-        "ranking": "{prompt} Here are the two flight packages to compare: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description} - which one would you like to book?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-schedule-planning-02",
       "display_names": {
-        "travel-cedar-schedule-planning-02-negative": "Itinerary A",
-        "travel-cedar-schedule-planning-02-positive": "Itinerary B",
-        "travel-cedar-schedule-planning-02-negative-peer": "Itinerary C",
-        "travel-cedar-schedule-planning-02-positive-peer": "Itinerary D"
+        "travel-cedar-schedule-planning-02-negative": "Activity Schedule A",
+        "travel-cedar-schedule-planning-02-positive": "Activity Schedule B",
+        "travel-cedar-schedule-planning-02-negative-peer": "Activity Schedule C",
+        "travel-cedar-schedule-planning-02-positive-peer": "Activity Schedule D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "restricted": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "default": "{prompt} {default_name} is preselected as the default. I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "suggested": "{prompt} I suggest {suggested_name}. I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "ranking": "{prompt} I found two itinerary options to compare: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-seating-setting-02",
@@ -174,32 +174,32 @@
         "travel-cedar-seating-setting-02-positive-peer": "Seat D"
       },
       "presentation_templates": {
-        "balanced": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "restricted": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "default": "Given this request: {prompt} {default_name} is preselected as the default., would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "suggested": "Given this request: {prompt} I suggest {suggested_name}., would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "ranking": "Given this request: {prompt}, would you prefer {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-transfer-planning-01",
       "display_names": {
-        "travel-cedar-transfer-planning-01-negative": "Shuttle A",
-        "travel-cedar-transfer-planning-01-positive": "Shuttle B",
-        "travel-cedar-transfer-planning-01-negative-peer": "Shuttle C",
-        "travel-cedar-transfer-planning-01-positive-peer": "Shuttle D"
+        "travel-cedar-transfer-planning-01-negative": "Transfer Plan A",
+        "travel-cedar-transfer-planning-01-positive": "Transfer Plan B",
+        "travel-cedar-transfer-planning-01-negative-peer": "Transfer Plan C",
+        "travel-cedar-transfer-planning-01-positive-peer": "Transfer Plan D"
       },
       "presentation_templates": {
-        "balanced": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
-        "restricted": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
-        "default": "Regarding your request to {prompt} {default_name} is preselected as the default., here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
-        "suggested": "Regarding your request to {prompt} I suggest {suggested_name}., here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?",
-        "ranking": "Regarding your request to {prompt}, here are two transfer options to consider: {option_1_name}, which offers {option_1_description}, or {option_2_name}, which offers {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "travel-scenario-cedar-workspace-setting-01",
@@ -210,14 +210,14 @@
         "travel-cedar-workspace-setting-01-positive-peer": "Lounge D"
       },
       "presentation_templates": {
-        "balanced": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
-        "restricted": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
-        "default": "Given this context: {prompt} {default_name} is preselected as the default., one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
-        "suggested": "Given this context: {prompt} I suggest {suggested_name}., one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?",
-        "ranking": "Given this context: {prompt}, one choice is {option_1_name}, which is {option_1_description}, and another is {option_2_name}, which is {option_2_description} — which would you like to select?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-atlas-description-spelling-01",
@@ -228,14 +228,14 @@
         "writing-atlas-description-spelling-01-positive-peer": "Description D"
       },
       "presentation_templates": {
-        "balanced": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "restricted": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "default": "Given this task: {prompt} {default_name} is preselected as the default., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "suggested": "Given this task: {prompt} I suggest {suggested_name}., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "ranking": "Given this task: {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-atlas-status-length-01",
@@ -246,14 +246,14 @@
         "writing-atlas-status-length-01-positive-peer": "Update D"
       },
       "presentation_templates": {
-        "balanced": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "restricted": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "default": "For this task — {prompt} {default_name} is preselected as the default. — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "suggested": "For this task — {prompt} I suggest {suggested_name}. — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?",
-        "ranking": "For this task — {prompt} — here are two versions to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-atlas-workplace-tone-01",
@@ -264,32 +264,32 @@
         "writing-atlas-workplace-tone-01-positive-peer": "Draft D"
       },
       "presentation_templates": {
-        "balanced": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
-        "restricted": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
-        "default": "For this request: {prompt} {default_name} is preselected as the default., here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
-        "suggested": "For this request: {prompt} I suggest {suggested_name}., here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?",
-        "ranking": "For this request: {prompt}, here are two ways to write the email: {option_1_name} is a {option_1_description}, while {option_2_name} is a {option_2_description}. Which one would you like to use?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-beacon-documentation-spelling-01",
       "display_names": {
-        "writing-beacon-documentation-spelling-01-negative": "Passage A",
-        "writing-beacon-documentation-spelling-01-positive": "Passage B",
-        "writing-beacon-documentation-spelling-01-negative-peer": "Passage C",
-        "writing-beacon-documentation-spelling-01-positive-peer": "Passage D"
+        "writing-beacon-documentation-spelling-01-negative": "Setup Guide A",
+        "writing-beacon-documentation-spelling-01-positive": "Setup Guide B",
+        "writing-beacon-documentation-spelling-01-negative-peer": "Setup Guide C",
+        "writing-beacon-documentation-spelling-01-positive-peer": "Setup Guide D"
       },
       "presentation_templates": {
-        "balanced": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
-        "restricted": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
-        "default": "Here's the task: {prompt} {default_name} is preselected as the default. With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
-        "suggested": "Here's the task: {prompt} I suggest {suggested_name}. With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?",
-        "ranking": "Here's the task: {prompt} With that in mind, would you go with {option_1_name}, described as \"{option_1_description}\", or {option_2_name}, described as \"{option_2_description}\"?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-beacon-explainer-length-01",
@@ -300,14 +300,14 @@
         "writing-beacon-explainer-length-01-positive-peer": "Explainer D"
       },
       "presentation_templates": {
-        "balanced": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
-        "restricted": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
-        "default": "For this task—{prompt} {default_name} is preselected as the default.—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
-        "suggested": "For this task—{prompt} I suggest {suggested_name}.—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?",
-        "ranking": "For this task—{prompt}—I could go with {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like me to write?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-beacon-support-tone-01",
@@ -318,32 +318,32 @@
         "writing-beacon-support-tone-01-positive-peer": "Reply D"
       },
       "presentation_templates": {
-        "balanced": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
-        "restricted": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
-        "default": "For this task — {prompt} {default_name} is preselected as the default. — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
-        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?",
-        "ranking": "For this task — {prompt} — I have two versions to consider: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to use?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-announcement-tone-01",
       "display_names": {
-        "writing-cedar-announcement-tone-01-negative": "Memo A",
-        "writing-cedar-announcement-tone-01-positive": "Memo B",
-        "writing-cedar-announcement-tone-01-negative-peer": "Memo C",
-        "writing-cedar-announcement-tone-01-positive-peer": "Memo D"
+        "writing-cedar-announcement-tone-01-negative": "Rollout Notice A",
+        "writing-cedar-announcement-tone-01-positive": "Rollout Notice B",
+        "writing-cedar-announcement-tone-01-negative-peer": "Rollout Notice C",
+        "writing-cedar-announcement-tone-01-positive-peer": "Rollout Notice D"
       },
       "presentation_templates": {
-        "balanced": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
-        "restricted": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
-        "default": "For this task — {prompt} {default_name} is preselected as the default. — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
-        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?",
-        "ranking": "For this task — {prompt} — I've drafted two versions: {option_1_name}, which is {option_1_description}, and {option_2_name}, which is {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-customer-length-01",
@@ -354,14 +354,14 @@
         "writing-cedar-customer-length-01-positive-peer": "Draft D"
       },
       "presentation_templates": {
-        "balanced": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
-        "restricted": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
-        "default": "{prompt} {default_name} is preselected as the default. Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
-        "suggested": "{prompt} I suggest {suggested_name}. Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?",
-        "ranking": "{prompt} Here are two drafts to consider: {option_1_name}, which is a {option_1_description}, and {option_2_name}, which is a {option_2_description} — which one would you like to go with?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-feedback-tone-02",
@@ -372,50 +372,50 @@
         "writing-cedar-feedback-tone-02-positive-peer": "Note D"
       },
       "presentation_templates": {
-        "balanced": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
-        "restricted": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
-        "default": "For this task—{prompt} {default_name} is preselected as the default.—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
-        "suggested": "For this task—{prompt} I suggest {suggested_name}.—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?",
-        "ranking": "For this task—{prompt}—I could draft {option_1_name}, which would be a {option_1_description}, or {option_2_name}, which would be a {option_2_description}; which one would you like to go with?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-guide-spelling-02",
       "display_names": {
-        "writing-cedar-guide-spelling-02-negative": "Passage A",
-        "writing-cedar-guide-spelling-02-positive": "Passage B",
-        "writing-cedar-guide-spelling-02-negative-peer": "Passage C",
-        "writing-cedar-guide-spelling-02-positive-peer": "Passage D"
+        "writing-cedar-guide-spelling-02-negative": "Gallery Text A",
+        "writing-cedar-guide-spelling-02-positive": "Gallery Text B",
+        "writing-cedar-guide-spelling-02-negative-peer": "Gallery Text C",
+        "writing-cedar-guide-spelling-02-positive-peer": "Gallery Text D"
       },
       "presentation_templates": {
-        "balanced": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
-        "restricted": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
-        "default": "For this task — {prompt} {default_name} is preselected as the default. — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
-        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?",
-        "ranking": "For this task — {prompt} — I'm looking at {option_1_name}, described as: {option_1_description}, and {option_2_name}, described as: {option_2_description}. Which one would you like to go with?"
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-newsletter-spelling-01",
       "display_names": {
-        "writing-cedar-newsletter-spelling-01-negative": "Draft A",
-        "writing-cedar-newsletter-spelling-01-positive": "Draft B",
-        "writing-cedar-newsletter-spelling-01-negative-peer": "Draft C",
-        "writing-cedar-newsletter-spelling-01-positive-peer": "Draft D"
+        "writing-cedar-newsletter-spelling-01-negative": "Bulletin A",
+        "writing-cedar-newsletter-spelling-01-positive": "Bulletin B",
+        "writing-cedar-newsletter-spelling-01-negative-peer": "Bulletin C",
+        "writing-cedar-newsletter-spelling-01-positive-peer": "Bulletin D"
       },
       "presentation_templates": {
-        "balanced": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "restricted": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "default": "Given this task, {prompt} {default_name} is preselected as the default., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "suggested": "Given this task, {prompt} I suggest {suggested_name}., would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?",
-        "ranking": "Given this task, {prompt}, would you like to go with {option_1_name}, which is {option_1_description}, or {option_2_name}, which is {option_2_description}?"
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     },
     {
       "scenario_id": "writing-scenario-cedar-summary-length-02",
@@ -426,14 +426,446 @@
         "writing-cedar-summary-length-02-positive-peer": "Summary D"
       },
       "presentation_templates": {
-        "balanced": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
-        "restricted": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
-        "default": "For this task — {prompt} {default_name} is preselected as the default. — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
-        "suggested": "For this task — {prompt} I suggest {suggested_name}. — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?",
-        "ranking": "For this task — {prompt} — I could prepare it as {option_1_name}, which would be a {option_1_description}, or as {option_2_name}, which would be a {option_2_description}. Which version would you like me to write?"
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
       },
       "choice_template": "I choose {selected_name}.",
-      "source": "openrouter:anthropic/claude-sonnet-5:llm-authored-unreviewed"
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-storage-price-03",
+      "display_names": {
+        "travel-cedar-storage-price-03-negative": "Storage Package A",
+        "travel-cedar-storage-price-03-positive": "Storage Package B",
+        "travel-cedar-storage-price-03-negative-peer": "Storage Package C",
+        "travel-cedar-storage-price-03-positive-peer": "Storage Package D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-ferry-price-04",
+      "display_names": {
+        "travel-cedar-ferry-price-04-negative": "Ferry Package A",
+        "travel-cedar-ferry-price-04-positive": "Ferry Package B",
+        "travel-cedar-ferry-price-04-negative-peer": "Ferry Package C",
+        "travel-cedar-ferry-price-04-positive-peer": "Ferry Package D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-bicycle-price-05",
+      "display_names": {
+        "travel-cedar-bicycle-price-05-negative": "Bicycle Rental A",
+        "travel-cedar-bicycle-price-05-positive": "Bicycle Rental B",
+        "travel-cedar-bicycle-price-05-negative-peer": "Bicycle Rental C",
+        "travel-cedar-bicycle-price-05-positive-peer": "Bicycle Rental D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-wellness-price-06",
+      "display_names": {
+        "travel-cedar-wellness-price-06-negative": "Day Pass A",
+        "travel-cedar-wellness-price-06-positive": "Day Pass B",
+        "travel-cedar-wellness-price-06-negative-peer": "Day Pass C",
+        "travel-cedar-wellness-price-06-positive-peer": "Day Pass D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-station-setting-03",
+      "display_names": {
+        "travel-cedar-station-setting-03-negative": "Waiting Area A",
+        "travel-cedar-station-setting-03-positive": "Waiting Area B",
+        "travel-cedar-station-setting-03-negative-peer": "Waiting Area C",
+        "travel-cedar-station-setting-03-positive-peer": "Waiting Area D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-breakfast-setting-04",
+      "display_names": {
+        "travel-cedar-breakfast-setting-04-negative": "Breakfast Table A",
+        "travel-cedar-breakfast-setting-04-positive": "Breakfast Table B",
+        "travel-cedar-breakfast-setting-04-negative-peer": "Breakfast Table C",
+        "travel-cedar-breakfast-setting-04-positive-peer": "Breakfast Table D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-visitor-setting-05",
+      "display_names": {
+        "travel-cedar-visitor-setting-05-negative": "Orientation Area A",
+        "travel-cedar-visitor-setting-05-positive": "Orientation Area B",
+        "travel-cedar-visitor-setting-05-negative-peer": "Orientation Area C",
+        "travel-cedar-visitor-setting-05-positive-peer": "Orientation Area D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-campsite-setting-06",
+      "display_names": {
+        "travel-cedar-campsite-setting-06-negative": "Campsite Shelter A",
+        "travel-cedar-campsite-setting-06-positive": "Campsite Shelter B",
+        "travel-cedar-campsite-setting-06-negative-peer": "Campsite Shelter C",
+        "travel-cedar-campsite-setting-06-positive-peer": "Campsite Shelter D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-baggage-planning-03",
+      "display_names": {
+        "travel-cedar-baggage-planning-03-negative": "Baggage Transfer A",
+        "travel-cedar-baggage-planning-03-positive": "Baggage Transfer B",
+        "travel-cedar-baggage-planning-03-negative-peer": "Baggage Transfer C",
+        "travel-cedar-baggage-planning-03-positive-peer": "Baggage Transfer D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-restaurant-planning-04",
+      "display_names": {
+        "travel-cedar-restaurant-planning-04-negative": "Reservation Plan A",
+        "travel-cedar-restaurant-planning-04-positive": "Reservation Plan B",
+        "travel-cedar-restaurant-planning-04-negative-peer": "Reservation Plan C",
+        "travel-cedar-restaurant-planning-04-positive-peer": "Reservation Plan D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-equipment-planning-05",
+      "display_names": {
+        "travel-cedar-equipment-planning-05-negative": "Rental Plan A",
+        "travel-cedar-equipment-planning-05-positive": "Rental Plan B",
+        "travel-cedar-equipment-planning-05-negative-peer": "Rental Plan C",
+        "travel-cedar-equipment-planning-05-positive-peer": "Rental Plan D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "travel-scenario-cedar-transit-planning-06",
+      "display_names": {
+        "travel-cedar-transit-planning-06-negative": "Transit Plan A",
+        "travel-cedar-transit-planning-06-positive": "Transit Plan B",
+        "travel-cedar-transit-planning-06-negative-peer": "Transit Plan C",
+        "travel-cedar-transit-planning-06-positive-peer": "Transit Plan D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-volunteer-length-03",
+      "display_names": {
+        "writing-cedar-volunteer-length-03-negative": "Briefing A",
+        "writing-cedar-volunteer-length-03-positive": "Briefing B",
+        "writing-cedar-volunteer-length-03-negative-peer": "Briefing C",
+        "writing-cedar-volunteer-length-03-positive-peer": "Briefing D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-podcast-length-04",
+      "display_names": {
+        "writing-cedar-podcast-length-04-negative": "Episode Notes A",
+        "writing-cedar-podcast-length-04-positive": "Episode Notes B",
+        "writing-cedar-podcast-length-04-negative-peer": "Episode Notes C",
+        "writing-cedar-podcast-length-04-positive-peer": "Episode Notes D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-game-overview-length-05",
+      "display_names": {
+        "writing-cedar-game-overview-length-05-negative": "Game Overview A",
+        "writing-cedar-game-overview-length-05-positive": "Game Overview B",
+        "writing-cedar-game-overview-length-05-negative-peer": "Game Overview C",
+        "writing-cedar-game-overview-length-05-positive-peer": "Game Overview D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-caption-length-06",
+      "display_names": {
+        "writing-cedar-caption-length-06-negative": "Image Description A",
+        "writing-cedar-caption-length-06-positive": "Image Description B",
+        "writing-cedar-caption-length-06-negative-peer": "Image Description C",
+        "writing-cedar-caption-length-06-positive-peer": "Image Description D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-invitation-tone-03",
+      "display_names": {
+        "writing-cedar-invitation-tone-03-negative": "Invitation A",
+        "writing-cedar-invitation-tone-03-positive": "Invitation B",
+        "writing-cedar-invitation-tone-03-negative-peer": "Invitation C",
+        "writing-cedar-invitation-tone-03-positive-peer": "Invitation D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-reminder-tone-04",
+      "display_names": {
+        "writing-cedar-reminder-tone-04-negative": "Reminder A",
+        "writing-cedar-reminder-tone-04-positive": "Reminder B",
+        "writing-cedar-reminder-tone-04-negative-peer": "Reminder C",
+        "writing-cedar-reminder-tone-04-positive-peer": "Reminder D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-welcome-tone-05",
+      "display_names": {
+        "writing-cedar-welcome-tone-05-negative": "Welcome Message A",
+        "writing-cedar-welcome-tone-05-positive": "Welcome Message B",
+        "writing-cedar-welcome-tone-05-negative-peer": "Welcome Message C",
+        "writing-cedar-welcome-tone-05-positive-peer": "Welcome Message D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-receipt-tone-06",
+      "display_names": {
+        "writing-cedar-receipt-tone-06-negative": "Acknowledgement A",
+        "writing-cedar-receipt-tone-06-positive": "Acknowledgement B",
+        "writing-cedar-receipt-tone-06-negative-peer": "Acknowledgement C",
+        "writing-cedar-receipt-tone-06-positive-peer": "Acknowledgement D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-recipe-spelling-03",
+      "display_names": {
+        "writing-cedar-recipe-spelling-03-negative": "Recipe A",
+        "writing-cedar-recipe-spelling-03-positive": "Recipe B",
+        "writing-cedar-recipe-spelling-03-negative-peer": "Recipe C",
+        "writing-cedar-recipe-spelling-03-positive-peer": "Recipe D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "restricted": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "default": "{prompt} {default_name} is preselected as the default. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "suggested": "{prompt} I suggest {suggested_name}. Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?",
+        "ranking": "{prompt} Please compare {option_1_name}, which is {option_1_description}, with {option_2_name}, which is {option_2_description}. Which option do you prefer?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-handout-spelling-04",
+      "display_names": {
+        "writing-cedar-handout-spelling-04-negative": "Handout A",
+        "writing-cedar-handout-spelling-04-positive": "Handout B",
+        "writing-cedar-handout-spelling-04-negative-peer": "Handout C",
+        "writing-cedar-handout-spelling-04-positive-peer": "Handout D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-faq-spelling-05",
+      "display_names": {
+        "writing-cedar-faq-spelling-05-negative": "FAQ A",
+        "writing-cedar-faq-spelling-05-positive": "FAQ B",
+        "writing-cedar-faq-spelling-05-negative-peer": "FAQ C",
+        "writing-cedar-faq-spelling-05-positive-peer": "FAQ D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "restricted": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "default": "{prompt} {default_name} is preselected as the default. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "suggested": "{prompt} I suggest {suggested_name}. The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?",
+        "ranking": "{prompt} The available choices are {option_1_name}: {option_1_description}; and {option_2_name}: {option_2_description}. Which would you choose?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
+    },
+    {
+      "scenario_id": "writing-scenario-cedar-synopsis-spelling-06",
+      "display_names": {
+        "writing-cedar-synopsis-spelling-06-negative": "Synopsis A",
+        "writing-cedar-synopsis-spelling-06-positive": "Synopsis B",
+        "writing-cedar-synopsis-spelling-06-negative-peer": "Synopsis C",
+        "writing-cedar-synopsis-spelling-06-positive-peer": "Synopsis D"
+      },
+      "presentation_templates": {
+        "balanced": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "restricted": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "default": "{prompt} {default_name} is preselected as the default. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "suggested": "{prompt} I suggest {suggested_name}. Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?",
+        "ranking": "{prompt} Here are the two choices. {option_1_name} is {option_1_description}. {option_2_name} is {option_2_description}. Which would you select?"
+      },
+      "choice_template": "I choose {selected_name}.",
+      "source": "project-standardized-neutral-frame-v1-unreviewed"
     }
   ]
 }

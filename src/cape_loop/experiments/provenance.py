@@ -688,20 +688,35 @@ def run_provenance_audit(
                     ),
                 )
                 if scenario_catalog is not None:
-                    scenario = scenario_catalog.select(
+                    # Allocate scenarios as a balanced without-replacement
+                    # cycle over users and reuse the same stimulus for both
+                    # anchor directions. This crosses scenario with direction
+                    # instead of independently hashing two potentially
+                    # imbalanced assignments.
+                    scenario = scenario_catalog.select_cycle(
                         domain=domain.domain_id,
                         split=data_split,
                         target_attribute=target_attribute,
                         seed=seed,
-                        selection_key=(
+                        cycle_key=(
                             "experiment-a",
-                            user_index,
+                            domain.domain_id,
                             target_attribute,
-                            anchor_direction,
                         ),
+                        occurrence_index=user_index,
                     )
                     matched = materialize_matched_anchor_set(matched, scenario)
                     scenario_id = matched.scenario_id
+                # Across the two anchor directions, every user-target pair
+                # receives the anchor once in each physical position. The
+                # order remains identical across all provenance mechanisms.
+                matched = matched.with_anchor_position(
+                    anchor_first=(
+                        (user_index + target_attribute + (anchor_direction > 0))
+                        % 2
+                        == 0
+                    )
+                )
                 probabilities = matched.choice_probabilities(
                     user,
                     declared_response,

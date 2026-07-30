@@ -73,15 +73,29 @@ The offline Gate 4 and Experiment C external-rescore source configs do not call
 models. They are sized so their later selected OpenRouter or optional direct
 external-model collections fit the same approved per-source ceilings.
 
-The live-only
-[`demo one-scenario`](getting-started.md#run-one-understandable-live-scenario)
-command is deliberately not another TOML preset or configuration schema. Its
-one request, zero retries, official OpenRouter endpoint, no-fallback behavior,
-and token limits are fixed diagnostic guardrails; all of its input, model,
-routing, and execution controls are command-line options rather than new TOML
-keys. Run `cape-loop demo one-scenario --help` for that small command surface.
-Use a checked-in or reviewed local TOML configuration for any experiment or
-pilot.
+The live-only diagnostic commands are deliberately not additional TOML presets
+or configuration schemas:
+
+- [`demo one-scenario`](getting-started.md#run-one-understandable-live-scenario)
+  makes exactly one OpenRouter update; and
+- [`demo experiment-b-case`](getting-started.md#run-one-multi-turn-experiment-b-case)
+  makes two logical updates per selected turn and at most that many physical
+  provider calls for one matched B user case. It accepts complete
+  three-attribute cycles of 3, 6, 9, or 12 turns.
+
+Both use zero retries and hard request/token guardrails. The one-scenario
+command uses the official OpenRouter endpoint with no fallback. The B
+diagnostic uses the same constrained OpenRouter path by default and can instead
+select the official direct OpenAI path with `--provider openai`. Their input,
+model, routing, and execution controls are command-line options. Use their
+`--help` output for the small command surfaces, and use a checked-in or reviewed
+local TOML configuration for any pilot or paper experiment.
+
+For Experiment B, three turns are a transport check only: each of the three
+attributes normally appears once, leaving no later same-attribute action for
+the stored update to influence. Use at least six turns for a mechanism
+diagnostic. The current public live B TOMLs still use three turns and require a
+ceiling-safe scientific redesign before collection.
 
 ## Root schema
 
@@ -92,6 +106,7 @@ schema_version = 1
 
 [run]
 [scenarios]
+[population]
 [experiment]
 [response_model]
 [inference]
@@ -172,9 +187,18 @@ digest is verified before provider construction or run-artifact creation, and
 reuse also requires the retained catalog input manifest to match.
 
 Selection filters by domain, split, and target attribute, then uses the run
-seed and an experiment-owned semantic pairing key. It does not select on latent
-truth, current belief, observed response, updater, result, or
-sensitivity-grid point.
+seed and an experiment-owned semantic pairing key. Longitudinal histories
+consume a deterministic per-cell permutation without replacement until the
+pool is exhausted. Selection does not use latent truth, current belief,
+observed response, updater result, or sensitivity-grid point.
+
+Experiment A assigns one scenario to each user–domain–target pair and reuses it
+for both anchor directions; their physical orders are opposite, and that
+scenario/order pair is reused across mechanisms, response modes, prior
+strengths, and updaters. Experiment B keys each per-target occurrence schedule
+to the common trajectory-pair key. Its `exploratory` v2 policy keeps target
+counts within one by choosing among the least-exposed attributes and using
+current marginal entropy only to order those eligible targets.
 
 Official hybrid configurations set:
 
@@ -193,12 +217,32 @@ preserves legacy and small programmatic fixtures that do not exercise the
 hybrid surface. A configured bank must cover every catalog scenario and all
 four option IDs for each one.
 
-OpenRouter authors one neutral `base_template` and the four `display_names` per
-scenario. Code expands the base into the five stored presentation forms:
+The authoring workflow can use OpenRouter to produce one neutral
+`base_template` and four `display_names` per scenario. That is a candidate
+workflow: the current 48 visible bases were subsequently project-standardized
+outcome-blind onto three source-neutral frames. Each frame appears 16 times
+overall and twice in every six-scenario test domain×target cell, and every
+record remains unreviewed. The historical OpenRouter log records candidate
+calls rather than provider authorship of the current visible text. Code expands
+each base into the five stored presentation forms:
 balanced/restricted/ranking share neutral wording, while default and suggested
 receive only their fixed treatment sentence. Code also fixes
 `choice_template = "I choose {selected_name}."`; neither treatment language nor
-the reply is model-authored.
+the reply is model-authored. Runtime assigns A/B by visible position and maps
+control-plane option IDs to `presented_option_N` before constructing an
+evaluated-model prompt.
+
+Audit the exact catalog, bank, coefficients, susceptibility levels, configured
+domains and policies, split, matched-probability floor, and planned horizon
+bound by a configuration:
+
+```bash
+cape-loop scenarios audit CONFIG OUTPUT_DIR --split test --turns 16
+```
+
+Omit `--turns` to use `experiment.turns`. This command is local and outcome
+free; it writes a machine report and an exhaustive human-review packet but does
+not change any catalog status.
 
 Author or refresh the bank separately:
 
@@ -222,6 +266,43 @@ completed run. Catalog structure, current eligibility, and retained artifacts
 are documented in
 [Data model](data-model.md#scenario-catalog-input).
 
+## `[population]`
+
+| Key | Type | Default | Validation and behavior |
+| --- | --- | --- | --- |
+| `theta_policy` | string | `"legacy-hash-v1"` | `"legacy-hash-v1"` or `"orthogonal-balanced-v2"` |
+| `susceptibility_policy` | string | `"legacy-hash-v1"` | `"legacy-hash-v1"` or `"orthogonal-balanced-v2"` |
+
+The table is opt-in so an old config with no `[population]` table keeps its
+exact historical split, user sequence, resolved configuration, and run
+identity. All checked-in presets explicitly select `orthogonal-balanced-v2`
+for both fields.
+
+For theta, v2 partitions the 64 complete three-coordinate profiles into
+strength-two orthogonal arrays: train receives 32 profiles and development and
+test receive 16 each. Every coordinate level and every coordinate pair is
+balanced within each split. The deterministic allocation order is also
+marginally balanced in four-user blocks.
+
+For presentation susceptibility, v2 partitions the 27 complete profiles into
+nine profiles per split. Within each split, every level of ranking, default,
+and suggestion susceptibility appears three times, and every pair of
+coordinate levels appears once. The deterministic allocation order is
+marginally balanced in three-user blocks. Counts not divisible by these block
+sizes differ by at most one user per coordinate level. The policies balance a
+designed synthetic population; they do not estimate a distribution of real
+people.
+
+When both v2 policies are selected, the runner does not pair their two balanced
+orders by an arbitrary shared index. A cached, seed-stable combinatorial search
+chooses legal four-user theta blocks and three-user susceptibility blocks to
+reduce cross-coordinate contingency imbalance and linear association at the
+official \(N=\{4,8,10,16,20,24,32\}\) horizons. The search is outcome blind and
+preserves every split, support, profile-count, and marginal-prefix guarantee.
+It reduces finite-sample composition dependence; it does not claim statistical
+independence, especially at \(N=4\), where the cross-tables are necessarily
+sparse.
+
 ## `[experiment]`
 
 | Key | Type | Default |
@@ -233,13 +314,20 @@ are documented in
 | `prior_strengths` | nonempty numeric array | `[0.0]` |
 | `policies` | nonempty string array | `["balanced"]` |
 | `updaters` | nonempty string array | baseline set shown below |
-| `users` | integer | `8` |
+| `users` | integer | `8` (test user/cluster count) |
 | `trajectories_per_cell` | integer | `1` |
 | `turns` | integer | `1` |
 | `bootstrap_replicates` | integer | `0` |
 
 `users`, `trajectories_per_cell`, and `turns` must be positive.
 `bootstrap_replicates` must be nonnegative.
+
+For ordinary A–C preparation, \(N=\texttt{users}\) is the test-user count.
+The runner separately creates
+\(\max(24,\min(128,4N))\) training users and \(\max(8,N)\) development
+users. When both domains are selected, the same shared user ID and latent state
+produce one retained population row per domain; those rows are not additional
+independent users.
 
 For `closed_loop`, the same `bootstrap_replicates` value requests both the
 clustered inferential bootstrap and the Experiment B pilot-power simulation
@@ -314,6 +402,13 @@ exploratory
 fixed_bias
 hard_filter
 ```
+
+`exploratory` means `v2-balanced-coverage`, not unconstrained entropy
+maximization. Each complete three-turn block covers all three attributes, while
+the within-block order may adapt to current marginal entropy. The scenario
+capacity checker consequently uses \(\lceil T/3\rceil\) scenarios per cell for
+this policy. Unknown or custom adaptive policies remain conservatively budgeted
+at \(T\) scenarios per cell.
 
 Accepted updaters:
 
@@ -392,8 +487,17 @@ The runner divides intrinsic and presentation coefficients by
 `decision_noise`. Presentation coefficients affect simulated choices, never
 intrinsic welfare or regret.
 
+The generic default remains `default_scale = 0.80` for backward-compatible
+programmatic configs. Every checked-in study preset explicitly uses the
+prospectively calibrated value `0.75`. At the declared susceptibility support,
+this keeps both binary responses strictly above the configured 0.05 matched
+probability floor in every audited mechanism and display order; the stronger
+0.80 value made the nondefault response slightly too rare in the most
+susceptible state.
+
 `minimum_matched_probability` is used by Experiment A's matched-anchor
-eligibility check.
+eligibility check and by the prospective audit's symmetric, per-display-order
+binary-response guardrail.
 
 ## `[inference]`
 

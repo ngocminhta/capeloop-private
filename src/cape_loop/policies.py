@@ -42,6 +42,7 @@ class InteractionPolicy(Protocol):
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction: ...
 
 
@@ -77,6 +78,7 @@ class BalancedPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
         target = turn % 3
         negative, positive = domain.isolated_pair(target)
@@ -129,6 +131,7 @@ class SoftProfileConditionedPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
         target = turn % 3
         negative, positive = domain.isolated_pair(target)
@@ -225,7 +228,7 @@ class SoftProfileConditionedPolicy:
 @dataclass(frozen=True, slots=True)
 class ExploratoryPolicy:
     policy_id: str = "exploratory"
-    policy_version: str = "v1"
+    policy_version: str = "v2-balanced-coverage"
 
     def action(
         self,
@@ -235,12 +238,40 @@ class ExploratoryPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
+        if target_counts is None:
+            completed, remainder = divmod(turn, 3)
+            target_counts = tuple(
+                completed + int(index < remainder) for index in range(3)
+            )
+        if (
+            len(target_counts) != 3
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                for value in target_counts
+            )
+            or sum(target_counts) != turn
+        ):
+            raise ValueError(
+                "exploratory target_counts must be three non-negative "
+                "integers summing to turn"
+            )
         marginal_entropies = tuple(
             -sum(p * __import__("math").log(p) for p in belief.marginal(index) if p > 0)
             for index in range(3)
         )
-        target = max(range(3), key=lambda index: (marginal_entropies[index], -index))
+        minimum_exposure = min(target_counts)
+        eligible = tuple(
+            index for index, count in enumerate(target_counts)
+            if count == minimum_exposure
+        )
+        target = max(
+            eligible,
+            key=lambda index: (marginal_entropies[index], -index),
+        )
         negative, positive = domain.isolated_pair(target)
         ranking = _rank_pair(
             negative.option_id,
@@ -300,6 +331,7 @@ class FixedBiasPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
         target = turn % 3
         negative, positive = domain.isolated_pair(target)
@@ -355,6 +387,7 @@ class HardFilterPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
         target = turn % 3
         direction = -1 if belief.expected_theta()[target] <= 0 else 1

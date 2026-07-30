@@ -9,6 +9,22 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 SPLITS = ("train", "development", "test")
+LEGACY_THETA_POLICY = "legacy-hash-v1"
+BALANCED_THETA_POLICY = "orthogonal-balanced-v2"
+THETA_POLICIES = frozenset(
+    {
+        LEGACY_THETA_POLICY,
+        BALANCED_THETA_POLICY,
+    }
+)
+LEGACY_SUSCEPTIBILITY_POLICY = "legacy-hash-v1"
+BALANCED_SUSCEPTIBILITY_POLICY = "orthogonal-balanced-v2"
+SUSCEPTIBILITY_POLICIES = frozenset(
+    {
+        LEGACY_SUSCEPTIBILITY_POLICY,
+        BALANCED_SUSCEPTIBILITY_POLICY,
+    }
+)
 
 
 def _bucket(key: object, seed: int) -> str:
@@ -35,6 +51,284 @@ def _force_nonempty(
     return result
 
 
+def susceptibility_group_key(values: Sequence[float]) -> str:
+    """Return the stable identifier for one complete susceptibility tuple."""
+
+    return ",".join(f"{float(value):.8g}" for value in values)
+
+
+def theta_group_key(values: Sequence[int]) -> str:
+    """Return the stable identifier for one complete preference tuple."""
+
+    return ",".join(str(int(value)) for value in values)
+
+
+def _seeded_order(
+    values: Sequence[Any],
+    *,
+    seed: int,
+    namespace: str,
+) -> tuple[Any, ...]:
+    return tuple(
+        sorted(
+            values,
+            key=lambda value: sha256(
+                f"{seed}\0{namespace}\0{value!r}".encode("utf-8")
+            ).digest(),
+        )
+    )
+
+
+_GF4_MULTIPLICATION = (
+    (0, 0, 0, 0),
+    (0, 1, 2, 3),
+    (0, 2, 3, 1),
+    (0, 3, 1, 2),
+)
+
+
+def _gf4_multiply(left: int, right: int) -> int:
+    return _GF4_MULTIPLICATION[left][right]
+
+
+def _orthogonal_theta_rows(
+    theta_values: Sequence[int],
+    *,
+    seed: int,
+) -> tuple[tuple[str, str, int, int, int], ...]:
+    """Return group, split, OA bucket, block, and within-block theta codes.
+
+    Codes are elements of GF(4), with addition represented by XOR.  Holding
+    ``third + first + second`` fixed gives a 16-cell strength-two orthogonal
+    array.  Two seed-relabelled arrays go to training and one each to
+    development and test, preserving complete-profile split disjointness.
+    """
+
+    values = tuple(int(value) for value in theta_values)
+    if len(values) != 4 or len(set(values)) != 4:
+        raise ValueError(
+            f"{BALANCED_THETA_POLICY} requires exactly four unique theta "
+            "values"
+        )
+    coordinate_codes: list[dict[int, int]] = []
+    for coordinate in ("first", "second", "third"):
+        ordered_indices = _seeded_order(
+            tuple(range(4)),
+            seed=seed,
+            namespace=f"theta-v2:{coordinate}",
+        )
+        coordinate_codes.append(
+            {
+                source_index: code
+                for code, source_index in enumerate(ordered_indices)
+            }
+        )
+    bucket_order = _seeded_order(
+        tuple(range(4)),
+        seed=seed,
+        namespace="theta-v2:buckets",
+    )
+    bucket_splits = {
+        bucket: (
+            "train"
+            if position < 2
+            else "development"
+            if position == 2
+            else "test"
+        )
+        for position, bucket in enumerate(bucket_order)
+    }
+    rows = []
+    for first_index, second_index, third_index in product(
+        range(4), repeat=3
+    ):
+        first_code = coordinate_codes[0][first_index]
+        second_code = coordinate_codes[1][second_index]
+        third_code = coordinate_codes[2][third_index]
+        bucket = third_code ^ first_code ^ second_code
+        # For a fixed intercept, second = omega*first + intercept.
+        # Both omega and 1+omega are nonzero in GF(4), so every coordinate
+        # traverses all four levels exactly once within each block.
+        block = second_code ^ _gf4_multiply(2, first_code)
+        rows.append(
+            (
+                theta_group_key(
+                    (
+                        values[first_index],
+                        values[second_index],
+                        values[third_index],
+                    )
+                ),
+                bucket_splits[bucket],
+                bucket,
+                block,
+                first_code,
+            )
+        )
+    return tuple(rows)
+
+
+def orthogonal_theta_group_order(
+    theta_values: Sequence[int],
+    *,
+    seed: int,
+    split: str,
+) -> tuple[str, ...]:
+    """Return deterministic four-profile balanced blocks for one v2 split."""
+
+    if split not in SPLITS:
+        raise ValueError("split must be train, development, or test")
+    rows = [
+        row
+        for row in _orthogonal_theta_rows(theta_values, seed=seed)
+        if row[1] == split
+    ]
+    block_ids = tuple(sorted({(row[2], row[3]) for row in rows}))
+    block_order = _seeded_order(
+        block_ids,
+        seed=seed,
+        namespace=f"theta-v2:{split}:blocks",
+    )
+    block_positions = {
+        block_id: position for position, block_id in enumerate(block_order)
+    }
+    within_positions = {
+        block_id: {
+            code: position
+            for position, code in enumerate(
+                _seeded_order(
+                    tuple(range(4)),
+                    seed=seed,
+                    namespace=(
+                        f"theta-v2:{split}:bucket-{block_id[0]}:"
+                        f"block-{block_id[1]}:within"
+                    ),
+                )
+            )
+        }
+        for block_id in block_ids
+    }
+    rows.sort(
+        key=lambda row: (
+            block_positions[(row[2], row[3])],
+            within_positions[(row[2], row[3])][row[4]],
+        )
+    )
+    return tuple(row[0] for row in rows)
+
+
+def _orthogonal_susceptibility_rows(
+    susceptibility_levels: Sequence[float],
+    *,
+    seed: int,
+) -> tuple[tuple[str, str, int, int], ...]:
+    """Return group, split, block, and within-block codes for the v2 design.
+
+    The three-way grid is partitioned by ``suggestion - ranking - default``
+    modulo three after independent seed-derived relabelings.  Each split is
+    therefore a nine-cell strength-two orthogonal array: every coordinate
+    level occurs three times and every pair of coordinate levels occurs once.
+    """
+
+    levels = tuple(float(level) for level in susceptibility_levels)
+    if len(levels) != 3 or len(set(levels)) != 3:
+        raise ValueError(
+            f"{BALANCED_SUSCEPTIBILITY_POLICY} requires exactly three "
+            "unique susceptibility levels"
+        )
+    coordinate_codes: list[dict[int, int]] = []
+    for coordinate in ("ranking", "default", "suggestion"):
+        ordered_indices = _seeded_order(
+            tuple(range(3)),
+            seed=seed,
+            namespace=f"susceptibility-v2:{coordinate}",
+        )
+        coordinate_codes.append(
+            {
+                source_index: code
+                for code, source_index in enumerate(ordered_indices)
+            }
+        )
+    split_order = _seeded_order(
+        SPLITS,
+        seed=seed,
+        namespace="susceptibility-v2:splits",
+    )
+    rows = []
+    for ranking_index, default_index, suggestion_index in product(
+        range(3), repeat=3
+    ):
+        ranking_code = coordinate_codes[0][ranking_index]
+        default_code = coordinate_codes[1][default_index]
+        suggestion_code = coordinate_codes[2][suggestion_index]
+        bucket = (suggestion_code - ranking_code - default_code) % 3
+        rows.append(
+            (
+                susceptibility_group_key(
+                    (
+                        levels[ranking_index],
+                        levels[default_index],
+                        levels[suggestion_index],
+                    )
+                ),
+                split_order[bucket],
+                (default_code - ranking_code) % 3,
+                ranking_code,
+            )
+        )
+    return tuple(rows)
+
+
+def orthogonal_susceptibility_group_order(
+    susceptibility_levels: Sequence[float],
+    *,
+    seed: int,
+    split: str,
+) -> tuple[str, ...]:
+    """Return a deterministic marginally balanced order for one v2 split."""
+
+    if split not in SPLITS:
+        raise ValueError("split must be train, development, or test")
+    rows = [
+        row
+        for row in _orthogonal_susceptibility_rows(
+            susceptibility_levels,
+            seed=seed,
+        )
+        if row[1] == split
+    ]
+    block_order = _seeded_order(
+        tuple(range(3)),
+        seed=seed,
+        namespace=f"susceptibility-v2:{split}:blocks",
+    )
+    block_positions = {
+        block: position for position, block in enumerate(block_order)
+    }
+    within_positions = {
+        block: {
+            code: position
+            for position, code in enumerate(
+                _seeded_order(
+                    tuple(range(3)),
+                    seed=seed,
+                    namespace=(
+                        f"susceptibility-v2:{split}:block-{block}:within"
+                    ),
+                )
+            )
+        }
+        for block in range(3)
+    }
+    rows.sort(
+        key=lambda row: (
+            block_positions[row[2]],
+            within_positions[row[2]][row[3]],
+        )
+    )
+    return tuple(row[0] for row in rows)
+
+
 @dataclass(frozen=True, slots=True)
 class SplitManifest:
     seed: int
@@ -44,10 +338,19 @@ class SplitManifest:
     dialogue_templates: Mapping[str, str]
     scenario_families: Mapping[str, str]
     paraphrase_templates: Mapping[str, str]
+    theta_policy: str = LEGACY_THETA_POLICY
+    susceptibility_policy: str = LEGACY_SUSCEPTIBILITY_POLICY
 
     def __post_init__(self) -> None:
         if self.seed < 0:
             raise ValueError("split seed must be non-negative")
+        if self.theta_policy not in THETA_POLICIES:
+            raise ValueError(f"unknown theta policy: {self.theta_policy}")
+        if self.susceptibility_policy not in SUSCEPTIBILITY_POLICIES:
+            raise ValueError(
+                "unknown susceptibility policy: "
+                f"{self.susceptibility_policy}"
+            )
         for name, mapping in self.group_maps().items():
             if not mapping:
                 raise ValueError(f"{name} split mapping is empty")
@@ -65,14 +368,27 @@ class SplitManifest:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
+        result = {
+            "schema_version": (
+                1
+                if (
+                    self.theta_policy == LEGACY_THETA_POLICY
+                    and self.susceptibility_policy
+                    == LEGACY_SUSCEPTIBILITY_POLICY
+                )
+                else 2
+            ),
             "seed": self.seed,
             **{
                 name: dict(sorted(mapping.items()))
                 for name, mapping in self.group_maps().items()
             },
         }
+        if self.theta_policy != LEGACY_THETA_POLICY:
+            result["theta_policy"] = self.theta_policy
+        if self.susceptibility_policy != LEGACY_SUSCEPTIBILITY_POLICY:
+            result["susceptibility_policy"] = self.susceptibility_policy
+        return result
 
     def assert_disjoint(self) -> None:
         """Assert that every complete group belongs to exactly one split."""
@@ -95,7 +411,9 @@ def build_split_manifest(
     *,
     seed: int,
     theta_values: Sequence[int] = (-2, -1, 1, 2),
+    theta_policy: str = LEGACY_THETA_POLICY,
     susceptibility_levels: Sequence[float] = (0.15, 0.45, 0.85),
+    susceptibility_policy: str = LEGACY_SUSCEPTIBILITY_POLICY,
     option_templates: Iterable[str] = ("travel-v1", "writing-v1", "terminal-v1"),
     dialogue_templates: Iterable[str] = (
         "choice-neutral-v1",
@@ -128,6 +446,16 @@ def build_split_manifest(
     test_paraphrase_templates: Iterable[str] = ("terminal-neutral",),
 ) -> SplitManifest:
     """Create group-disjoint assignments from stable semantic identifiers."""
+
+    if theta_policy not in THETA_POLICIES:
+        raise ValueError(
+            f"theta_policy must be one of {sorted(THETA_POLICIES)}"
+        )
+    if susceptibility_policy not in SUSCEPTIBILITY_POLICIES:
+        raise ValueError(
+            f"susceptibility_policy must be one of "
+            f"{sorted(SUSCEPTIBILITY_POLICIES)}"
+        )
 
     def assign(
         keys: Iterable[str],
@@ -171,18 +499,38 @@ def build_split_manifest(
             result[available[1]] = "development"
         return result
 
-    theta_keys = (
-        ",".join(str(value) for value in values)
+    theta_keys = tuple(
+        theta_group_key(values)
         for values in product(theta_values, repeat=3)
     )
-    susceptibility_keys = (
-        ",".join(f"{value:.8g}" for value in values)
+    if theta_policy == LEGACY_THETA_POLICY:
+        theta_groups = assign(theta_keys)
+    else:
+        theta_groups = {
+            group_id: split
+            for group_id, split, _, _, _ in _orthogonal_theta_rows(
+                theta_values,
+                seed=seed,
+            )
+        }
+    susceptibility_keys = tuple(
+        susceptibility_group_key(values)
         for values in product(susceptibility_levels, repeat=3)
     )
+    if susceptibility_policy == LEGACY_SUSCEPTIBILITY_POLICY:
+        susceptibility_groups = assign(susceptibility_keys)
+    else:
+        susceptibility_groups = {
+            group_id: split
+            for group_id, split, _, _ in _orthogonal_susceptibility_rows(
+                susceptibility_levels,
+                seed=seed,
+            )
+        }
     manifest = SplitManifest(
         seed=seed,
-        theta_groups=assign(theta_keys),
-        susceptibility_groups=assign(susceptibility_keys),
+        theta_groups=theta_groups,
+        susceptibility_groups=susceptibility_groups,
         option_templates=assign(
             option_templates,
             reserved_train=train_option_templates,
@@ -207,6 +555,8 @@ def build_split_manifest(
             reserved_development=development_paraphrase_templates,
             reserved_test=test_paraphrase_templates,
         ),
+        theta_policy=theta_policy,
+        susceptibility_policy=susceptibility_policy,
     )
     manifest.assert_disjoint()
     return manifest

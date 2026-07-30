@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
+import unittest
 from dataclasses import dataclass
 from typing import Any
-import unittest
 
 from cape_loop.beliefs import PreferenceBelief
 from cape_loop.conversation_surfaces import (
@@ -25,7 +26,6 @@ from cape_loop.updaters import (
     UpdateViewKind,
     make_update_view,
 )
-
 
 SCENARIO_ID = "travel-scenario-hotel-choice-01"
 
@@ -81,8 +81,9 @@ class _StaticPolicy:
         turn: int,
         master_seed: int,
         trajectory_id: str,
+        target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
-        del domain, belief, turn, master_seed, trajectory_id
+        del domain, belief, turn, master_seed, trajectory_id, target_counts
         return PolicyAction(self.context, _provenance())
 
 
@@ -103,17 +104,14 @@ def _conversation_bank() -> ConversationTemplateBank:
             "balanced": shared + " Which one would you choose?",
             "restricted": shared + " Which of these works better?",
             "default": (
-                shared
-                + " {default_name} is currently selected as the default. "
+                shared + " {default_name} is currently selected as the default. "
                 "Which one would you choose?"
             ),
             "suggested": (
-                shared
-                + " I suggest {suggested_name}. Which one would you choose?"
+                shared + " I suggest {suggested_name}. Which one would you choose?"
             ),
             "ranking": (
-                shared
-                + " They are shown in this order. Which one would you choose?"
+                shared + " They are shown in this order. Which one would you choose?"
             ),
         },
         choice_template="I choose {selected_name}.",
@@ -162,11 +160,7 @@ class HybridConversationRuntimeTests(unittest.TestCase):
         bank_schema = SCHEMAS["conversation-template-bank"]
         template_schema = bank_schema["properties"]["templates"]["items"]
         self.assertEqual(
-            set(
-                template_schema["properties"][
-                    "presentation_templates"
-                ]["required"]
-            ),
+            set(template_schema["properties"]["presentation_templates"]["required"]),
             {"balanced", "restricted", "default", "suggested", "ranking"},
         )
         run_inputs = SCHEMAS["run-manifest"]["properties"]["inputs"]
@@ -200,9 +194,7 @@ class HybridConversationRuntimeTests(unittest.TestCase):
                 turn.selected_option_id,
             )
             selected_name = (
-                "Hotel A"
-                if observation.selected_option_id == "hotel-a"
-                else "Hotel B"
+                "Hotel A" if observation.selected_option_id == "hotel-a" else "Hotel B"
             )
             self.assertEqual(
                 observation.surface_response,
@@ -226,15 +218,11 @@ class HybridConversationRuntimeTests(unittest.TestCase):
         serialized_observation = serialized["interactions"][0]["observation"]
         self.assertEqual(
             serialized_observation["assistant_message"],
-            hybrid.audit_record.interactions[
-                0
-            ].observation.assistant_message,
+            hybrid.audit_record.interactions[0].observation.assistant_message,
         )
         self.assertEqual(
             serialized_observation["surface_response"],
-            hybrid.audit_record.interactions[
-                0
-            ].observation.surface_response,
+            hybrid.audit_record.interactions[0].observation.surface_response,
         )
 
     def test_full_context_request_contains_natural_conversation_only(self) -> None:
@@ -284,12 +272,15 @@ class HybridConversationRuntimeTests(unittest.TestCase):
         self.assertEqual(
             request.payload["context"]["options"][0],
             {
-                "option_id": "hotel-a",
+                "option_id": "presented_option_1",
                 "description": (
                     "a budget room near the station with breakfast included"
                 ),
             },
         )
+        serialized = json.dumps(request.payload, sort_keys=True)
+        self.assertNotIn("hotel-a", serialized)
+        self.assertNotIn("hotel-b", serialized)
         prompt_keys = _nested_keys(request.payload)
         self.assertNotIn("features", prompt_keys)
         self.assertNotIn("target_attribute", prompt_keys)

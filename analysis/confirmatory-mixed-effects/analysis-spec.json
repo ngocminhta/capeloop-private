@@ -87,8 +87,8 @@
       "outcome_name": "terminal_error",
       "turn_source": "compact turn equals source_turn_index + 1",
       "terminal_consistency_check": "final compact turn error equals retained_terminal_error",
-      "formula": "terminal_error ~ updater * policy * initial_profile + domain + turn + (1 + policy | user) + (1 | scenario)",
-      "proposal_formula": "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + (1 + Policy | User) + (1 | Scenario)",
+      "formula": "terminal_error ~ updater * policy * initial_profile + domain + turn + (1 + policy | user) + (1 | scenario) + (1 | crn_set)",
+      "proposal_formula": "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + (1 + Policy | User) + (1 | Scenario) + (1 | CRNSet)",
       "required_policies": [
         "balanced",
         "soft_profile_conditioned"
@@ -121,7 +121,8 @@
           "requires_initial_profile": "correct"
         }
       ],
-      "scenario_mapping": "run_id + crn_key",
+      "scenario_mapping": "run_id + turn.scenario_id",
+      "crn_set_mapping": "run_id + crn_key",
       "user_mapping": "run_id + user_id"
     }
   },
