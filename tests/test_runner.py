@@ -29,7 +29,7 @@ CONVERSATION_PATH = (
     / "conversation-templates-v1.json"
 )
 CATALOG_SHA256 = (
-    "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+    "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 )
 
 
@@ -234,6 +234,46 @@ class EndToEndRunnerTests(unittest.TestCase):
                 (run_dir / "models" / "calibration.json").read_text()
             )
             self.assertEqual(calibration["kind"], "temperature")
+            exact_reference = json.loads(
+                (
+                    run_dir
+                    / "models"
+                    / "exact-action-aware-reference.json"
+                ).read_text(encoding="utf-8")
+            )
+            susceptibility_prior = exact_reference[
+                "susceptibility_prior"
+            ]
+            split_manifest = json.loads(
+                (run_dir / "splits.json").read_text(encoding="utf-8")
+            )
+            expected_test_support_count = sum(
+                assigned_split == "test"
+                for assigned_split in split_manifest[
+                    "susceptibility_groups"
+                ].values()
+            )
+            self.assertEqual(
+                susceptibility_prior["kind"],
+                "uniform_prospective_evaluation_split_support",
+            )
+            self.assertEqual(susceptibility_prior["split"], "test")
+            self.assertEqual(
+                susceptibility_prior["support_count"],
+                expected_test_support_count,
+            )
+            self.assertEqual(
+                len(susceptibility_prior["support"]),
+                expected_test_support_count,
+            )
+            self.assertEqual(
+                len(susceptibility_prior["weights"]),
+                expected_test_support_count,
+            )
+            self.assertAlmostEqual(
+                sum(susceptibility_prior["weights"]),
+                1.0,
+            )
             self.assertTrue(
                 (run_dir / "models" / "raw-fitted-likelihoods.json").is_file()
             )
@@ -329,7 +369,14 @@ class EndToEndRunnerTests(unittest.TestCase):
                     "mechanism",
                     "prior_strength",
                     "response_mode",
-                    "update_error",
+                    "analysis_track",
+                    "reference_basis",
+                    "exact_update_error",
+                    "fitted_update_error",
+                    "system_log_odds_update",
+                    "exact_log_odds_update",
+                    "fitted_log_odds_update",
+                    "calibration_residual",
                 },
             )
             self.assertEqual(
@@ -337,8 +384,37 @@ class EndToEndRunnerTests(unittest.TestCase):
                 event_row["context"]["scenario_id"],
             )
             self.assertEqual(
-                analysis_rows[0]["update_error"],
+                analysis_rows[0]["exact_update_error"],
+                event_row["metrics"]["exact_acue"],
+            )
+            self.assertEqual(
+                analysis_rows[0]["fitted_update_error"],
                 event_row["metrics"]["acue"],
+            )
+            self.assertEqual(
+                event_row["metrics"]["primary_calibration_residual"],
+                event_row["metrics"]["calibration_residual"],
+            )
+            self.assertEqual(
+                event_row["metrics"]["secondary_exact_update_error"],
+                event_row["metrics"]["exact_acue"],
+            )
+            self.assertNotIn("primary_update_error", event_row["metrics"])
+            exact_calibration = json.loads(
+                (
+                    run_dir
+                    / "metrics"
+                    / "experiment-a-exact-calibration.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(exact_calibration["schema_version"], 2)
+            self.assertIn(
+                "primary_mechanism_vs_balanced_calibration_residual_contrasts",
+                exact_calibration,
+            )
+            self.assertIn(
+                "secondary_mechanism_vs_balanced_exact_update_error_contrasts",
+                exact_calibration,
             )
             reference_rows = {
                 row["exact_reference_id"]: row
@@ -388,7 +464,7 @@ class EndToEndRunnerTests(unittest.TestCase):
                 minimum_matched_probability=0.01
             ),
             inference=InferenceSection(
-                training_interactions=24,
+                training_interactions=30,
                 fit_steps=10,
                 learning_rate=0.04,
                 l2=0.001,
@@ -523,7 +599,7 @@ class EndToEndRunnerTests(unittest.TestCase):
                     coverage_row[
                         "mechanism_target_direction_cell_count"
                     ],
-                    24,
+                    30,
                 )
                 self.assertFalse(coverage_row["missing_scenario_ids"])
             consumption = json.loads(
@@ -687,11 +763,38 @@ class EndToEndRunnerTests(unittest.TestCase):
                     "domain_id",
                     "scenario_id",
                     "crn_key",
+                    "schedule_group_key",
                     "updater_id",
                     "policy_id",
                     "initial_profile_condition",
+                    "ex_ante_preference_strengths_by_attribute",
+                    "ex_ante_preference_strength_strata_by_attribute",
+                    "ex_ante_user_preference_strength_stratum",
+                    "ex_ante_target_preference_strength",
+                    "ex_ante_target_preference_strength_stratum",
+                    "ex_ante_balanced_target_attribute",
+                    "ex_ante_balanced_choice_probability_margin",
+                    "ex_ante_balanced_choice_margin_stratum",
                     "turn",
                     "terminal_error",
+                    "shadow_error_after_turn",
+                    "same_history_attribution_gap_after_turn",
+                    "expected_action_aware_information_gain",
+                    "realized_action_aware_information_gain",
+                    "profile_consistency_score",
+                    "profile_consistency_advantage_over_balanced",
+                    "ex_ante_balanced_choice_divergence_probability",
+                    "ex_ante_balanced_choice_probability_comparable",
+                    "balanced_choice_set_diverged",
+                    "prospective_manipulation_role",
+                    "prospective_presentation_mechanism",
+                    "prospective_predicted_choice_divergence_probability",
+                    "prospective_execution_matched",
+                    "prospective_effective_profile_direction",
+                    "prospective_direction_source",
+                    "disconfirmation_opportunity_count",
+                    "disconfirmation_inversion_count",
+                    "disconfirmation_inversion_turn",
                     "retained_terminal_error",
                     "same_history_shadow",
                 },
@@ -726,6 +829,44 @@ class EndToEndRunnerTests(unittest.TestCase):
                 run_dir / "metrics" / "experiment-b-terminal.jsonl"
             ).read_text(encoding="utf-8")
             self.assertTrue(terminal.strip())
+            first_terminal = json.loads(terminal.splitlines()[0])
+            self.assertIn(
+                first_terminal[
+                    "ex_ante_user_preference_strength_stratum"
+                ],
+                {"weak", "mixed", "strong"},
+            )
+            self.assertEqual(
+                sum(
+                    first_terminal[
+                        "ex_ante_balanced_choice_margin_stratum_counts"
+                    ].values()
+                ),
+                config.experiment.turns,
+            )
+            occupancy = json.loads(
+                (
+                    run_dir
+                    / "metrics"
+                    / "experiment-b-prospective-strata-occupancy.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                summary["prospective_strata_occupancy_artifact"],
+                "metrics/experiment-b-prospective-strata-occupancy.json",
+            )
+            self.assertEqual(
+                occupancy["strata_assignment_timing"],
+                "before_natural_response",
+            )
+            self.assertEqual(
+                occupancy["turn_count"],
+                summary["analysis_row_count"],
+            )
+            self.assertEqual(
+                occupancy["coverage_flags"],
+                summary["prospective_strata_coverage_flags"],
+            )
             self.assertTrue(
                 (
                     run_dir
@@ -763,6 +904,11 @@ class EndToEndRunnerTests(unittest.TestCase):
                 (run_dir / "metrics" / "gate-report.json").read_text()
             )
             self.assertEqual(gate_report["claim_status"], "not_claimed")
+            self.assertEqual(gate_report["schema_version"], 2)
+            self.assertEqual(
+                [gate["gate_id"] for gate in gate_report["nested_gates"]],
+                ["gate-3-net-profile-harm"],
+            )
             gate_4 = next(
                 gate
                 for gate in gate_report["gates"]

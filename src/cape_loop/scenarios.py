@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -58,6 +59,7 @@ _SCENARIO_KEYS = {
     "task_family",
     "target_attribute",
     "target_key",
+    "target_half_span",
     "nuisance_attribute",
     "nuisance_key",
     "nuisance_direction",
@@ -225,6 +227,7 @@ class ScenarioSpec:
     task_family: str
     target_attribute: int
     target_key: str
+    target_half_span: float
     nuisance_attribute: int
     nuisance_key: str
     nuisance_direction: int
@@ -274,6 +277,17 @@ class ScenarioSpec:
             raise ValueError(
                 f"{label}.target_key is {target_key!r}; expected {expected_key!r}"
             )
+        raw_target_half_span = payload["target_half_span"]
+        if (
+            isinstance(raw_target_half_span, bool)
+            or not isinstance(raw_target_half_span, (int, float))
+            or not math.isfinite(float(raw_target_half_span))
+            or not 0.0 < float(raw_target_half_span) <= 0.56
+        ):
+            raise ValueError(
+                f"{label}.target_half_span must be finite and lie in (0, 0.56]"
+            )
+        target_half_span = float(raw_target_half_span)
         nuisance = payload["nuisance_attribute"]
         if (
             isinstance(nuisance, bool)
@@ -326,9 +340,9 @@ class ScenarioSpec:
         if len(option_labels) != len(options):
             raise ValueError(f"{label} option labels must be distinct")
         negative = [0.0, 0.0, 0.0]
-        negative[target] = -0.5
+        negative[target] = -target_half_span
         positive = [0.0, 0.0, 0.0]
-        positive[target] = 0.5
+        positive[target] = target_half_span
         negative_peer = list(negative)
         negative_peer[nuisance] = 0.25 * nuisance_direction
         positive_peer = list(positive)
@@ -394,6 +408,7 @@ class ScenarioSpec:
             task_family=task_family,
             target_attribute=target,
             target_key=target_key,
+            target_half_span=target_half_span,
             nuisance_attribute=nuisance,
             nuisance_key=nuisance_key,
             nuisance_direction=nuisance_direction,
@@ -417,14 +432,42 @@ class ScenarioSpec:
             self.positive_same_direction_option,
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scenario_id": self.scenario_id,
+            "family_id": self.family_id,
+            "revision": self.revision,
+            "status": self.status,
+            "split": self.split,
+            "domain": self.domain,
+            "task_family": self.task_family,
+            "target_attribute": self.target_attribute,
+            "target_key": self.target_key,
+            "target_half_span": self.target_half_span,
+            "nuisance_attribute": self.nuisance_attribute,
+            "nuisance_key": self.nuisance_key,
+            "nuisance_direction": self.nuisance_direction,
+            "prompt": self.prompt,
+            "wording_template_id": self.wording_template_id,
+            "negative_option": self.negative_option.to_dict(),
+            "positive_option": self.positive_option.to_dict(),
+            "negative_same_direction_option": (
+                self.negative_same_direction_option.to_dict()
+            ),
+            "positive_same_direction_option": (
+                self.positive_same_direction_option.to_dict()
+            ),
+            "supported_mechanisms": list(self.supported_mechanisms),
+            "quality_assertions": dict(self.quality_assertions),
+            "review": dict(self.review),
+        }
+
     def option_for_features(self, features: tuple[float, float, float]) -> Option:
-        for option in self.options:
-            if option.features == features:
-                return option.materialize(self.domain)
         # Generic policy contexts use a canonical positive nuisance peer.
-        # Catalog scenarios may reverse that peer contrast to counterbalance
-        # nuisance direction. Map the generic semantic role to the catalog role
-        # instead of requiring their nuisance coordinates to be identical.
+        # Catalog scenarios may use another target half-span and may reverse
+        # that peer contrast to counterbalance nuisance direction. Map the
+        # generic semantic role by target sign and peer presence instead of
+        # requiring either numeric magnitude to match.
         target_value = features[self.target_attribute]
         non_target = tuple(
             value
@@ -432,7 +475,7 @@ class ScenarioSpec:
             if index != self.target_attribute
         )
         if (
-            target_value in {-0.5, 0.5}
+            target_value != 0.0
             and sum(value != 0.0 for value in non_target) <= 1
         ):
             positive = target_value > 0.0

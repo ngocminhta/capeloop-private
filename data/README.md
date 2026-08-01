@@ -33,16 +33,17 @@ statement.
 
 [`scenarios/scenario-catalog-v1.json`](scenarios/scenario-catalog-v1.json) is
 the canonical interaction-stimulus input used by every checked-in
-configuration. Version 1.4.0 contains 48 unique split-disjoint families:
+configuration. Version 1.5.0 contains 48 unique split-disjoint families:
 six train, six development, and 36 test scenarios, covering both domains
 and all three attributes. Each test domain×attribute cell has six families,
 enough for a 16-turn three-attribute cyclic or v2 block-balanced exploratory
 trajectory without reuse. A custom adaptive policy that can select one
 attribute repeatedly has a larger, policy-specific capacity requirement.
-Version 1.4.0 preserves the earlier outcome-blind semantic revisions, removes
-the non-operational scenario-level categorization, and explicitly
-counterbalances restricted-peer nuisance attribute, direction, and their four
-joint combinations within every test cell. No
+Version 1.5.0 preserves the earlier outcome-blind semantic revisions and
+nuisance counterbalancing, and adds a declared `target_half_span`. Every test
+domain×attribute cell uses spans `0.10`, `0.16`, `0.24`, `0.34`, `0.46`, and
+`0.56`; train/development use `0.50`. This gives the prospective manipulation
+planner a subtle-to-pronounced difficulty grid. No
 evaluated-model output or experiment result was consulted. Runs copy and
 checksum-bind the exact consumed bytes; generated interactions and responses
 still belong under `runs/`, not here.
@@ -107,7 +108,7 @@ under `artifacts/` or another ignored work directory, not in `data/`.
 
 ## Checked-in model declarations
 
-The two current metadata files are:
+The three current metadata files are:
 
 - [`model-suites/openai-gpt-5.6.json`](model-suites/openai-gpt-5.6.json):
   OpenAI Sol/medium as primary, Terra/medium as model-variant replication, and
@@ -115,12 +116,21 @@ The two current metadata files are:
 - [`model-suites/gate4-native-and-distinct-decoders.json`](model-suites/gate4-native-and-distinct-decoders.json):
   OpenAI Sol/medium for native actions and OpenRouter
   `anthropic/claude-sonnet-5` at low effort plus
-  `google/gemini-3.6-flash` at minimal effort for the selected decoder pair.
+  `google/gemini-3.6-flash` at minimal effort for the selected decoder pair; and
+- [`model-suites/experiment-b-bounded-calibration-v1.json`](model-suites/experiment-b-bounded-calibration-v1.json):
+  the frozen Experiment B OpenRouter panel—Gemini 3.6 Flash, GPT-5.6 Luna, and
+  Mistral Large 3 (`mistralai/mistral-large-2512`) as separate full-design
+  primary arms, plus an incorrect-seed balanced-versus-soft DeepSeek V4 Flash
+  secondary replication selected after the pilot.
 
 These files are protocol and provenance metadata, not observations. The
 selected decoder families share OpenRouter, so the declaration denies
 first-party origin, distinct transport origins, and statistical independence.
 Direct Anthropic and Gemini adapters remain optional origin replications.
+The Experiment B suite likewise treats every model as its own analysis: no
+cross-model estimator pools the primary arms, and DeepSeek remains outside the
+primary analysis set. Its declaration records project authorship, source
+status, Apache-2.0 licensing, and the CLI consumer explicitly.
 
 ## External provider records
 

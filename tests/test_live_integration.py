@@ -47,6 +47,7 @@ from cape_loop.runner import (
     _live_completion_provider,
     _prepare_llm_execution,
     _prepare_study,
+    _run_a,
     _run_b,
     _run_c,
 )
@@ -418,6 +419,124 @@ class LiveConfigurationTests(unittest.TestCase):
                 for row in execution.development_metrics
             )
         )
+
+    def test_experiment_a_primary_metrics_use_raw_prior_echo(self) -> None:
+        class PriorEchoProvider:
+            def complete(self, request: LLMRequest) -> LLMResponse:
+                return LLMResponse.parse(
+                    {
+                        "schema_version": 1,
+                        "request_id": request.request_id,
+                        "prompt_sha256": request.prompt_sha256,
+                        "model_id": "prior-echo-fixture",
+                        "beliefs": request.payload["prior"],
+                    }
+                )
+
+        config = AppConfig(
+            run=RunSection(
+                name="experiment-a-raw-primary",
+                seed=7,
+                deterministic=False,
+            ),
+            experiment=ExperimentSection(
+                kind="provenance_audit",
+                domains=("travel",),
+                mechanisms=("balanced",),
+                response_modes=("controlled_anchor",),
+                prior_strengths=(0.7,),
+                policies=("balanced",),
+                updaters=("llm_full_context",),
+                users=1,
+                trajectories_per_cell=1,
+                turns=1,
+                bootstrap_replicates=0,
+            ),
+            inference=InferenceSection(
+                training_interactions=24,
+                fit_steps=10,
+                learning_rate=0.03,
+                l2=0.001,
+            ),
+            llm=LLMSection(
+                mode="openai",
+                calibration="temperature",
+                calibration_users=1,
+            ),
+        ).validated()
+        raw_provider = PriorEchoProvider()
+        calibrated_provider = TemperatureCalibratedProvider(
+            raw_provider,
+            {
+                "llm_full_context": TemperatureCalibration(
+                    temperature=2.0,
+                    fitted_splits=("development",),
+                    example_count=12,
+                )
+            },
+        )
+        with TemporaryDirectory() as directory:
+            run = RunArtifacts.create(config, root=directory)
+            summary = _run_a(
+                config,
+                run,
+                _prepare_study(config),
+                completion_provider=calibrated_provider,
+                raw_completion_provider=raw_provider,
+                calibrated_provider=calibrated_provider,
+            )
+            event = json.loads(
+                (
+                    run.path / "events" / "experiment-a.jsonl"
+                ).read_text(encoding="utf-8").splitlines()[0]
+            )
+            self.assertEqual(
+                event["system_probability_variant"],
+                "raw",
+            )
+            self.assertEqual(event["posterior"], event["prior"])
+            self.assertEqual(
+                summary["primary_llm_probability_variant"],
+                "raw",
+            )
+            exact_calibration = json.loads(
+                (
+                    run.path
+                    / "metrics"
+                    / "experiment-a-exact-calibration.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                exact_calibration["llm_probability_variant"],
+                "raw",
+            )
+            calibrated_responses = [
+                json.loads(line)
+                for line in (
+                    run.path
+                    / "llm"
+                    / "test-calibrated-responses.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(calibrated_responses)
+            self.assertNotEqual(
+                calibrated_responses[0]["beliefs"]["attribute_1"],
+                dict(
+                    zip(
+                        ("-2", "-1", "+1", "+2"),
+                        event["prior_marginals"][0],
+                    )
+                ),
+            )
+            exchange = json.loads(
+                (
+                    run.path / "llm" / "exchange-manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                exchange["primary_probability_variant"],
+                "raw",
+            )
 
 
 class ExternalDecoderAdapterTests(unittest.TestCase):

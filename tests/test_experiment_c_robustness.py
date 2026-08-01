@@ -259,9 +259,9 @@ def _rankings(
 
 def _gate_report(*, decision: bool) -> dict[str, object]:
     titles = {
-        1: "Learnable provenance gap",
-        2: "Nontrivial soft self-confirmation",
-        3: "Attribution beyond evidence selection",
+        1: "Exact causal-provenance calibration",
+        2: "Conditional behavioral feedback amplification",
+        3: "Policy-conditioned evidential legibility",
         4: "Native-system validity",
         5: "Evaluation implication",
         6: "Robustness",

@@ -17,7 +17,7 @@ _NONEMPTY_STRING = {"type": "string", "minLength": 1}
 _SPLIT = {"enum": ["train", "development", "test"]}
 
 _MECHANISM = {
-    "enum": ["balanced", "restricted", "default", "suggested"]
+    "enum": ["balanced", "restricted", "ranking", "default", "suggested"]
 }
 
 _PROBABILITY_ROW = {
@@ -199,6 +199,7 @@ _SCENARIO_RECORD = {
         "task_family",
         "target_attribute",
         "target_key",
+        "target_half_span",
         "nuisance_attribute",
         "nuisance_key",
         "nuisance_direction",
@@ -269,6 +270,11 @@ _SCENARIO_RECORD = {
             "maximum": 2,
         },
         "target_key": _NONEMPTY_STRING,
+        "target_half_span": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 0.56,
+        },
         "nuisance_attribute": {
             "type": "integer",
             "minimum": 0,
@@ -1879,11 +1885,12 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "heldout-paraphrase-criterion": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "urn:cape-loop:schema:heldout-paraphrase-criterion:v1",
+        "$id": "urn:cape-loop:schema:heldout-paraphrase-criterion:v2",
         "title": "CAPE-Loop Gate 1 held-out paraphrase criterion",
         "description": (
-            "A nullable verification result: null means the required external "
-            "or paired evaluation records are incomplete."
+            "Outcome-neutral held-out surface readiness. Null verification "
+            "means required case/updater coverage is incomplete; fitted-aware "
+            "Brier gaps are retained only as secondary diagnostics."
         ),
         "type": "object",
         "required": [
@@ -1891,6 +1898,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "criterion_id",
             "verified",
             "complete",
+            "response_invariant",
+            "invariance_failures",
             "material_gap",
             "required_mechanisms",
             "covered_domains",
@@ -1899,14 +1908,21 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "qualifying_mechanisms",
             "mean_gaps",
             "missing_pairs",
+            "secondary_missing_pairs",
             "gate_1_argument",
         ],
         "additionalProperties": False,
         "properties": {
-            "schema_version": {"const": 1},
+            "schema_version": {"const": 2},
             "criterion_id": {"const": "held-out-paraphrase-transfer"},
             "verified": {"type": ["boolean", "null"]},
             "complete": {"type": "boolean"},
+            "response_invariant": {"type": "boolean"},
+            "invariance_failures": {
+                "type": "array",
+                "items": _NONEMPTY_STRING,
+                "uniqueItems": True,
+            },
             "material_gap": {"type": "number", "minimum": 0},
             "required_mechanisms": {"type": "integer", "minimum": 1},
             "covered_domains": {
@@ -1951,6 +1967,11 @@ SCHEMAS: dict[str, dict[str, Any]] = {
                 },
             },
             "missing_pairs": {
+                "type": "array",
+                "items": _NONEMPTY_STRING,
+                "uniqueItems": True,
+            },
+            "secondary_missing_pairs": {
                 "type": "array",
                 "items": _NONEMPTY_STRING,
                 "uniqueItems": True,

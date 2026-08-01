@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "analysis_id": "cape-loop-confirmatory-mixed-effects-v1",
+  "schema_version": 3,
+  "analysis_id": "cape-loop-confirmatory-mixed-effects-v3",
   "status": "analysis_protocol_not_results",
   "family": "gaussian",
   "link": "identity",
@@ -22,7 +22,8 @@
       "contr.treatment",
       "contr.poly"
     ],
-    "updater_reference": "fitted_action_aware",
+    "experiment_a_oracle_reference": "exact_action_aware",
+    "experiment_b_updater_reference": "fitted_action_aware",
     "experiment_a_mechanism_reference": "balanced",
     "experiment_b_policy_reference": "balanced",
     "experiment_b_initial_profile_reference": "incorrect",
@@ -36,50 +37,76 @@
       "legacy_input_file": "events/experiment-a.jsonl",
       "legacy_exclusion_file": "events/experiment-a-exclusions.jsonl",
       "bundle_analysis_unit": "updater_trial",
-      "bundle_outcome_derivation": "retained Experiment A metrics.acue",
-      "response_mode": "naturally_sampled",
-      "outcome_source": "runner-native compact update_error derived from metrics.acue",
-      "outcome_name": "update_error",
-      "formula": "update_error ~ updater * mechanism + domain + prior_strength + (1 + mechanism | user) + (1 | scenario)",
-      "proposal_formula": "UpdateError ~ Updater * Mechanism + Domain + PriorStrength + (1 + Mechanism | User) + (1 | Scenario)",
+      "input_row_schema_version": 2,
+      "bundle_outcome_derivation": "retained anchor-directional system minus exact log-odds update as calibration_residual; exact and fitted update errors retained as required secondary magnitude diagnostics",
+      "response_mode": "controlled_anchor",
+      "analysis_track": "same_response_provenance",
+      "reference_basis": "exact_action_aware",
+      "outcome_source": "runner-native compact calibration_residual equal to anchor-directional system_log_odds_update minus exact_log_odds_update",
+      "outcome_name": "calibration_residual",
+      "retained_calibration_fields": [
+        "system_log_odds_update",
+        "exact_log_odds_update",
+        "fitted_log_odds_update",
+        "calibration_residual"
+      ],
+      "secondary_outcomes": [
+        {
+          "name": "exact_update_error",
+          "source": "runner-native compact exact_update_error derived from metrics.exact_acue",
+          "required": true,
+          "role": "descriptive_secondary_absolute_magnitude"
+        },
+        {
+          "name": "fitted_update_error",
+          "source": "runner-native compact fitted_update_error derived from metrics.acue",
+          "required": true,
+          "role": "secondary_reference_diagnostic"
+        }
+      ],
+      "formula": "calibration_residual ~ mechanism + domain + prior_strength + (1 + mechanism | user) + (1 | scenario)",
+      "pooled_formula": "calibration_residual ~ mechanism + domain + prior_strength + (1 + mechanism | user) + (1 | scenario) + (1 | replicate)",
+      "proposal_formula": "CalibrationResidual ~ Mechanism + Domain + PriorStrength + (1 + Mechanism | User) + (1 | Scenario)",
+      "pooled_proposal_formula": "CalibrationResidual ~ Mechanism + Domain + PriorStrength + (1 + Mechanism | User) + (1 | Scenario) + (1 | Replicate)",
       "required_mechanisms": [
         "balanced",
         "restricted",
+        "ranking",
         "default",
         "suggested"
       ],
       "primary_contrast": {
-        "id": "target-minus-aware-within-policy-conditioned-mechanism",
+        "id": "target-calibration-residual-mechanism-minus-balanced",
         "mechanisms": [
           "restricted",
+          "ranking",
           "default",
           "suggested"
         ],
-        "expression": "target_updater[mechanism] - fitted_action_aware[mechanism]",
-        "multiplicity": "Holm within the three-mechanism primary family"
+        "expression": "calibration_residual[target_updater, mechanism] - calibration_residual[target_updater, balanced]",
+        "multiplicity": "Holm within the four-mechanism primary family"
       },
-      "secondary_contrasts": [
+      "secondary_estimands": [
         {
-          "id": "balanced-target-minus-aware",
-          "expression": "target_updater[balanced] - fitted_action_aware[balanced]"
-        },
-        {
-          "id": "updater-by-mechanism-difference-in-differences",
-          "expression": "(target_updater[mechanism] - fitted_action_aware[mechanism]) - (target_updater[balanced] - fitted_action_aware[balanced])",
-          "mechanisms": [
-            "restricted",
-            "default",
-            "suggested"
-          ]
+          "id": "target-exact-update-error-by-mechanism",
+          "outcome": "exact_update_error",
+          "aggregation": "descriptive distribution and mean by mechanism",
+          "inferential_status": "not fitted by the primary signed-residual model"
         }
       ],
-      "scenario_mapping": "run_id + context.scenario_id",
-      "user_mapping": "run_id + user_id"
+      "secondary_contrasts": [],
+      "scenario_mapping": "scenario_id",
+      "user_mapping": "user_id",
+      "replicate_mapping": "run_id",
+      "pooling_policy": "Pooled fits require one identical run.seed and add a crossed run-level random intercept. Raw user_id and scenario_id remain shared clusters across same-seed reruns. Different seeds are analyzed separately as robustness replicates and never increase the independent-user count."
     },
     "B": {
       "run_kind": "closed_loop",
+      "paper_role": "supporting terminal-error trajectory model; the paper-primary Gate 3 conjunction of soft-policy exact-shadow attribution gap, soft-minus-balanced attribution contrast, and SelectionCost is analyzed by experiment-b-clustered-randomization-v5, with user-cluster bootstrap intervals retained as sensitivity evidence",
+      "primary_contrast_scope": "focal contrast within this supporting mixed-effects model, not the paper-level primary Experiment B estimand",
       "input_file": "analysis/experiment-b-turns.jsonl",
       "legacy_input_file": "events/experiment-b-trajectories.jsonl",
+      "input_row_schema_version": 1,
       "bundle_analysis_unit": "retained_trajectory_turn",
       "bundle_outcome_derivation": "per-turn marginal Brier from retained belief_after against immutable trajectory theta",
       "analysis_unit": "retained_turn",
@@ -88,7 +115,9 @@
       "turn_source": "compact turn equals source_turn_index + 1",
       "terminal_consistency_check": "final compact turn error equals retained_terminal_error",
       "formula": "terminal_error ~ updater * policy * initial_profile + domain + turn + (1 + policy | user) + (1 | scenario) + (1 | crn_set)",
+      "pooled_formula": "terminal_error ~ updater * policy * initial_profile + domain + turn + (1 + policy | user) + (1 | scenario) + (1 | crn_set) + (1 | replicate)",
       "proposal_formula": "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + (1 + Policy | User) + (1 | Scenario) + (1 | CRNSet)",
+      "pooled_proposal_formula": "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + (1 + Policy | User) + (1 | Scenario) + (1 | CRNSet) + (1 | Replicate)",
       "required_policies": [
         "balanced",
         "soft_profile_conditioned"
@@ -121,9 +150,11 @@
           "requires_initial_profile": "correct"
         }
       ],
-      "scenario_mapping": "run_id + turn.scenario_id",
+      "scenario_mapping": "turn.scenario_id",
       "crn_set_mapping": "run_id + crn_key",
-      "user_mapping": "run_id + user_id"
+      "user_mapping": "user_id",
+      "replicate_mapping": "run_id",
+      "pooling_policy": "Pooled fits require one identical run.seed and add a crossed run-level random intercept. Raw user_id and scenario_id remain shared clusters across same-seed reruns. Different seeds are analyzed separately as robustness replicates and never increase the independent-user count."
     }
   },
   "outputs": [

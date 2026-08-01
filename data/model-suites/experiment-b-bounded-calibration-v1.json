@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "suite_id": "cape-loop-experiment-b-bounded-calibration-v1",
+  "resolved_on": "2026-07-31",
+  "status": "frozen_for_bounded_multi_user_calibration",
+  "project_generated": true,
+  "source_status": "project-authored-frozen-protocol",
+  "license": "Apache-2.0",
+  "expected_consumer": "cape-loop experiment-b model-suite",
+  "transport": "openrouter",
+  "base_design_id": "experiment-b-openrouter-six-turn-full-v1",
+  "analysis_policy": {
+    "primary_arm_ids": [
+      "primary-gemini-3-6-flash",
+      "primary-gpt-5-6-luna",
+      "primary-mistral-large-3"
+    ],
+    "secondary_arm_ids": [
+      "secondary-deepseek-v4-flash"
+    ],
+    "primary_results_are_model_specific": true,
+    "claim_unit": "per_model",
+    "cross_model_multiplicity_policy": "no_any-model_or_omnibus_claim_in_this_suite",
+    "models_are_not_user_clusters": true,
+    "secondary_selected_after_pilot": true,
+    "secondary_may_be_pooled_with_primary": false
+  },
+  "arms": [
+    {
+      "arm_id": "primary-gemini-3-6-flash",
+      "role": "primary_panel",
+      "model": "google/gemini-3.6-flash",
+      "reasoning_effort": "minimal",
+      "openrouter_upstream_provider": "google-vertex/global",
+      "condition_profile": "full_base",
+      "initial_profile_conditions": [
+        "correct",
+        "incorrect"
+      ],
+      "policies": [
+        "balanced",
+        "soft_profile_conditioned",
+        "exploratory"
+      ],
+      "run_name": "experiment-b-primary-gemini-3-6-flash",
+      "output_subdir": "primary/gemini-3-6-flash",
+      "max_requests": 900,
+      "max_total_tokens": 6000000,
+      "selection_timing": "frozen_before_bounded_multi_user_calibration",
+      "primary_analysis_eligible": true
+    },
+    {
+      "arm_id": "primary-gpt-5-6-luna",
+      "role": "primary_panel",
+      "model": "openai/gpt-5.6-luna",
+      "reasoning_effort": "low",
+      "openrouter_upstream_provider": "",
+      "condition_profile": "full_base",
+      "initial_profile_conditions": [
+        "correct",
+        "incorrect"
+      ],
+      "policies": [
+        "balanced",
+        "soft_profile_conditioned",
+        "exploratory"
+      ],
+      "run_name": "experiment-b-primary-gpt-5-6-luna",
+      "output_subdir": "primary/gpt-5-6-luna",
+      "max_requests": 900,
+      "max_total_tokens": 6000000,
+      "selection_timing": "frozen_before_bounded_multi_user_calibration",
+      "primary_analysis_eligible": true
+    },
+    {
+      "arm_id": "primary-mistral-large-3",
+      "role": "primary_panel",
+      "model": "mistralai/mistral-large-2512",
+      "reasoning_effort": "",
+      "openrouter_upstream_provider": "",
+      "condition_profile": "full_base",
+      "initial_profile_conditions": [
+        "correct",
+        "incorrect"
+      ],
+      "policies": [
+        "balanced",
+        "soft_profile_conditioned",
+        "exploratory"
+      ],
+      "run_name": "experiment-b-primary-mistral-large-3",
+      "output_subdir": "primary/mistral-large-3",
+      "max_requests": 900,
+      "max_total_tokens": 6000000,
+      "selection_timing": "frozen_before_bounded_multi_user_calibration",
+      "primary_analysis_eligible": true
+    },
+    {
+      "arm_id": "secondary-deepseek-v4-flash",
+      "role": "targeted_secondary_replication",
+      "model": "deepseek/deepseek-v4-flash",
+      "reasoning_effort": "",
+      "openrouter_upstream_provider": "",
+      "condition_profile": "incorrect_seed_balanced_soft_only",
+      "initial_profile_conditions": [
+        "incorrect"
+      ],
+      "policies": [
+        "balanced",
+        "soft_profile_conditioned"
+      ],
+      "run_name": "experiment-b-secondary-deepseek-v4-flash",
+      "output_subdir": "secondary/deepseek-v4-flash",
+      "max_requests": 300,
+      "max_total_tokens": 2000000,
+      "selection_timing": "post_pilot_targeted_secondary",
+      "primary_analysis_eligible": false
+    }
+  ]
+}

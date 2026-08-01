@@ -6,7 +6,7 @@ schema_version = 1
 
 [scenarios]
 catalog_file = "data/scenarios/scenario-catalog-v1.json"
-catalog_sha256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+catalog_sha256 = "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 selection_policy = "deterministic-stratified-v1"
 
 [population]
@@ -22,11 +22,12 @@ deterministic = true
 [experiment]
 kind = "provenance_audit"
 domains = ["travel", "writing"]
-mechanisms = ["balanced", "restricted", "default", "suggested"]
+mechanisms = ["balanced", "restricted", "ranking", "default", "suggested"]
 response_modes = ["controlled_anchor", "naturally_sampled"]
 prior_strengths = [0.0, 0.7]
 policies = ["balanced"]
 updaters = [
+  "exact_action_aware",
   "fitted_action_aware",
   "full_context_blind",
 ]

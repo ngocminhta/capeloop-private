@@ -91,7 +91,13 @@ class CompactAnalysisExportTests(unittest.TestCase):
                     "mechanism": "balanced",
                     "prior_strength": 0.35,
                     "response_mode": mode,
-                    "metrics": {"acue": 0.1 + index / 100},
+                    "metrics": {
+                        "acue": 0.1 + index / 100,
+                        "exact_acue": 0.2 + index / 100,
+                        "log_odds_update": 0.3 + index / 100,
+                        "exact_log_odds_update": 0.2 + index / 100,
+                        "fitted_aware_log_odds_update": 0.18 + index / 100,
+                    },
                 }
                 for index, mode in enumerate(
                     ("controlled_anchor", "naturally_sampled"),
@@ -137,11 +143,34 @@ class CompactAnalysisExportTests(unittest.TestCase):
                 ).read_text(encoding="utf-8").splitlines()
             ]
             natural_row = compact_rows[1]
-            self.assertAlmostEqual(natural_row.pop("update_error"), 0.12)
+            self.assertAlmostEqual(
+                natural_row.pop("exact_update_error"),
+                0.22,
+            )
+            self.assertAlmostEqual(
+                natural_row.pop("fitted_update_error"),
+                0.12,
+            )
+            self.assertAlmostEqual(
+                natural_row.pop("system_log_odds_update"),
+                0.32,
+            )
+            self.assertAlmostEqual(
+                natural_row.pop("exact_log_odds_update"),
+                0.22,
+            )
+            self.assertAlmostEqual(
+                natural_row.pop("fitted_log_odds_update"),
+                0.20,
+            )
+            self.assertAlmostEqual(
+                natural_row.pop("calibration_residual"),
+                0.10,
+            )
             self.assertEqual(
                 natural_row,
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "source_record_index": 2,
                     "trial_id": "trial-2",
                     "user_id": "user-1",
@@ -151,6 +180,8 @@ class CompactAnalysisExportTests(unittest.TestCase):
                     "mechanism": "balanced",
                     "prior_strength": 0.35,
                     "response_mode": "naturally_sampled",
+                    "analysis_track": "natural_response_secondary",
+                    "reference_basis": "exact_action_aware",
                 },
             )
             manifest = json.loads(
@@ -161,6 +192,7 @@ class CompactAnalysisExportTests(unittest.TestCase):
                 manifest["source_input_file"],
                 "events/experiment-a.jsonl",
             )
+            self.assertEqual(manifest["row_schema_version"], 2)
             valid, errors = verify_compact_analysis(bundle.path)
             self.assertTrue(valid, errors)
             valid, errors = verify_run(run.path)

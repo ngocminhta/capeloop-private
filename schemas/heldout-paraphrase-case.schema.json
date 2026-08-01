@@ -27,6 +27,7 @@
       "enum": [
         "balanced",
         "restricted",
+        "ranking",
         "default",
         "suggested"
       ]

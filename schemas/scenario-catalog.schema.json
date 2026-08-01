@@ -475,6 +475,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "target_half_span": {
+            "exclusiveMinimum": 0,
+            "maximum": 0.56,
+            "type": "number"
+          },
           "target_key": {
             "minLength": 1,
             "type": "string"
@@ -498,6 +503,7 @@
           "task_family",
           "target_attribute",
           "target_key",
+          "target_half_span",
           "nuisance_attribute",
           "nuisance_key",
           "nuisance_direction",

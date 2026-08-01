@@ -38,9 +38,28 @@ other inexpensive options.
 
 We introduce **CAPE-Loop**, a controlled evaluation of action-conditioned preference inference and closed-loop profile formation. CAPE-Loop maintains a fixed latent user, explicitly logs the option set, ranking, default, recommendation, wording, and policy provenance that generated each response, and provides three inference references: a Bayes-optimal posterior under the declared response model, a fitted action-aware updater that learns the response model from training interactions, and a capacity-matched fitted action-unaware updater. Controlled anchor-option sets hold the selected item and response constant while varying only their causal provenance, while naturally sampled interactions evaluate average proper-score performance under the response distribution.
 
-We then cross initial profile correctness, interaction policy, and memory updater in closed loop. This separates **evidence-selection error**, where profile-conditioned actions collect less diagnostic evidence, from **evidential-attribution error**, where profile writers overinterpret the evidence that was collected. Every trajectory is accompanied by a shadow action-aware posterior updated on the same observations, enabling turn-level measurement of confidence gained beyond what the interaction warrants. Finally, we compare systems under fixed balanced histories, fixed mildly biased histories, and endogenous closed-loop histories using an identical exogenous terminal diagnostic battery.
+We then cross initial profile correctness, interaction policy, and memory
+updater in closed loop. This separates **evidence-selection error**, where
+profile-conditioned actions change the diagnostic evidence collected, from
+**evidential-attribution error**, where profile writers assign incorrect weight
+to the evidence that was collected. We call the resulting pair-level question
+**policy-conditioned evidential legibility**: a history may remain informative
+to exact action-aware inference while being harder for a particular profile
+writer to translate into an accurate persistent profile. Every trajectory is
+accompanied by an exact shadow action-aware posterior updated on the same
+observations, enabling turn-level measurement of confidence gained beyond what
+the interaction warrants. Finally, as a secondary evaluation-validity analysis, we compare
+systems under fixed balanced histories, fixed mildly biased histories, and
+endogenous closed-loop histories using an identical exogenous terminal
+diagnostic battery.
 
-Across `[UPDATERS]`, `[MODEL FAMILIES]`, `[DOMAINS]`, and `[TRAJECTORIES]`, we find `[TBD]`. Full-context profile writers exhibit `[TBD]` excess action-conditioned inference error relative to fitted action-aware inference; false initial profiles gain `[TBD]` unwarranted confidence under soft profile conditioning; and fixed-history evaluation `[TBD OPEN/CLOSED-LOOP FINDING]`. These results show that reliable persistent personalization requires recording not only what a user selected or accepted, but also how the agent's own behavior caused that evidence to be observed.
+Across `[UPDATERS]`, `[MODEL FAMILIES]`, `[DOMAINS]`, and `[TRAJECTORIES]`,
+we find `[TBD]`. Relative to the exact action-aware update under the declared
+generator, profile writers show `[TBD]` mechanism- and model-specific
+calibration residuals; profile-conditioned interaction changes `[TBD]` in the
+evidence stream; and false initial profiles show `[TBD]` continuous
+amplification. Strict self-confirmation and fixed-versus-closed-loop selection
+effects remain separately stage-gated. These results `[TBD INTERPRETATION]`.
 
 # 1. Central scientific claim
 
@@ -74,13 +93,26 @@ The precise claim is:
 
 The claim hierarchy is:
 
-1. **Primary:** profile-conditioned interaction changes evidence quality and
-   can change evaluation or system selection.
-2. **Secondary mechanism:** LLM profile writers may be imperfectly calibrated
-   to causal provenance.
-3. **Conditional downstream:** repeated profile-conditioned interaction may
-   make a false profile self-reinforcing, but only when the registered
-   five-clause definition is satisfied.
+1. **Primary pair-level claim:** persistent-profile accuracy is a property of
+   the updater–interaction-policy pair. The primary closed-loop decomposition
+   jointly reports policy contrasts in the exact same-history attribution gap
+   and SelectionCost, the paired exact-shadow terminal-error contrast.
+2. **Strong mechanism claim:** a policy-conditioned history can remain
+   practically noninferior for exact-shadow terminal profile error—under the
+   frozen SelectionCost margin—yet produce a larger attribution gap for a
+   specific LLM profile writer. This is narrower than claiming equal mutual
+   information. A separate nested result tests whether the evaluated writer's
+   total soft-minus-balanced terminal error also exceeds a frozen practical-harm
+   margin. Experiment A separately tests a candidate one-step provenance
+   mechanism—model- and mechanism-specific over-weighting, under-weighting, or
+   wrong-direction updating—without serving as a mediation analysis for B.
+3. **Model-specific finding:** models may differ in whether they overreact,
+   attenuate, or invert disconfirming evidence. Heterogeneity is retained
+   rather than averaged into a universal LLM claim.
+4. **Conditional downstream claims:** behavioral self-confirmation,
+   logging-policy-dependent system selection, correction debt, native-system
+   validity, and human evidence are secondary or stage-gated and are reported
+   only if their separate protocols are executed and gates are met.
 
 This is different from merely observing that recommendation policies create feedback loops. LLM recommender feedback loops, interactive preference elicitation, response-conditioned user feedback, and memory–action coupling already exist as research areas. Echoes in the Loop studies accumulated bias and self-reinforcing exposure in LLM recommender pipelines; PEPPER evaluates interactive preference elicitation; IEvoAgent models dependence between an agent response and subsequent user feedback; and PersonaAgent explicitly couples personalized memory, persona-mediated actions, and memory refinement. ([arXiv][1])
 
@@ -112,33 +144,46 @@ $$
 
 ## RQ1: Causal-provenance sensitivity
 
-**Do persistent profile writers assign different evidential weight to the same response when it follows balanced exposure, restricted exposure, a default, or an agent-authored suggestion?**
+**Do persistent profile writers assign the warranted evidential weight to the
+same response when it follows balanced exposure, restricted exposure, a
+changed ranking, a default, or an agent-authored suggestion?**
 
-The primary comparison is against a **fitted action-aware updater**, not merely the simulator oracle.
+The primary comparison is against the **exact action-aware posterior under the
+declared generator**. The fitted action-aware updater is a secondary test of
+learnability and reference-model misspecification.
 
 ## RQ2: Evidence selection versus evidence attribution
 
-**How much closed-loop profile error arises because the agent collects uninformative evidence, and how much arises because the memory updater overinterprets the evidence that was collected?**
+**How much closed-loop profile error arises because the agent changes the
+evidence stream, and how much arises because the memory updater assigns
+incorrect weight to the evidence that was collected?**
 
 The crossed policy–updater design and shadow posterior provide the decomposition.
 
 ## RQ3: False self-confirmation
 
-**Can an initially wrong profile gain confidence from observations generated by actions selected using that same wrong profile, beyond the confidence justified by an action-aware updater?**
+**Does an initially wrong profile amplify, lose corrective information, or
+recover slowly when observations are generated by actions selected using that
+profile?**
 
-A false profile must gain excess confidence and influence later actions; mere persistence is insufficient.
+Continuous outcomes are primary. A false profile is called strictly
+self-confirming only if it gains excess confidence, influences later actions,
+and satisfies every other registered clause; mere persistence is insufficient.
 
 ## RQ4: Evaluation validity
 
 **Do fixed-history evaluations rank profile writers differently from closed-loop evaluation, and can an open-loop benchmark select an updater that is materially worse after deployment?**
 
-The strongest result is not merely a score gap. It is a credible model-selection failure.
+The most consequential secondary Experiment C result would be a credible
+model-selection failure, not merely a score gap.
 
-## RQ5: Pragmatic validity
+## Deferred RQ5: Pragmatic validity
 
 **Do humans distinguish evidence produced through free choice from acceptance produced through restricted options, defaults, or agent suggestions more strongly than LLM profile writers do?**
 
-Human judgments validate the pragmatic evidential ordering; they are not treated as access to metaphysical “true preferences.”
+Human judgments would validate the pragmatic evidential ordering; they are not
+treated as access to metaphysical “true preferences.” Recruitment and human
+evidence are deferred beyond the minimum paper and require ethics approval.
 
 ## Secondary RQ: Correction debt
 
@@ -169,6 +214,13 @@ $$
 $$
 
 latent preference profiles per domain while keeping exact posterior inference tractable.
+
+The primary signed-error design does not add \(\theta_j=0\): a truly neutral
+latent value would remove the directional truth needed by false-profile and
+recovery estimands. “Uncertain” cases are instead represented prospectively by
+weak preferences, small balanced-choice probability margins, or uncertain
+initial beliefs. A neutral-user extension would require separately defined
+non-directional outcomes.
 
 Each user also has a susceptibility vector:
 
@@ -301,8 +353,28 @@ P(Y_t\mid\theta,\psi,C_t).
 $$
 
 The oracle knows the declared model family and simulator coefficients but not the latent user.
+Its preference prior is the prospectively supplied experimental belief, and
+its susceptibility prior is uniform over the finite support prospectively
+assigned to the evaluation split. The split-support declaration is part of the
+generator; the realized user's susceptibility, finite-sample frequencies, and
+outcomes are not used to set the prior.
 
-It is a diagnostic upper reference, not a universal normative theory of human choice.
+For Experiment A, each truth-aligned prior-strength stratum is constructed by
+mixing truth mass into each attribute marginal and taking their independent
+joint:
+
+$$
+q_{s,j}(v)=\frac{1-s}{4}+s\,\mathbf 1[v=\theta_j],
+\qquad
+q_s(\theta')=\prod_{j=1}^{3}q_{s,j}(\theta'_j),
+\qquad 0\le s<1.
+$$
+
+The exact updater can therefore reconstruct no more preference-prior
+information than the three marginal vectors included in the LLM request.
+
+It is the primary within-generator reference, not a universal normative theory
+of human choice.
 
 ## 4.5 Fitted action-aware and action-unaware updaters
 
@@ -326,13 +398,18 @@ This comparison answers:
 
 > Is causal-provenance adjustment learnable from the available interaction data even without knowing the true simulator coefficients?
 
-The central one-step analysis estimates signed, mechanism-specific calibration
-relative to fitted action-aware inference. Registered H1 tests directional
-over-update, while registered H2 tests the stronger action-unaware-proximity
-pattern. Neither is a binary test of whether a model “uses context.” The exact
-generating-model posterior is retained as an additional controlled diagnostic;
-promoting it to a different confirmatory target requires a versioned analysis
-specification.
+The primary one-step analysis uses the exact action-aware posterior from the
+same declared model that generated the simulated users. This removes fitted
+response-model misspecification from the controlled attribution estimand. It
+estimates model- and mechanism-specific calibration intercepts, slopes,
+residual errors, and contrasts; neither the presence nor the sign of
+miscalibration is assumed.
+
+The fitted action-aware reference remains valuable as a secondary learnability
+and misspecification-robustness analysis. The fitted action-unaware reference,
+directional over-update contrast, and action-unaware-proximity contrast are
+secondary diagnostics. They are not the primary hypotheses and must not be
+used to relabel all contextual errors as “provenance blindness.”
 
 # 5. Two Evaluation Tracks
 
@@ -382,10 +459,13 @@ This track supports:
 * confidence gain;
 * calibration.
 
-LLM probabilities are calibrated only on development users using the
-implemented temperature-scaling transformation; `none` is retained as an
-explicit uncalibrated ablation. Both raw and active calibrated results are
-reported.
+LLM temperature parameters are fit only on development users. Experiment A
+uses the raw returned vector for every primary update and retains the
+temperature-scaled vector only as a secondary forecast-calibration diagnostic;
+this prevents calibration from manufacturing an update when a model simply
+returns its prior. B/C use the configured active vector for their realized
+histories and retain paired raw/calibrated terminal diagnostics. `none` remains
+an explicit uncalibrated ablation.
 
 ## Track B: Native persistent memory
 
@@ -449,13 +529,15 @@ This domain makes the work distinctly relevant to language interaction rather th
 
 # 7. Provenance Mechanisms
 
-The core paper uses three independently controlled mechanisms.
+Experiment A uses one baseline and four independently named treatments:
 
-| Mechanism              | Manipulation                                                 | Inferential issue                              |
-| ---------------------- | ------------------------------------------------------------ | ---------------------------------------------- |
-| Choice-set composition | Balanced alternatives versus profile-consistent alternatives | Unavailable alternatives cannot be selected    |
-| Ranking/default        | Both sides remain available, but one is first or preselected | Acceptance partly reflects position or inertia |
-| Agent suggestion       | Agent recommends one option before the response              | Acceptance is partly agent-authored            |
+| Condition | Manipulation | Inferential issue |
+| --- | --- | --- |
+| Balanced | Matched counter-direction options with neutral order | Baseline free-choice evidence |
+| Restricted | The peer option has the same target direction | The missing counter-direction cannot be selected |
+| Ranking | Both directions remain available but order changes | Selection partly reflects position |
+| Default | Both directions remain available but the anchor is preselected | Acceptance partly reflects inertia |
+| Suggested | Both directions remain available but the agent recommends the anchor | Acceptance is partly agent-authored |
 
 Positive controls include:
 
@@ -469,7 +551,10 @@ Negative controls include:
 * random choices;
 * responses that do not distinguish the target preference.
 
-Hard option filtering is included only as a stress test. The main self-confirmation result must appear under **soft conditioning**, where counter-profile alternatives remain available.
+Restricted choice is a primary one-step attribution treatment in Experiment A.
+Hard option filtering is only a stress test for the closed-loop claim: any
+strict self-confirmation claim must appear under **soft conditioning**, where
+counter-profile alternatives remain available.
 
 
 # 8. Matched Provenance Construction
@@ -482,6 +567,7 @@ Each matched set contains an identical anchor option selected in every condition
 | ---------- | ------------------------------------------- | ------- | ---------- | ------------- |
 | Balanced   | Anchor budget hotel + matched premium hotel | None    | None       | Anchor        |
 | Restricted | Anchor budget hotel + second budget hotel   | None    | None       | Anchor        |
+| Ranking    | Same balanced pair in the treatment order   | None    | None       | Anchor        |
 | Default    | Anchor budget hotel + matched premium hotel | Anchor  | None       | Anchor        |
 | Suggested  | Anchor budget hotel + matched premium hotel | None    | Anchor     | Anchor        |
 
@@ -507,7 +593,13 @@ Purpose:
 * make the result interpretable;
 * compare update strength across contexts.
 
-This is a controlled functional diagnostic, not an average causal effect.
+This is the primary `same_response_provenance` analysis. It is a controlled
+functional diagnostic, not an average causal effect. The implementation audits
+that the local user sentence is literally invariant across all five matched
+conditions; a failed invariant makes the matched set ineligible.
+Held-out paraphrase transfer is evaluated in this controlled-anchor track, so
+the public controlled-only live configuration still tests wording robustness
+without mixing in natural-response variation.
 
 ### Naturally sampled evaluation
 
@@ -519,7 +611,7 @@ $$
 
 independently in each action context.
 
-Purpose:
+This is a secondary realism analysis. Its purpose is to:
 
 * measure average proper-score performance;
 * verify that the finding persists under realistic response frequencies;
@@ -546,83 +638,131 @@ wrong-direction updating.
 | Full-context LLM                  | Tests whether ordinary dialogue context is sufficient   |
 | Provenance-aware LLM              | Diagnostic mitigation with explicit structured metadata |
 
-## Primary metrics
+## Primary estimand and metrics
 
-### Action-Conditioned Update Error
-
-Let $q_t$ be the system belief and $p_t^A$ the fitted action-aware belief:
+For anchor direction \(s\) on target attribute \(j\), let
+\(p^{*}\) be the exact action-aware posterior under the declared generator.
+All Experiment A updaters begin from the same supplied prior
+\(p_t^*=q_t=q_0\). Define the warranted and system log-odds updates:
 
 $$
-\operatorname{ACUE}_t=
-\left|
+u^* =
+\operatorname{logit}p^*_{t+1,j}(s)
+-
+\operatorname{logit}p^*_{t,j}(s),
+$$
+
+$$
+\widehat u =
+\operatorname{logit}q_{t+1,j}(s)
+-
+\operatorname{logit}q_{t,j}(s),
+\qquad
+r=\widehat u-u^*.
+$$
+
+The signed residual \(r\) distinguishes over-weighting (\(r>0\)),
+under-weighting (\(r<0\)), and wrong-direction behavior when interpreted with
+\(u^*\). It is reported by updater and mechanism, not pooled into a universal
+“blindness” label.
+
+For each updater \(k\) and mechanism \(m\), estimate:
+
+$$
+\widehat u_{k,m}
+=
+\alpha_{k,m}+\beta_{k,m}u^*+\varepsilon.
+$$
+
+The ideal exact-oracle calibration curve has
+\((\alpha,\beta)=(0,1)\) and low residual RMSE. Curves with insufficient
+within-cell variation are marked not estimable. The primary matched contrast
+compares the target writer's signed residual with the balanced condition:
+
+$$
+\Delta r_m
+=
+\mathbb E[
+r_{\mathrm{target},m}
+-
+r_{\mathrm{target},\mathrm{balanced}}
+],
+$$
+
+As a secondary unsigned magnitude diagnostic, report:
+
+$$
+\Delta e_m
+=
+\mathbb E[
+|\widehat u_{\mathrm{target},m}-u^*_{m}|
+-
+|\widehat u_{\mathrm{target},\mathrm{balanced}}
+-u^*_{\mathrm{balanced}}|
+].
+$$
+
+### Exact action-conditioned update error
+
+For the complete 12-component marginal update vector,
+
+$$
+\operatorname{ExactACUE}_t=
+\left\|
 (q_{t+1}-q_t) -
-(p_{t+1}^A-p_t^A)
-\right|_1.
+(p^*_{t+1}-p^*_t)
+\right\|_1.
 $$
 
-This measures whether the updater applies the correct evidence increment, rather than merely ending at a similar posterior.
+This measures unsigned error in the applied evidence increment. It is a
+secondary full-vector magnitude diagnostic for the controlled-anchor track;
+the signed calibration residual is the primary mixed-effects outcome.
 
-The registered version-1 `ACUE` uses the fitted action-aware reference. Runs
-also retain `exact_acue`, computed against the known generating response model,
-as a separately labeled controlled diagnostic. These fields must not be pooled
-or silently substituted.
+The legacy field `acue` compares with the fitted action-aware updater and is
+retained as a secondary robustness metric. It must remain explicitly labeled
+as fitted-reference rather than being pooled with `exact_acue`.
 
 ### Posterior divergence
 
 $$
 D_{\mathrm{KL}}
 \left(
-p_{t+1}^A
+p_{t+1}^*
 ;|;
 q_{t+1}
 \right).
 $$
 
-Exact-oracle divergence is reported as a diagnostic.
+Fitted-aware divergence is retained separately as secondary robustness.
 
 ### Excess proper-score error
 
 $$
 \operatorname{ExcessBrier}=
-BS(q,\theta)-BS(p^A,\theta).
+BS(q,\theta)-BS(p^*,\theta).
 $$
+
+This exact-reference quantity is derived from retained beliefs. The legacy
+emitted `excess_brier` field uses the fitted-aware reference and remains
+secondary.
 
 ### Update-direction accuracy
 
 Did each attribute probability move in the correct direction?
 
-### Fitted-aware and exact-oracle update-calibration slopes
+### Secondary fitted-reference diagnostics
 
-Regress system log-odds updates on action-aware updates:
-
-$$
-\widehat{\Delta\ell}=
-\alpha +
-\beta\Delta\ell^A +
-\varepsilon.
-$$
-
-A provenance-sensitive updater should have:
-
-* $\beta$ near one;
-* low mechanism-specific residuals;
-* different update magnitude across matched contexts.
-
-Curves are reported separately by evaluated model and mechanism whenever the
-reference update varies within that mechanism; a constant-reference slice is
-retained explicitly as not estimable rather than assigned an artificial
-slope. Model heterogeneity is an outcome: a model that under-weights one
-mechanism is not collapsed with another model that over-weights it.
-
-The version-1 registered curve uses fitted action-aware
-\(\Delta\ell^A\). Controlled runs additionally emit a parallel curve using the
-known generating-model posterior. Every row names its reference basis; the
-exact curve diagnoses reference misspecification without silently changing the
-registered H1/H2 estimands.
+The fitted action-aware updater is learned only from randomized training
+interactions. Repeating the update-error and calibration analyses against this
+reference tests whether the exact-oracle result survives a learnable
+approximation. Directional over-update relative to that fit and proximity to
+the fitted action-unaware updater remain descriptive diagnostics; they are not
+the primary hypothesis.
 
 ### Evidence-strength ranking
 
-Does the updater distinguish, in the direction supported by the fitted response model:
+Does the updater distinguish evidence strength in the direction warranted by
+the exact declared response model:
 
 $$
 \text{volunteered preference}
@@ -634,9 +774,39 @@ $$
 \text{restricted choice}?
 $$
 
-The exact middle ordering is derived from the fitted model and human judgments rather than assumed universally.
+No universal middle ordering is hard-coded. Ranking, default, and suggestion
+effects depend on the declared mechanism and susceptibility; fitted-model and
+human comparisons are secondary validation.
 
-# 10. Experiment B: Does Profile-Conditioned Interaction Degrade Evidence Quality or Reinforce False Profiles?
+# 10. Experiment B: Policy-Conditioned Evidential Legibility and Behavioral Feedback
+
+Unlike the same-response attribution track, Experiment B samples each response
+from the declared model after the policy chooses the visible context. The
+policy may therefore change the realized response and future evidence stream.
+
+The paper keeps two causal arms distinct:
+
+* **fixed-response attribution arm (Experiment A):** hold the selected option
+  and user reply fixed while changing option restriction, rank, default,
+  suggestion, or other registered provenance. This identifies
+  $C_t\rightarrow M_{t+1}$. Ranking is already one of the five required arms.
+* **natural-response feedback arm (Experiment B):** allow the displayed action
+  to alter the sampled response before the profile is updated. This identifies
+  the complete $C_t\rightarrow Y_t\rightarrow M_{t+1}$ path and stratifies
+  users prospectively by weak/strong preferences and near-tie, marginal, or
+  decisive balanced-choice margins.
+
+An attribution failure with unchanged choices is evidence for the first path,
+not for behavioral self-confirmation. Conversely, observed choice divergence
+without an updater attribution gap is a policy-side behavioral effect. The two
+arms therefore do not share one success criterion.
+
+A four-way source-attribution ablation—full dialogue; user response plus
+structured action metadata; assistant action without the response; and
+neutralized assistant wording—is reserved for a versioned mechanistic
+extension. The current provenance-aware updater changes both metadata and its
+normative instruction, so it cannot identify a pure source-label effect.
+Silently interpreting that condition as the proposed ablation is prohibited.
 
 ## 10.1 Factorial design
 
@@ -656,6 +826,13 @@ $$
 * incorrect;
 * uncertain;
 * empty.
+
+The latent population is prospectively stratified by weak
+\((|\theta_j|=1)\) and strong \((|\theta_j|=2)\) preferences. Balanced-choice
+margin strata are computed before model outcomes are inspected so that
+near-indifferent, marginal decisions can be analyzed separately from easy
+choices. Random seeds create robustness replicates of a user/trajectory; they
+are not counted as additional independent users.
 
 ### Interaction policies
 
@@ -688,9 +865,37 @@ The softly conditioned policy does not remove all contradictory options. Instead
 
 This prevents the main result from being a trivial consequence of forced choice.
 
+The bounded calibration uses six turns only after an outcome-blind planner
+admits every balanced/soft trajectory pair. Before any evaluated-model call,
+each schedule must contain at least two visibly divergent near-tie/marginal
+active turns, one decisive active control, two presentation mechanisms,
+retained options in both preference directions, and direction-robust active
+susceptibility mass above the frozen threshold. Informative admission uses the
+minimum predicted choice-divergence probability across either possible current
+profile direction; decisive-control admission uses the maximum. Thus a writer
+that crosses zero during the trajectory does not invalidate the ex-ante
+susceptibility/control bound, while the treatment still follows its current
+profile rather than a stale seed.
+
+The planner may use only the scenario catalog, latent user, initial profile,
+declared response model, and semantic seed. Realized choices, updated profiles,
+and evaluated-model outputs are forbidden admission inputs. Runtime verifies
+the scenario, mechanism, current-profile promotion, visible divergence, option
+support, direction-specific prediction, and conservative bound. A 32-seed
+simulator-only audit then reports ASM, choice divergence, expected information,
+SelectionCost, and coverage without changing plan admission. A local exact
+action-aware updater evolves adaptive policy state, but the audit cannot report
+target-writer behavioral reinforcement because no evaluated LLM output is
+present. Failure
+suppresses the trajectory-level mechanism claim; it never licenses dropping
+trajectories, rerunning a favorable seed, or changing the rule after outcomes
+are inspected. A longer horizon may be frozen only from outcome-blind review or
+audit evidence.
+
 ## 10.3 Shadow action-aware posterior
 
-For every trajectory generated by updater $U$, maintain a shadow action-aware belief:
+For every trajectory generated by updater $U$, maintain an exact
+same-history action-aware belief:
 
 $$
 p_{t+1}^{\text{shadow}}=
@@ -700,15 +905,17 @@ p_t^{\text{shadow}},C_t,Y_t
 \right).
 $$
 
-The shadow updater observes exactly the same actions and responses but does not control the policy.
+The shadow updater uses the declared generating response model and observes
+exactly the same actions and responses, but does not control the policy.
 
 This yields a turn-level decomposition.
 
 Evidence-selection cost and cumulative action-aware information gain
 characterize policy-induced evidence quality. Evidential-attribution cost
-measures additional same-history updater error. SCI and the five-clause
-predicate are stronger downstream diagnostics, not prerequisites for an
-evidence-selection result.
+measures additional same-history updater error. The explicitly named
+soft-minus-reference attribution-gap contrasts measure policy-conditioned
+evidential legibility. DIR and the five-clause predicate are separate stronger
+diagnostics, not prerequisites for an evidence-selection result.
 
 ### Evidence-selection cost
 
@@ -726,7 +933,10 @@ p_T^{\text{shadow, balanced}},
 \right).
 $$
 
-This is the loss caused by collecting less informative evidence.
+This is the policy-induced difference in realized exact-shadow terminal error
+under the paired design. A positive value means the soft history was worse for
+the registered terminal loss; it does not by itself prove lower mutual
+information or identify which action caused the difference.
 
 ### Evidential-attribution cost
 
@@ -746,7 +956,58 @@ $$
 
 This compares the system and action-aware updater on the same history.
 
-### Self-Confirmation Interaction
+For compact notation, define the policy-specific same-history attribution gap
+
+$$
+G_{U,\pi}
+=
+\operatorname{Err}(q_T^{U,\pi},\theta)
+-
+\operatorname{Err}(p_T^{\text{shadow},\pi},\theta).
+$$
+
+The primary prospectively schedule-matched Experiment B contrast is
+
+$$
+\Delta G_{\text{soft-bal}}
+=G_{U,\text{soft}}-G_{U,\text{balanced}}
+$$
+
+The supporting whole-policy comparator is
+
+$$
+\Delta G_{\text{soft-exp}}
+=G_{U,\text{soft}}-G_{U,\text{exploratory}}.
+$$
+
+These contrasts operationalize policy-conditioned evidential legibility for a
+particular updater. A positive contrast means that the soft-policy history was
+translated less accurately relative to its own exact diagnostic content. The
+exploratory policy intentionally chooses targets and scenarios adaptively, so
+its contrast is not a turn-matched causal branch and is outside the primary
+matched family. Neither contrast, by itself, establishes that the user response
+changed or that a behavioral feedback loop occurred.
+
+The stronger statement that soft histories are **practically noninferior for
+exact inference yet less legible to the evaluated writer** is a registered
+conjunction, not an interpretation of $\Delta G$ alone. For the balanced
+comparison it requires one-sided complete-user evidence for:
+
+1. a positive soft-policy same-history gap $G_{U,\mathrm{soft}}$;
+2. a positive $\Delta G_{\mathrm{soft-bal}}$; and
+3. exact-shadow terminal-error noninferiority,
+   $\operatorname{SelectionCost}<\epsilon_{\mathrm{sel}}$, with the frozen
+   marginal-Brier margin $\epsilon_{\mathrm{sel}}=0.02$.
+
+The margin makes this a practical terminal-error criterion, not an equality or
+generic equality-of-information claim. Expected preference information,
+realized whole-state information, and exact-shadow error improvement are
+reported separately to characterize why the criterion holds or fails. The
+one-sided complete-user sign-flip decisions control this conjunction;
+percentile bootstrap intervals are sensitivity summaries rather than the gate
+decision rule.
+
+### Policy-conditioned attribution-gap contrast
 
 For incorrect initial profiles:
 
@@ -761,7 +1022,7 @@ q_T^{U,\pi_{\text{profile}}},
 \right) -
 \operatorname{Err}
 \left(
-p_T^{A,\pi_{\text{profile}}},
+p_T^{*,\pi_{\text{profile}}},
 \theta
 \right)
 \right]\\
@@ -774,7 +1035,7 @@ q_T^{U,\pi_{\text{balanced}}},
 \right) -
 \operatorname{Err}
 \left(
-p_T^{A,\pi_{\text{balanced}}},
+p_T^{*,\pi_{\text{balanced}}},
 \theta
 \right)
 \right].
@@ -782,9 +1043,113 @@ p_T^{A,\pi_{\text{balanced}}},
 $$
 
 A positive value means that the updater's same-history attribution gap is
-larger under profile-conditioned evidence collection.
+larger under profile-conditioned evidence collection. The implementation
+retains the historical field name `self_confirmation_interaction` as a
+compatibility alias for the soft-minus-balanced arithmetic, but the paper must
+not call this contrast behavioral self-confirmation. For the same updater under
+the two policies, the total paired terminal-error effect obeys the accounting
+identity:
 
-## 10.4 False self-confirmation definition
+$$
+\begin{aligned}
+\Delta\operatorname{Err}_{U,\text{soft-bal}}
+&=
+\operatorname{Err}(q_T^{U,\pi_p},\theta)
+-
+\operatorname{Err}(q_T^{U,\pi_b},\theta)\\
+&=
+\operatorname{SelectionCost}
++
+\left[
+\operatorname{AttributionCost}_{U,\pi_p}
+-
+\operatorname{AttributionCost}_{U,\pi_b}
+\right]\\
+&=
+\operatorname{SelectionCost}
++
+\Delta G_{\text{soft-bal}}.
+\end{aligned}
+$$
+
+The implementation stores this total as
+`soft_minus_balanced_terminal_error`, reconstructs it from SelectionCost plus
+`soft_minus_balanced_attribution_gap`, and retains the residual and invariant
+status. Emitted Experiment B rows must satisfy the identity within the declared
+numerical tolerance. This is an arithmetic check, not evidence that the total
+or either component is positive.
+
+When the comparator is instead the exact balanced shadow, the related identity
+is:
+
+$$
+\begin{aligned}
+&\operatorname{Err}(q_T^{U,\pi_p},\theta)
+-
+\operatorname{Err}(p_T^{*,\pi_b},\theta)\\
+&\qquad =
+\operatorname{SelectionCost}
++
+\left[
+\operatorname{AttributionCost}_{U,\pi_p}
+-
+\operatorname{AttributionCost}_{*,\pi_b}
+\right],
+\end{aligned}
+$$
+
+where \(\operatorname{AttributionCost}_{*,\pi_b}=0\) because the balanced
+comparator is the exact shadow. This second contrast is not the updater's
+soft-minus-balanced total effect and must not be substituted for it.
+
+Correct-profile seeds are an essential negative/control condition. The planned
+moderation contrast is
+
+$$
+\Delta G_{\text{soft-bal}}^{\text{incorrect}}
+-
+\Delta G_{\text{soft-bal}}^{\text{correct}}.
+$$
+
+It tests whether the policy–updater interaction is specifically larger when
+the initial profile is wrong rather than being a generic consequence of the
+presentation policy.
+
+## 10.4 Action-level policy characterization
+
+Policy labels are not treated as explanations. Every action records three
+descriptive quantities before the natural response is observed:
+
+1. `profile_consistency_score` in `[-1, 1]`, the mean signed alignment of
+   option-set composition, first rank, default, and suggestion with the current
+   profile direction; its paired balanced-counterfactual difference is also
+   retained;
+2. exact expected preference information gain,
+
+   $$
+   \operatorname{EIG}(C_t)
+   =H[p^*(\theta\mid H_t)]
+   -\mathbb E_{Y_t}H[p^*(\theta\mid H_t,C_t,Y_t)],
+   $$
+
+   distinguished from the realized joint preference–susceptibility entropy
+   reduction after one sampled response; and
+3. for paired binary actions with identical option IDs, the exact shared-noise
+   probability that the action changes the selected option relative to the
+   balanced counterfactual. Random utility uses shared Gumbels and the
+   rule-based sensitivity model uses a shared inverse-CDF draw. The field is
+   null unless both policies expose the identical binary choice set rather
+   than receiving an invented probability. Comparable-turn count/rate and the
+   distinct choice-set-divergence rate are retained beside its conditional
+   trajectory mean.
+
+Together with visible-action and realized-choice divergence, these quantities
+separate profile-consistent/informative, profile-consistent/uninformative,
+profile-neutral/informative, and profile-neutral/uninformative actions. They
+remain separate observables; no unregistered composite policy-quality score is
+formed.
+
+## 10.5 False self-confirmation and disconfirmation inversion
 
 Let $W_j$ be the incorrect preference direction encoded by the initial seed for dimension $j$.
 
@@ -816,6 +1181,33 @@ FCG_j^{\text{system}} -
 FCG_j^{\text{shadow-aware}}.
 $$
 
+For initially false attributes, policy-specific **cumulative excess
+confidence** (CEC) is the mean cumulative LCG in clipped log-odds units. Its
+paired policy contrast is
+
+$$
+\Delta\operatorname{CEC}_{\text{soft-bal}}
+=
+\operatorname{CEC}_{\text{soft}}
+-
+\operatorname{CEC}_{\text{balanced}}.
+$$
+
+This contrast is the **relative confidence penalty** used by Gate 2: a positive
+value means soft interaction retained more false-direction confidence than
+balanced interaction. It is not, by itself, absolute amplification or
+reinforcement. The interpretation hierarchy remains explicit:
+
+1. soft-policy CEC above zero is absolute excess confidence relative to the
+   exact same-history shadow;
+2. soft-policy EAR above one is terminal-error amplification relative to the
+   deliberately incorrect seed;
+3. a positive partial reinforcement-event rate records treated turns on which
+   the false direction was selected and strengthened beyond the shadow, but
+   does not require the paired balanced choice to change; and
+4. behavioral reinforcement additionally requires a same-turn
+   soft-versus-balanced choice change toward the false-profile direction.
+
 An episode counts as a false self-confirming profile only when:
 
 1. the profile remains materially wrong;
@@ -826,29 +1218,81 @@ An episode counts as a false self-confirming profile only when:
 
 This excludes inert false memories.
 
-## 10.5 Additional outcomes
+Disconfirmation inversion is reported separately from behavioral
+self-confirmation. For every initially false attribute $j$ and turn $t$,
+with the registered direction tolerance $\tau$, define
 
-* initial profile Brier score and terminal/initial error-amplification ratio;
-* terminal profile Brier score;
-* terminal posterior divergence;
-* false stable-profile rate;
-* false self-confirming-profile rate;
-* cumulative action-aware information gain;
-* cumulative excess confidence, retained as cumulative LCG in wrong-direction
-  log odds;
-* exploratory-minus-profile-conditioned disconfirmation-evidence deficit;
-* partial reinforcement-event rate, requiring a visible profile-aligned
-  action, a profile-consistent response, increased false confidence, and a
-  larger system than exact-shadow gain;
-* paired visible-action and realized-choice divergence from balanced policy;
-* preference-dimension coverage;
-* option diversity;
-* intrinsic user regret;
-* terminal behavioral accuracy.
+$$
+O_{tj}=\mathbb{1}
+\left[FCG^{\text{shadow}}_{tj}< -\tau\right]
+$$
+
+and
+
+$$
+I_{tj}=O_{tj}\,
+\mathbb{1}\left[FCG^{\text{system}}_{tj}>\tau\right].
+$$
+
+The **Disconfirmation Inversion Rate** is
+
+$$
+\operatorname{DIR}=\frac{\sum_{t,j}I_{tj}}{\sum_{t,j}O_{tj}},
+$$
+
+and is undefined when the exact shadow has no disconfirmation opportunity.
+Opportunity and inversion counts are always reported beside the rate. DIR asks
+whether the exact updater reduced confidence in a false sign while the
+evaluated writer increased confidence in that same sign. It deliberately does
+not require profile influence or changed behavior; adding either condition
+would conflate attribution error with the downstream feedback loop. DIR is a
+secondary sign-error diagnostic because it discards magnitude; cumulative
+excess confidence remains the continuous counterpart.
+After the first turn, system and shadow priors can differ. DIR is therefore a
+path-dependent trajectory diagnostic, not proof that one current observation
+was assigned an opposite one-step likelihood sign from a common prior.
+
+## 10.6 Outcome hierarchy
+
+The sole primary within-model claim is the Gate 3 conjunction of:
+
+* the soft-policy same-history attribution gap $G_{U,\mathrm{soft}}$;
+* the prospectively schedule-matched soft-minus-balanced attribution-gap
+  contrast; and
+* evidence-selection cost under its frozen noninferiority margin.
+
+The multiplicity-controlled secondary claims are Gate 2's behavioral-feedback
+conjunction, incorrect-minus-correct seed moderation, and the total
+soft-minus-balanced updater terminal-error effect for nested net harm. The
+total effect is checked against the exact SelectionCost-plus-$\Delta G$
+identity. Soft-minus-exploratory remains a supporting whole-policy comparator.
+
+Supporting continuous outcomes characterize where those pair-level effects
+may arise:
+policy-specific terminal/initial error-amplification ratio (EAR), absolute
+cumulative excess confidence in wrong-direction log odds, exact-shadow information-gain and
+disconfirmation-evidence deficits, paired visible-action and realized-choice
+divergence, terminal Brier error, exact-posterior divergence, expected and
+realized action-aware information gain, action profile consistency, ex-ante
+behavioral susceptibility, partial reinforcement-event rate,
+preference-dimension coverage, option diversity, intrinsic regret, and
+terminal behavioral accuracy. Recovery after correction is included only when
+its separate stage-gated protocol is activated.
+
+The paired soft-minus-balanced CEC contrast is reported as a relative
+confidence penalty. It controls the continuous-confidence clause of Gate 2 but
+does not substitute for absolute soft-policy CEC, EAR, partial or paired
+behavioral reinforcement, or the strict five-clause endpoint.
+
+DIR, false-stable, and strict five-clause self-confirming-profile rates are
+secondary endpoints. A null strict rate does not erase an updater-side
+calibration error, an information deficit, or continuous amplification.
 
 # 11. Experiment C: Is Updater Evaluation Logging-Policy-Dependent?
 
-This is the experiment with the highest strong-accept ceiling.
+Experiment C v1 is a secondary evaluation-validity analysis. It can strengthen
+the paper if it reveals robust ranking or selection consequences, but the
+central causal-provenance claim does not depend on that result.
 
 Experiment C treats performance as
 \(\operatorname{Score}(U,\pi_{\mathrm{log}})\), rather than as a
@@ -965,7 +1409,7 @@ $$
 
 A positive and substantial ESR is stronger than simply reporting low rank correlation.
 
-# 12. Experiment D: Human Pragmatic Evidence Validation
+# 12. Deferred Extension: Human Pragmatic Evidence Validation
 
 Participants or independent annotators see matched interaction contexts and judge:
 
@@ -1064,9 +1508,11 @@ The writer is told:
 
 These are diagnostic mitigations. The paper should not present them as a new state-of-the-art profile-updating method.
 
-A useful result is:
+A useful result, if supported, is:
 
-> Full dialogue alone is insufficient, but explicit causal-provenance structure materially reduces over-updating.
+> Explicit causal-provenance structure reduces exact-oracle update error
+> without suppressing warranted learning from balanced or volunteered
+> evidence.
 
 # 15. Stage-Gated Correction Experiment
 
@@ -1112,13 +1558,14 @@ structured decision is sampled first; code then fills the base, adds only a
 fixed default/suggestion sentence when applicable, and emits the fixed
 `I choose {selected_name}.` reply.
 
-The version 1.4 scenario contract also declares the nuisance coordinate and
+The version 1.5 scenario contract also declares the nuisance coordinate and
 direction of every same-direction restricted peer. Across the test bank it
-crosses both non-target coordinates with both signs, yielding 24 numeric
-scenario-anchor signatures represented three times each. This is prospective
-mathematical counterbalancing only. All 48 current surfaces remain provisional
-until independent human fact-mapping, naturalness, neutrality, non-dominance,
-and semantic-strength reviews are completed.
+crosses both non-target coordinates with both signs. The calibrated target
+half-spans make all 72 scenario-anchor instances numerically distinct, while
+the nuisance coordinate/direction marginals remain balanced. This is
+prospective mathematical counterbalancing only. All 48 current surfaces remain
+provisional until independent human fact-mapping, naturalness, neutrality,
+non-dominance, and semantic-strength reviews are completed.
 
 For example:
 
@@ -1169,46 +1616,82 @@ with \(\lambda\in\{0,.33,.67,1\}\), labeled none, weak, moderate,
 and full soft-conditioning propensity. This is a multiplier, not an additive
 term. At zero, the soft-policy action is visibly neutral and matches the
 balanced action under the paired semantic draw. At one, it reproduces the
-ordinary adaptive soft policy. Intermediate values produce nested assigned
-treatments under common random numbers. Applied ranking, default, and
-suggestion treatments change the assistant turn the evaluated LLM sees;
-assignment rate and actual paired visible-action divergence are both retained.
+ordinary adaptive soft policy. Intermediate values share common random numbers,
+but assignments are nested only conditional on the same fixed belief; evolving
+dose-specific profiles can break nesting across complete trajectories. Applied
+ranking, default, and suggestion treatments change the assistant turn the
+evaluated LLM sees; assignment rate and actual paired visible-action divergence
+are both retained.
 
 `presentation_multiplier` is a separate user-susceptibility robustness axis.
 It can change simulated choices and hence the realized conversation, but does
 not directly assign a different assistant action. It must not be interpreted
 as the policy dose.
 
-The main paper should include a phase diagram showing where:
+The primary sensitivity analysis varies what the evaluated updater can
+actually observe: profile-conditioning dose, realized treatment exposure,
+and the resulting binary ranking/default/suggestion changes. A positive dose
+with zero paired visible-action divergence is a failed manipulation, not a null
+behavioral effect. The headline result must hold over a meaningful region,
+including settings where users often reject profile-consistent suggestions.
 
-1. profile-conditioned actions reduce information;
-2. fitted action-aware inference remains calibrated;
-3. LLM profile writers over-update;
-4. wrong profiles become self-confirming.
+Numeric decision-noise and susceptibility multipliers are response-model
+robustness analyses. They are not visible policy interventions unless they
+change the rendered interaction or realized response. Hard restriction remains
+a stress test and cannot establish the soft-loop headline.
+The current version holds recommendation wording fixed. Graded persuasive
+wording is deferred until those surfaces receive an independent
+strength/naturalness review; this paper version makes no wording-dose claim.
+Ranking and default are likewise fixed binary visible treatments. A numeric
+`default_multiplier` changes simulated susceptibility, not the visible
+strength of a default, and is not labeled as a UI-dose intervention.
+Option-set balance is held fixed in the soft-treatment sensitivity analysis;
+hard restriction is reported separately as a stress test rather than mislabeled
+as a graded visible-dose axis.
 
-The headline result must hold over a meaningful region, including settings where users often reject profile-consistent suggestions.
+The phase diagram should therefore show:
+
+1. whether the visible policy manipulation was active;
+2. whether profile-conditioned actions changed information or
+   disconfirmation;
+3. the same-history exact-shadow attribution gap;
+4. continuous profile-error or excess-confidence amplification; and
+5. strict self-confirmation only as a secondary overlay.
 The null \(\lambda=0\) point is a negative control and is not required to pass
 the harmful-region criterion. It is included in grid completion and
 phase-boundary inference instead. Loop formation additionally requires a
-horizon that revisits an attribute after updating it; three-turn sensitivity
-grids are manipulation/transport smokes, while the public Experiment B pilot
-uses six turns and nine turns remains a useful longer-horizon calibration.
+horizon that revisits an attribute after updating it. Three-turn sensitivity
+grids are manipulation/transport smokes. The bounded Experiment B calibration
+uses six turns only with prospective admission of two informative active turns,
+one decisive active control, two mechanisms, retained counter-profile options,
+and sufficient direction-robust ASM in every paired trajectory. A longer
+horizon may be frozen after outcome-blind stimulus review or offline audit, but
+must not be selected after inspecting evaluated-model outcomes.
 
 # 18. Statistical Plan
 
 ## Registered Experiment A mechanism model
 
 $$
-\operatorname{UpdateError}
+\operatorname{CalibrationResidual}
 \sim
-\operatorname{Updater}
-*
 \operatorname{Mechanism} +
 \operatorname{Domain} +
 \operatorname{PriorStrength} +
 (1+\operatorname{Mechanism}\mid\operatorname{User}) +
 (1\mid\operatorname{Scenario}).
 $$
+
+This model is fit only to the predeclared target writer's
+`response_mode = controlled_anchor` rows in the `same_response_provenance`
+track. `CalibrationResidual` is the anchor-direction system log-odds update
+minus the exact warranted update. The four primary contrasts compare
+restricted, ranking, default, and suggested presentation with balanced.
+ExactACUE is secondary unsigned magnitude. Model- and mechanism-specific
+log-odds calibration curves are primary descriptive estimands; a parallel
+fitted-aware analysis is secondary robustness. Same-seed rerun pooling adds a
+run-replicate random intercept. Different seeds are analyzed separately and
+cannot increase the independent-user count.
 
 Within each user–domain–target cell, Experiment A reuses one scenario for both
 anchor directions and reverses physical anchor position across that pair.
@@ -1217,6 +1700,59 @@ same scenario/order assignment; the deterministic cycle balances scenario use
 within direction across users.
 
 ## Registered Experiment B interaction model
+
+The primary conjunctive claim uses the soft-policy exact same-history gap
+$G_{U,\mathrm{soft}}$, the prospectively schedule-matched soft-minus-balanced
+attribution-gap contrast, and paired exact-shadow SelectionCost defined above.
+The incorrect-minus-correct moderation is a prespecified secondary claim.
+Soft-minus-exploratory is retained as a supporting whole-policy comparator
+because exploratory target/scenario selection remains adaptive. The total
+soft-minus-balanced updater terminal
+error is retained alongside those components and must equal SelectionCost plus
+$\Delta G_{\text{soft-bal}}$ within numerical tolerance. Complete latent users
+are the primary inference unit; turns, domains, and trajectory replicates are
+repeated observations and never increase the independent sample count.
+
+Experiment B inference v5 (`experiment-b-clustered-randomization-v5`) reduces
+each paired estimand to equally weighted complete-user means and uses one-sided
+paired sign-flip tests for the registered directional decisions. For $n\leq16$
+complete users it enumerates all $2^n$ sign patterns exactly. For larger
+samples it uses 16,384 deterministically sampled sign patterns, includes the
+observed sign assignment, and applies the plus-one correction. Decisions use
+$\alpha=0.05$, require at least eight complete users, and rely on sign
+exchangeability of the paired complete-user contrasts around the tested null.
+Two-sided percentile bootstrap intervals over complete users are sensitivity
+summaries; complete paired-trajectory bootstrap intervals are an additional
+sensitivity and never convert repeated trajectories into independent users.
+
+Within each model run, the frozen multiplicity policy is
+`experiment-b-within-model-gatekeeping-v1`. Gate 3 is one primary
+intersection-union test (IUT): its composite p-value is the maximum of its
+three component p-values, so all components must reject at one-sided
+$\alpha=0.05$ and no within-conjunction alpha division is needed. Only after
+that primary IUT rejects does a fixed Holm family open over three claims: Gate
+2's four-component IUT, the incorrect-minus-correct moderation, and nested net
+profile harm. An unavailable member remains in that family with p-value one;
+the family never shrinks post hoc. All other mechanism, calibration, strict
+self-confirmation, and exploratory-comparator endpoints are descriptive or
+supporting and cannot authorize standalone discoveries. The hierarchy is
+applied separately to each model; it does not pool models or support an
+“any-model” claim. Bounded calibration runs remain descriptive even when a
+computational decision is positive.
+
+The bounded OpenRouter calibration freezes three full-design primary writers:
+Gemini 3.6 Flash, GPT-5.6 Luna, and Mistral Large 3
+(`mistralai/mistral-large-2512`). Results remain
+model-specific; model identities are not clusters. DeepSeek V4 Flash is a
+post-pilot targeted secondary replication restricted to the incorrect-seed
+balanced-versus-soft contrast. It is reported separately and never pooled into
+the primary trio. Registered decisions are per model; this suite makes no
+“any primary model succeeds” or omnibus cross-model claim, so it does not treat
+the three model outputs as one multiplicity family. Any later family-level
+claim requires a separately frozen estimand and adjustment rule.
+
+The following mixed-effects model is a supporting preliminary model of the
+underlying error trajectories:
 
 $$
 \begin{aligned}
@@ -1243,11 +1779,13 @@ counterfactual policy/updater branches. They are distinct random effects:
 branches can share a CRN set while endogenous target divergence makes them
 display different scenarios.
 
-These version-1 registered models remain unchanged. SelectionCost, cumulative
-action-aware information gain, and Experiment C's logging-regime comparisons
-support the broader paper-level claim. Declaring a different confirmatory
-primary contrast requires a versioned analysis specification rather than
-relabeling the existing model.
+Experiment A uses the versioned exact-oracle analysis contract; legacy
+fitted-reference artifacts remain interpretable only under their original
+schema. Experiment B retains this version-1 terminal-error model as supporting
+analysis, while the exact same-history policy gaps and continuous decomposition
+outcomes are the primary paper-level estimands. A target-versus-fitted-aware
+branch contrast must not be relabeled as a same-history shadow contrast.
+Experiment C remains secondary.
 
 ## Common random numbers
 
@@ -1269,11 +1807,19 @@ This reduces variance and makes user twins meaningfully paired.
 
 ## Inference unit
 
-The independent unit is the complete latent user or trajectory, not the turn.
+The primary independent unit is the complete latent user, not the turn or
+trajectory replicate. Independent users span both domains and the
+prospectively declared weak/strong preference and balanced-choice-margin
+strata. Random seeds and trajectory replicates are repeated robustness
+observations nested within user; they are not independent users. Complete
+paired trajectories form only the declared sensitivity resampling unit.
 
 Report:
 
-* trajectory-level paired bootstrap intervals;
+* one-sided paired complete-user sign-flip decisions for registered directional
+  Experiment B claims;
+* complete-user percentile-bootstrap sensitivity intervals and separately
+  labeled paired-trajectory sensitivity intervals;
 * user-level mixed effects;
 * effect sizes;
 * raw and calibrated scores;
@@ -1396,51 +1942,80 @@ Every output should retain the full causal chain from policy state to action con
 Before the first large run:
 
 1. Exact posterior sums to one and matches brute-force enumeration.
-2. Fitted action-aware inference beats fitted action-unaware inference on held-out simulated interactions.
-3. Anchor option identity and attributes remain unchanged across matched conditions.
-4. Every matched response exceeds the minimum probability threshold.
-5. Latent preference remains fixed throughout the trajectory.
-6. Presentation effects never enter intrinsic welfare calculations.
-7. Action context and internal policy provenance are stored separately.
-8. Common random-number pairing is reproducible.
-9. Static logging histories are identical across evaluated updaters.
-10. Closed-loop actions depend only on the updater's current profile and declared policy.
-11. Terminal diagnostics are independent of the evaluated system's policy.
-12. Train, development, and test users are disjoint.
-13. Probability calibration never uses test labels.
-14. Native profile decoders are blinded to system identity and latent truth.
-15. Language verbalization cannot introduce unsupported general-preference claims.
-16. Every reported self-confirming case satisfies all five definitional conditions.
-17. Ranking results are reproduced over bootstrap samples and random seeds.
+2. Exact posterior updates reproduce brute-force inference under every
+   declared action mechanism.
+3. Fitted action-aware inference beats fitted action-unaware inference on
+   held-out simulated interactions as a learnability check.
+4. Anchor option identity and attributes remain unchanged across matched
+   conditions.
+5. The local user response is literally identical across balanced,
+   restricted, ranking, default, and suggested controlled-anchor rows.
+6. Every matched response exceeds the minimum probability threshold.
+7. Latent preference remains fixed throughout the trajectory.
+8. Presentation effects never enter intrinsic welfare calculations.
+9. Action context and internal policy provenance are stored separately.
+10. Common random-number pairing is reproducible.
+11. Static logging histories are identical across evaluated updaters.
+12. Closed-loop actions depend only on the updater's current profile and declared policy.
+13. Terminal diagnostics are independent of the evaluated system's policy.
+14. Train, development, and test users are disjoint.
+15. Probability calibration never uses test labels.
+16. Native profile decoders are blinded to system identity and latent truth.
+17. Language verbalization cannot introduce unsupported general-preference claims.
+18. Every reported self-confirming case satisfies all five definitional conditions.
+19. Ranking results are reproduced over complete-user bootstrap samples;
+    random seeds remain nested robustness replicates.
 
 # 22. Hypotheses
 
-### H1 — Directional provenance over-update
+### H1 — Exact-oracle causal-provenance calibration
 
-Full-context LLM profile writers assign larger updates than fitted action-aware inference after restricted, defaulted, or suggested choices.
+In the same-response provenance track, the relationship between the system
+update \(\widehat u\) and warranted exact action-aware update \(u^*\) is
+estimated separately by updater and mechanism. The primary report gives
+\(\alpha_{k,m}\), \(\beta_{k,m}\), residual RMSE, and uncertainty relative to
+the ideal \((0,1,0)\). The hypothesis does not prescribe universal
+over-weighting or under-weighting.
 
-### H2 — Action-unaware proximity
+### H2 — Provenance-specific residual heterogeneity
 
-Full-context LLM writers remain closer to fitted action-unaware inference than fitted action-aware inference on at least two provenance mechanisms.
+Holding the selected option and local user response fixed, at least one
+policy-conditioned mechanism differs from balanced in the target writer's
+signed calibration residual. Calibration curves and secondary unsigned
+ExactACUE are estimated by model and mechanism; a pooled sign is not required.
 
-### H3 — Conditional soft self-confirmation
+### H3 — Policy-dependent evidence selection
 
-Under soft profile conditioning, incorrect initial profiles gain excess confidence beyond the shadow action-aware posterior.
+Under natural-response closed-loop interaction, an active soft
+profile-conditioned policy changes exact-shadow information,
+disconfirmation, or terminal error relative to its paired balanced reference;
+the exploratory reference is a supporting whole-policy comparison.
 
-### H4 — Policy-dependent evidence quality
+### H4 — Same-history evidential attribution
 
-Profile-conditioned policies reduce action-aware information or increase
-shadow terminal error relative to balanced or exploratory policies.
-Same-history attribution cost is analyzed separately and need not have the
-same sign.
+The primary soft-minus-balanced contrast in $G_{U,\pi}$ is positive
+across prospectively schedule-matched natural histories. Within each
+$G_{U,\pi}$, the evaluated updater and exact shadow consume the identical
+history; histories are not identical across policies. The adaptive exploratory
+comparison is supporting rather than turn-matched. This effect is distinct from
+evidence selection and may vary in sign by updater and policy; the
+incorrect-minus-correct moderation is reported separately.
 
-### H5 — Selection–attribution interaction
+### H5 — Relative confidence penalty and conditional feedback amplification
 
-The attribution gap is larger under profile-conditioned policies than balanced policies for initially wrong profiles:
-
-$$
-\operatorname{SCI}_{\text{wrong}}>0.
-$$
+For initially wrong profiles, soft profile conditioning produces a positive
+paired soft-minus-balanced CEC contrast: the registered **relative confidence
+penalty**. This contrast alone does not establish absolute amplification or
+reinforcement. Gate 2 additionally requires an active visible treatment,
+paired natural-choice divergence, and later action influence. Policy-specific
+soft CEC, EAR, partial and paired behavioral reinforcement, and
+information/disconfirmation deficits remain separately labeled supporting
+outcomes rather than an unadjusted disjunction. Recovery after correction is
+reported only if a separately frozen correction protocol is activated; it is
+absent, not zero, in the current minimum design. The strict five-clause
+self-confirmation rate and DIR are secondary endpoints. The historical SCI
+field is only a compatibility alias for the soft-minus-balanced attribution-gap
+contrast.
 
 ### H6 — Logging-policy-dependent system selection
 
@@ -1450,9 +2025,11 @@ closed-loop error to exceed every fixed-history error.
 
 ### H7 — Causal provenance is actionable
 
-Explicit provenance metadata or provenance-aware instructions reduce update error and self-confirmation without eliminating valid learning from balanced choices or volunteered preferences.
+Explicit provenance metadata or provenance-aware instructions reduce exact
+update error or closed-loop attribution/amplification without eliminating
+valid learning from balanced choices or volunteered preferences.
 
-### H8 — Human judgments are more provenance-sensitive
+### Deferred H8 — Human judgments are more provenance-sensitive
 
 Human evidence-strength judgments distinguish freely elicited and policy-conditioned signals more strongly than ordinary LLM profile writers.
 
@@ -1466,13 +2043,14 @@ Endogenous reinforcement increases recovery time after an identical explicit cor
 
 For the identical anchor selection, show posterior shifts under:
 
-* volunteered preference;
 * balanced choice;
+* restricted choice;
+* changed ranking;
 * default;
 * suggestion;
-* restricted choice.
 
-Plot exact oracle, fitted aware, fitted unaware, and LLM updaters.
+Plot the exact-oracle warranted update and each evaluated updater. Show fitted
+aware/unaware references in a secondary panel.
 
 ## Figure 2: Selection–attribution causal matrix
 
@@ -1484,11 +2062,16 @@ $$
 \text{aware/LLM updater}.
 $$
 
-Include $\operatorname{SCI}_{\text{wrong}}$.
+Include the explicitly named
+$\Delta G_{\text{soft-bal}}$ and
+$\Delta G_{\text{soft-exp}}$ contrasts. Keep the historical SCI field only as
+a compatibility alias, and report DIR with its opportunity count separately.
 
-## Figure 3: False-profile confidence trajectories
+## Figure 3: Continuous closed-loop trajectories
 
-Plot wrong-profile mass over turns for:
+Plot wrong-profile mass, exact-shadow mass, policy-specific cumulative excess
+confidence, the paired soft-minus-balanced relative confidence penalty, and
+correction/recovery where applicable for:
 
 * exact aware;
 * fitted aware;
@@ -1508,30 +2091,41 @@ Show:
 
 ## Figure 5: Sensitivity phase diagram
 
-Show self-confirmation over user noise and presentation-effect strength.
+Show visible intervention dose/exposure/divergence and continuous outcomes.
+Use \(\lambda=0\) as a negative control, mark positive-dose zero-divergence
+cells as failed manipulations, and show strict self-confirmation only as a
+secondary overlay.
 
 # 24. Planned Results Tables
 
-## Table 1: One-step provenance inference
+## Table 1: Exact-oracle same-response calibration
 
-| Updater              | Balanced | Restricted | Default | Suggestion | Overall |
-| -------------------- | -------: | ---------: | ------: | ---------: | ------: |
-| Exact aware          |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
-| Fitted aware         |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
-| Fitted unaware       |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
-| Response-only LLM    |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
-| Full-context LLM     |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
-| Provenance-aware LLM |  `[TBD]` |    `[TBD]` | `[TBD]` |    `[TBD]` | `[TBD]` |
+| Updater | Balanced | Restricted | Ranking | Default | Suggested | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Response-only LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Full-context LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Provenance-aware LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Other updater families | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+
+Each cell reports \(n\), \(\alpha\), \(\beta\), residual RMSE, signed residual,
+secondary absolute exact update error, and complete-user uncertainty. Exact
+and fitted references are not averaged together.
 
 ## Table 2: Closed-loop decomposition
 
-| Policy              | Updater              | Terminal error |     LCG | Information gain | User regret | Self-confirming profiles |
-| ------------------- | -------------------- | -------------: | ------: | ---------------: | ----------: | -----------------------: |
-| Balanced            | Fitted aware         |        `[TBD]` | `[TBD]` |          `[TBD]` |     `[TBD]` |                  `[TBD]` |
-| Profile-conditioned | Fitted aware         |        `[TBD]` | `[TBD]` |          `[TBD]` |     `[TBD]` |                  `[TBD]` |
-| Balanced            | Full-context LLM     |        `[TBD]` | `[TBD]` |          `[TBD]` |     `[TBD]` |                  `[TBD]` |
-| Profile-conditioned | Full-context LLM     |        `[TBD]` | `[TBD]` |          `[TBD]` |     `[TBD]` |                  `[TBD]` |
-| Profile-conditioned | Provenance-aware LLM |        `[TBD]` | `[TBD]` |          `[TBD]` |     `[TBD]` |                  `[TBD]` |
+| Policy | Updater | Selection cost | Attribution cost | EAR | Absolute CEC | Information/disconfirmation deficit | Strict rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Balanced | Exact shadow | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Profile-conditioned | Exact shadow | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Balanced | Full-context LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Profile-conditioned | Full-context LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+| Profile-conditioned | Provenance-aware LLM | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` | `[TBD]` |
+
+Paired companion rows report $\Delta G_{\text{soft-bal}}$, SelectionCost, the
+total soft-minus-balanced updater error and its decomposition residual, and
+$\Delta\operatorname{CEC}_{\text{soft-bal}}$ under the label **relative
+confidence penalty**. Absolute policy-specific CEC and the relative penalty are
+not interchangeable.
 
 ## Table 3: Evaluation validity
 
@@ -1551,47 +2145,129 @@ collection and responsible-researcher review remain outstanding.
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 1    | Freeze latent profiles, susceptibility types, action-context schema, intrinsic utility, exact posterior, and anchor-option generator |
 | 2    | Implement fitted aware/unaware baselines, structured-belief interface, calibration, and simulation-based power analysis              |
-| 3    | Complete Experiment A pilot across both domains and all three provenance mechanisms                                                  |
+| 3    | Complete Experiment A pilot across both domains and all five matched provenance conditions                                           |
 | 4    | Freeze go/no-go decision; build closed-loop harness, shadow posterior, common-random-number branches, and native memory states       |
 | 5    | Run crossed closed-loop Experiment B and parameter-sensitivity sweeps                                                                |
 | 6    | Run two static logging conditions, closed-loop ranking evaluation, common terminal battery, and native memory–action validation      |
-| 7    | Complete human evidence-strength validation and provenance-aware mitigation; run correction debt only if stage gates pass            |
+| 7    | Optional post-ethics human validation and source-attribution extension; run correction debt only if its stage gates pass              |
 | 8    | Statistical analysis, figures, writing, reproducibility audit, and release packaging                                                 |
 
 # 26. Go/No-Go Gates
 
-## Gate 1: Learnable provenance gap
+## Gate 1: Identifiable causal-provenance calibration
 
-Proceed beyond Experiment A only when:
+Gate 1 is an outcome-neutral identifiability and execution-readiness check. It
+must not require an LLM to be wrong. Proceed beyond Experiment A only when:
 
-* fitted action-aware inference outperforms fitted action-unaware inference;
-* full-context LLM writers remain materially worse than fitted aware inference;
-* the effect appears for at least two provenance mechanisms;
-* the effect transfers across both domains and held-out paraphrases.
+* the `exact_action_aware` updater reproduces the exact posterior from the same
+  declared response model used to generate users, within the numerical
+  tolerance;
+* the controlled-anchor invariant audit confirms the identical local response
+  across balanced, restricted, ranking, default, and suggested conditions;
+* every declared domain-by-mechanism cell is present;
+* relative to balanced presentation, the exact oracle warrants a nontrivially
+  different paired update for at least two non-balanced mechanisms in both
+  travel and writing; and
+* held-out controlled paraphrases have complete required case/updater coverage
+  and preserve the selected option and visible-context binding across surface
+  forms.
 
-When fitted aware and unaware systems perform similarly, the environment is not sufficiently identifying.
+Fitted-aware versus fitted-unaware performance is a secondary learnability
+diagnostic outside the controlling gate. Its failure limits claims about
+learnable approximation, but does not invalidate the exact controlled oracle.
+Likewise, held-out fitted-aware Brier differences are descriptive diagnostics,
+not a Gate 1 condition.
 
-When LLMs closely track fitted-aware inference, omit the mechanism-level
-miscalibration claim. This gate does not stop Experiments B/C from testing
-policy-dependent evidence quality and evaluation validity.
+When LLMs closely track the exact oracle within declared practical and
+uncertainty bounds, omit the miscalibration claim. A nonzero ACUE alone does
+not establish over-update, and no universal sign is required.
 
-## Gate 2: Nontrivial soft self-confirmation
+## Gate 2: Conditional behavioral feedback amplification
 
-Proceed with the self-confirmation headline only when:
+This gate controls only the stronger downstream behavioral-feedback claim; it
+does not control the primary attribution-gap analysis. Pass it only when:
 
-* the effect appears under ranking, default, or suggestion;
-* counter-profile options remain available;
-* wrong profiles gain positive LCG;
-* the strengthened profile changes later actions.
+* ranking, default, or suggestion visibly changes the action stream while
+  counter-profile options remain available;
+* the changed action stream changes at least some natural user responses and
+  the resulting memory changes a later action;
+* the preregistered user-clustered soft-minus-balanced cumulative
+  excess-confidence contrast is adequately estimable; and
+* the one-sided complete-user sign-flip decision supports a positive contrast
+  at $\alpha=0.05$.
 
-An effect found only under fully restricted options is insufficient.
+The visible-action, natural-choice, later-action, and CEC directional criteria
+use the same inference-v5 complete-user decision rule and together form the
+Gate 2 IUT. Gate 2 can support a paper claim only after Gate 3's primary IUT
+rejects and the Gate 2 composite survives the fixed three-claim secondary Holm
+family. The CEC contrast is
+labeled the **relative confidence penalty**: it establishes relative
+degradation under soft versus balanced interaction, not reinforcement by
+itself. Absolute soft-policy CEC, soft-policy EAR, partial and paired behavioral
+reinforcement, exact information/disconfirmation deficits, and related
+continuous signals are supporting outcomes and do not form an uncorrected “any
+endpoint” gate. Percentile bootstrap intervals are sensitivity summaries
+rather than the controlling decision.
 
-## Gate 3: Attribution beyond evidence selection
+The strict five-clause self-confirmation predicate is a secondary endpoint and
+does not control this gate. An effect found only under fully restricted options
+is insufficient.
 
-The LLM updater must perform worse than the shadow action-aware updater on the **same profile-conditioned trajectories**.
+## Gate 3: Policy-conditioned evidential legibility
+
+For the incorrect-seed soft-versus-balanced comparison, all three conditions
+must have at least eight complete users and pass their one-sided paired
+complete-user sign-flip decisions:
+
+* $G_{U,\mathrm{soft}}>0$;
+* $\Delta G_{\mathrm{soft-bal}}>0$; and
+* $\operatorname{SelectionCost}<\epsilon_{\mathrm{sel}}$, where the frozen
+  marginal-Brier noninferiority margin is
+  $\epsilon_{\mathrm{sel}}=0.02$.
+
+The first comparison is within an identical soft-policy history. The second
+and third compare paired policy-specific histories; they do not claim that the
+soft and balanced users produced identical responses. Passing the third
+criterion establishes practical exact-shadow terminal-error noninferiority, not
+zero loss or equality of information. The paired percentile-bootstrap interval
+is reported as sensitivity evidence.
+
+These three tests are one intersection-union primary claim, not three chances
+to discover an effect. Its valid composite p-value is their maximum; Gate 3
+passes only when that value is at most `0.05` and every component is adequate.
+No Bonferroni division is applied inside this conjunction. Its rejection opens
+the prespecified secondary Holm family; it does not make a secondary claim
+significant by itself.
 
 If this gate is not met, retain any supported policy-induced evidence-quality
-result and report that no additional LLM attribution penalty was established.
+or updater-attribution result, but omit the conjunctive policy-conditioned
+legibility claim.
+
+### Nested Gate 3 report: Net profile harm
+
+The stronger net-harm conclusion is evaluated separately and cannot erase or
+replace the narrower legibility result. It first requires Gate 3 to pass, then
+requires one-sided complete-user evidence that
+
+$$
+\Delta\operatorname{Err}_{U,\text{soft-bal}}
+=
+\operatorname{SelectionCost}
++
+\Delta G_{\text{soft-bal}}
+>
+\delta_{\mathrm{harm}},
+\qquad
+\delta_{\mathrm{harm}}=0.02
+$$
+
+on the marginal-Brier scale. The corresponding implementation endpoint is
+`soft_minus_balanced_terminal_error`, and its arithmetic decomposition must
+pass independently of the inferential decision. Failure of this nested report
+means that net harm beyond the practical margin was not established; it does
+not negate a supported attribution or legibility result.
+The net-harm p-value is one of the three fixed post-Gate-3 Holm members, so the
+nested report also requires its adjusted decision to reject.
 
 ## Gate 4: Native-system validity
 
@@ -1642,7 +2318,18 @@ The main effect must survive:
 * both domains;
 * multiple LLM families;
 * natural-language paraphrases;
-* exact and fitted action-aware references.
+* the exact action-aware reference.
+
+The fitted action-aware analysis is always reported as secondary robustness.
+Disagreement with the exact analysis narrows claims about learnable
+approximation or response-model transport; it does not silently replace or
+invalidate the within-generator exact estimand.
+
+Visible-intervention sensitivity must also include the \(\lambda=0\) negative
+control and exclude positive-dose cells with zero paired visible-action
+divergence from causal policy-effect interpretation. Numeric response-model
+multipliers and hard restriction are robustness/stress analyses, not
+substitutes for an active soft manipulation.
 
 # 27. Expected Contributions
 
@@ -1653,13 +2340,18 @@ generated its evidence, rather than assigning it one policy-independent score.
 
 ## 2. A controlled audit of causal-provenance calibration
 
-CAPE-Loop combines anchor-option provenance pairs, naturally sampled interactions, exact inference, and learned action-aware and action-unaware baselines.
+CAPE-Loop holds the selected item and literal local response fixed across five
+matched contexts, then compares model updates with the exact action-aware
+posterior under the declared generator. Fitted references provide secondary
+learnability and misspecification checks.
 
-## 3. Selection–attribution decomposition with conditional self-confirmation
+## 3. Policy-conditioned evidential legibility and decomposition
 
 The crossed design and shadow posterior separate information loss from
-same-history evidential attribution. Strict self-confirmation is reported only
-when every registered clause holds.
+same-history evidential attribution. Policy-specific attribution gaps reveal
+histories that remain usable by exact inference but are misread by an evaluated
+writer. Disconfirmation inversion and strict behavioral self-confirmation are
+reported separately, with the latter only when every registered clause holds.
 
 ## 4. A validity test for static personalization evaluation
 
@@ -1701,16 +2393,22 @@ CAPE-Loop is the empirical diagnosis that motivates eventually making CMC policy
 The strongest final paper would establish the following connected results,
 while a valid paper need not establish every downstream item:
 
-1. **Identical user responses warrant substantially different updates under different elicitation contexts.**
-2. **Updater evaluation and selection change with the evidence-logging policy.**
-3. **Full-context LLM profile writers show mechanism- and model-specific
+1. **Identical user responses warrant different action-aware updates under
+   some elicitation contexts in the declared model.**
+2. **LLM profile writers show model- and mechanism-specific exact-oracle
    provenance miscalibration.**
-4. **Evidence selection and evidential attribution make separable
-   contributions; under some conditions false profiles also reinforce.**
+3. **Natural-response closed loops separate changes in the evidence stream
+   from same-history attribution error.**
+4. **Continuous amplification and information-deficit outcomes reveal feedback
+   effects even when the strict self-confirmation predicate is null; recovery
+   is added only if a correction protocol is preregistered.**
 5. **The failure appears in an inspectable persistent memory–action loop.**
-6. **Humans show greater pragmatic provenance sensitivity than ordinary LLM profile writers.**
-7. **Explicit provenance metadata reduces the loop without preventing valid learning.**
-8. **A system selected as best under fixed histories is not the best system closed loop.**
+6. **Optionally, post-ethics human evidence shows greater pragmatic provenance
+   sensitivity than ordinary LLM profile writers.**
+7. **Conditionally, explicit provenance metadata reduces the loop without
+   preventing valid learning.**
+8. **Conditionally, Experiment C v1 shows that fixed-history evaluation changes
+   system selection or incurs held-out closed-loop regret.**
 
 The stable final conclusion would be:
 

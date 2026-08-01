@@ -1,7 +1,8 @@
 # Data model
 
-This page documents the concrete v1 Python serializers, generated JSON
-Schemas, and runner artifacts in this repository. It is a description of the
+This page documents the concrete versioned Python serializers, generated JSON
+Schemas, and runner artifacts in this repository. Most public records remain
+v1; the compact Experiment A row is v2. This is a description of the
 implemented contract, not a proposed future format.
 
 There are three related but distinct layers:
@@ -153,6 +154,8 @@ Each scenario records:
 
 - globally unique scenario and family IDs, revision, provisional/approved
   status, split, domain, task family, and target attribute/key;
+- a finite positive `target_half_span` controlling the symmetric magnitude of
+  the two target directions;
 - the one declared nuisance attribute/key and its signed direction for the
   same-direction restricted peer;
 - a neutral prompt and opaque wording-template ID;
@@ -161,11 +164,11 @@ Each scenario records:
 - supported mechanisms and machine-checkable quality assertions; and
 - automated, surface-review, scientific-review, and paper-eligibility state.
 
-The base options are `-0.5` and `+0.5` only on the target coordinate. Each
-same-direction peer preserves that target value and adds either `-0.25` or
-`+0.25` on exactly one of the other two coordinates. Version 1.4 declares that
-coordinate and sign explicitly as `nuisance_attribute`, `nuisance_key`, and
-`nuisance_direction`. Within each test domain-by-target cell, the six
+The base options are `-target_half_span` and `+target_half_span` only on the
+target coordinate. Each same-direction peer preserves that target value and
+adds either `-0.25` or `+0.25` on exactly one of the other two coordinates.
+Version 1.5 retains the explicit `nuisance_attribute`, `nuisance_key`, and
+`nuisance_direction` contract. Within each test domain-by-target cell, the six
 scenarios cover both non-target attributes and both directions; across the
 complete test bank, each numeric scenario-anchor signature occurs three
 times. This counterbalancing is prospective structure, not evidence that the
@@ -250,7 +253,7 @@ option is selected first by the response model. The exact rendered assistant
 and user text then enters the observation and is therefore reused by every
 updater assigned the same event.
 
-Version 1.4.0 currently contains 48 scenarios, 48 distinct families, and 192
+Version 1.5.0 currently contains 48 scenarios, 48 distinct families, and 192
 globally unique option IDs:
 
 | Cell | Train | Development | Test |
@@ -264,6 +267,14 @@ catalog is `frozen-development` and `simulation-and-pilot-only`; its presence
 does not make a generated run confirmatory evidence. The normative acceptance,
 rejection, drafting, and human-review rules are in
 [Scientific design](scientific-design.md#scenario-catalog-and-quality-policy).
+
+Each scenario declares `target_half_span`, a finite positive target-feature
+contrast. Train and development use `0.50`. Within every six-scenario test
+domain-by-attribute cell, the values are `0.10`, `0.16`, `0.24`, `0.34`,
+`0.46`, and `0.56`. The materializer applies the declared span independently
+of the option's positive/negative semantic role. These are simulator-side,
+pre-outcome difficulty inputs; they do not establish equivalent perceived
+strength in natural language.
 
 The current writing surfaces deliberately use direct category descriptions
 such as “formal,” “conversational,” “concise,” or “detailed.” They do not
@@ -287,26 +298,36 @@ they do not substitute for human review or semantic calibration.
 
 ### Prospective scenario-audit artifacts
 
-`cape-loop scenarios audit CONFIG OUTPUT_DIR` writes three derived,
-outcome-free files:
+`cape-loop scenarios audit CONFIG OUTPUT_DIR` writes the outcome-free machine
+report/workbooks and a version-bound review kit. Use `--split all` for a
+promotion-capable whole-catalog kit:
 
 ```text
 scenario-audit.json                    # machine design/readiness report
 scenario-review.md                     # metadata-visible researcher workbook
 scenario-surface-review-blinded.md     # opaque dialogue-only review packet
+review-protocol.json                   # frozen thresholds and source binding
+review-item-map.json                   # researcher-only opaque-to-source map
+surface-review.template.json           # copy once per surface reviewer
+scientific-review.template.json        # copy once per scientific reviewer
+neutral-choice-pretest.template.json   # raw balanced-choice responses
+masked-attractiveness-pretest.template.json # raw paired ratings
 ```
 
-The JSON distinguishes engineering-pilot, recorded-scientific-pilot, and paper
-readiness. It includes the config-bound response coefficients, the complete
+Schema v3 (`prospective-scenario-calibration-v3`) distinguishes
+engineering-pilot, recorded-scientific-pilot, and paper readiness. It includes
+the config-bound response coefficients, the complete
 theta-by-susceptibility probability grid, both order-averaged estimands and
 physical per-order binary-response bounds, policy-aware no-repeat capacity by
 cell, raw label-length heuristics, rendered-language flags, cross-split lexical
 overlap, within-selected-split lexical redundancy, exact cross-split
 task-family reuse, and recorded review counts. The JSON also reports that the
-72 test scenario-anchor instances reduce to 24 unique numeric signatures,
-with each signature represented three times. It also reports joint
-nuisance-attribute×direction balance and source-neutral conversation-frame
-family balance.
+72 test scenario-anchor instances have 72 unique numeric signatures after the
+target half-span calibration. The probability summary covers every stratum;
+the nondegeneracy guardrail is evaluated on the 30 nondecisive scenarios and
+records the six excluded `0.56` decisive-control scenarios explicitly. The
+JSON also reports joint nuisance-attribute×direction balance and source-neutral
+conversation-frame family balance.
 The machine hygiene pass exhaustively renders 40 cases per selected scenario;
 each Markdown packet keeps six previews per scenario. The blinded packet
 removes scenario IDs, splits, targets, nuisance metadata, feature vectors,
@@ -314,6 +335,48 @@ option roles, and mechanism labels; the researcher packet retains those fields
 for semantic inspection. Lexical and length checks make no semantic-validity
 claim. None of these files changes catalog review fields or constitutes
 verified human evidence.
+
+The protocol binds the catalog ID/version/content digest, conversation-bank
+ID/content digest, audit schema/policy/scope, and the opaque mapping ID. The
+fillable files contain all reviewer-visible material under opaque item IDs;
+blinded reviewers and participants never need `review-item-map.json`.
+Promotion requires exactly two mutually distinct surface reviewers and two
+mutually distinct scientific reviewers, with the two reviewer sets also
+disjoint. Scientific reviewers independently map every prompt/option component
+to target, nuisance, or held-constant roles; incomplete, unmodeled, ambiguous,
+cross-loading, disagreed, or unresolved-warning records fail.
+
+Surface naturalness and neutrality must each have a scenario median of at
+least 4/5. Every balanced option must receive at least 20% of neutral choices,
+the observed option-A share must lie in 30–70%, and its two-sided 90% Wilson
+interval must lie inside 20–80%, with at least 40 independent responses per
+item and balanced display order. Target-masked attractiveness uses at least 80
+paired 1–5 ratings per item, balanced order, and a two-sided 90% normal
+approximation for the paired standardized mean; the complete interval must lie
+inside `[-0.20, 0.20]`. Both scientific reviewers must attest to the exact
+masked materials. These rules are frozen in `review-protocol.json`, rather
+than inferred after observing evaluated-model outcomes.
+
+`cape-loop scenarios review-promote` imports exactly six completed JSON files
+from an evidence directory. It always writes a fresh derived directory with
+the protocol, private map, imported evidence, and `evidence-report.json`. If
+and only if every machine, review, pretest, independence, completeness, and
+whole-catalog criterion passes, it additionally writes:
+
+```text
+reviewed-scenario-catalog.json
+reviewed-conversation-templates.json
+```
+
+The catalog uses a caller-supplied new version and freeze date, is reparsed
+under the strict `frozen-paper` lifecycle, and records the source review
+protocol. The companion conversation bank receives a new bank ID and a
+protocol-bound `independently-reviewed-under` source on both the bank and every
+template; it is validated again rather than copying the development bank's
+`unreviewed` provenance into a misleading reviewed filename. A threshold
+failure is retained in the report and produces neither reviewed input. Neither
+command edits the source catalog, source conversation bank, or experiment
+outcomes.
 
 Every configured catalog-backed run, including sensitivity, retains:
 
@@ -418,6 +481,10 @@ runs/<run-id>/
 │   └── conversation-templates-manifest.json
 ├── population/
 │   └── users.jsonl
+├── design/                              # required planned Experiment B runs
+│   ├── experiment-b-manipulation-plan.json
+│   ├── experiment-b-manipulation-plan.md
+│   └── experiment-b-offline-manipulation-audit.json
 ├── events/
 ├── analysis/
 ├── conversations/
@@ -434,6 +501,49 @@ runs/<run-id>/
 Directories are created as needed, so an experiment without LLM or decoder
 records may leave the corresponding directory empty. Sensitivity uses its own
 point-specific fit and trajectory layout.
+
+The Experiment B plan is written before LLM preparation. Its JSON contains the
+complete paired turn schedule and readiness checks; Markdown is a readable
+active-turn projection. LLM-backed configurations also retain the simulator-
+only multi-seed audit. It explicitly records zero LLM calls, that a local exact
+updater only evolves adaptive policy state, that simulated choices did not
+affect admission, and that target-writer behavioral reinforcement was not
+evaluated.
+
+The current plan contract is schema v2 with
+`plan_id = experiment-b-prospective-manipulation-v2`; the corresponding audit
+is schema v2 with
+`audit_id = experiment-b-offline-manipulation-audit-v2`. In v2, correct- and
+incorrect-initial-profile trajectories keep distinct `crn_key` values for
+analysis identity but share one condition-invariant `schedule_group_key`.
+That shared key freezes the scenario, target, manipulation role, presentation
+mechanism, policy randomization, and simulator response-noise draw across the
+two seed conditions. Required active turns follow the current public-profile
+direction; if that coordinate is exactly neutral, execution uses the frozen
+initial-profile direction and records both the effective direction and the
+fallback source. The audit reports pooled, condition, domain,
+condition-by-domain, and prospective-role summaries, plus required-action and
+fallback counts. `prospective_active_turn_crosstab` is a descriptive table over
+role, mechanism, runtime effective direction, frozen planned direction, target
+attribute, and domain. Its turn-draw total is reconciled against both the pooled
+required-active count and the active-role summaries; it does not affect plan
+admission.
+
+### Experiment B model-suite declaration
+
+[`data/model-suites/experiment-b-bounded-calibration-v1.json`](../data/model-suites/experiment-b-bounded-calibration-v1.json)
+is tracked protocol metadata, not an observation file. Schema v1 identifies
+suite `cape-loop-experiment-b-bounded-calibration-v1`, its project-authored
+source status, Apache-2.0 license, expected CLI consumer, frozen base design,
+analysis boundary, and per-arm route, condition, policy, output, and budget
+contract. Gemini 3.6 Flash, GPT-5.6 Luna, and Mistral Large 3
+(`mistralai/mistral-large-2512`) are separate full-design primary arms.
+DeepSeek V4 Flash is a post-pilot secondary arm restricted to the
+incorrect-seed balanced-versus-soft contrast. No cross-model estimator pools
+any arm, DeepSeek is outside the primary analysis set, and the frozen suite
+makes only per-model decisions—no “any-model” or omnibus claim. The model-suite
+CLI loads this declaration for credential-free planning; only an explicit
+`--execute-live` dispatches the four isolated runs.
 
 `inputs/conversation-templates.json` is the exact bank consumed by the run.
 `inputs/conversation-templates-manifest.json`, also embedded under
@@ -464,10 +574,18 @@ Shared A–C preparation normally adds:
 population/users.jsonl
 models/raw-fitted-likelihoods.json
 models/fitted-likelihoods.json
+models/exact-action-aware-reference.json
 models/calibration.json
 models/held-out-response-diagnostics.json
 metrics/split-leakage-audit.json
 ```
+
+`models/exact-action-aware-reference.json` records the generating response-model
+coefficients, the uniform susceptibility support prospectively assigned to the
+test split, every prior weight, and the supplied experimental
+preference-prior boundary. The support declaration is part of the generator;
+the artifact does not use the realized individual's susceptibility, empirical
+test frequencies, or outcomes.
 
 Experiment-specific event and metric names are documented in the record tables
 below. All experiment summaries and gate reports retain a no-claim boundary.
@@ -498,6 +616,7 @@ models/llm-calibration.json
 llm/development-raw-responses.jsonl   # temperature mode
 metrics/llm-development-calibration.jsonl
 llm/test-raw-responses.jsonl          # temperature mode
+llm/test-calibrated-responses.jsonl   # temperature mode
 ```
 
 Recovery journals remain outside the immutable run. External decoder,
@@ -578,6 +697,7 @@ problematic templates and requires review before release. See
 | latent user release row | top-level `schema_version: 1` |
 | LLM request and response | top-level `schema_version: 1` |
 | run/split/exchange/packet manifests and calibration/fitted-model/gate records | top-level `schema_version: 1` |
+| runner-native compact analysis row | Experiment A `schema_version: 2`; Experiments B/C `schema_version: 1` |
 | generated interaction record | `$id` ends in `interaction-record:v1`; no `schema_version` property |
 | generated trajectory record | `$id` ends in `trajectory:v1`; no `schema_version` property |
 | generated human rating | `$id` ends in `human-rating:v1`; no `schema_version` property |
@@ -1049,24 +1169,50 @@ therefore writes narrow JSON Lines projections for routine analysis:
 
 | File | Row unit | Fields |
 | --- | --- | --- |
-| `analysis/experiment-a-rows.jsonl` | One evaluated updater×trial pair across both response modes | `schema_version`, one-based `source_record_index`, `trial_id`, `user_id`, `domain_id`, `scenario_id`, `updater_id`, `mechanism`, `prior_strength`, `response_mode`, `update_error` |
+| `analysis/experiment-a-rows.jsonl` | One evaluated updater×trial pair across the configured response modes | schema v2; identifiers plus `mechanism`, `prior_strength`, `response_mode`, `analysis_track`, `reference_basis`, `exact_update_error`, `fitted_update_error`, system/exact/fitted log-odds updates, and `calibration_residual` |
 | `analysis/experiment-a-exclusions.jsonl` | One excluded matched set | `schema_version`, `user_id`, `domain_id`, `target_attribute`, `anchor_direction`, `minimum_probability`, `choice_probabilities` |
-| `analysis/experiment-b-turns.jsonl` | One retained turn from one trajectory | `schema_version`, one-based `source_record_index`, zero-based `source_turn_index`, `trajectory_id`, `user_id`, `domain_id`, actual per-turn `scenario_id`, `crn_key`, `updater_id`, `policy_id`, `initial_profile_condition`, one-based `turn`, `terminal_error`, repeated `retained_terminal_error`, `same_history_shadow` |
+| `analysis/experiment-b-turns.jsonl` | One retained turn from one trajectory | schema v1; identifiers, actual `scenario_id`, condition-specific `crn_key`, condition-invariant `schedule_group_key`, updater/policy/initial condition, prospective user/target preference-strength values and strata, balanced-action target and probability margin/stratum, prospective role/mechanism/divergence bound, required-action match, effective profile direction and direction source, one-based turn, system/shadow error and same-history gap, expected and realized information, action profile consistency and balanced advantage, ex-ante paired-choice divergence, per-turn disconfirmation opportunity/inversion counts and flag, retained-terminal error, and `same_history_shadow` |
 | `analysis/experiment-c-rows.jsonl` | One existing fixed-history or endogenous evaluation/ranking row | `schema_version`, one-based `source_record_index`, `split`, `regime`, `replicate`, `user_id`, `domain_id`, `updater_id`, `profile_error`, `behavioral_accuracy`, nullable `cross_context_accuracy`, `intrinsic_regret`, `score_basis`, `history_digest`, `battery_id`, `battery_digest` |
 
-Experiment A's compact `update_error` is the registered fitted-reference
-action-conditioned update error (ACUE); exact-oracle ACUE and KL remain in the
-experiment metric/event rows rather than changing this registered projection.
+Experiment A schema v2 makes the exact generating-model reference explicit.
+`calibration_residual` is the primary controlled-track outcome and must equal
+the system log-odds update minus the exact log-odds update.
+`exact_update_error` and `fitted_update_error` are secondary exact-magnitude
+and fitted-reference robustness outcomes. `analysis_track` is
+`same_response_provenance` for controlled rows and
+`natural_response_secondary` for naturally sampled A rows.
+
 In Experiment B, `terminal_error` is the per-turn marginal Brier error;
 `retained_terminal_error` repeats the trajectory's retained terminal Brier and
 matches the last compact turn. `same_history_shadow` is a Boolean confirming
-that the shadow consumed the same retained history, not the full joint
-posterior. `scenario_id` names the stimulus actually displayed on that turn.
-`crn_key` instead identifies the complete counterfactual policy/updater twin
-set whose compatible choice draws and scenario-occurrence schedules share a
-common random-number key. These are different grouping variables: a branch can
-show a different scenario after its endogenous target sequence diverges while
-remaining in the same CRN set.
+that the retained trace and audit history agree, not the full joint posterior.
+Trajectory construction also fails immediately unless the evaluated updater
+and exact shadow record the identical ordered event IDs after every turn.
+`scenario_id` names the stimulus actually displayed on that turn.
+`crn_key` identifies the complete counterfactual policy/updater twin set within
+one initial-profile condition. For a prospective balanced/soft Experiment B
+run, `schedule_group_key` additionally joins the correct and incorrect seed
+conditions and supplies their shared scenario schedule and response-noise key.
+Outside that prospectively matched balanced/soft contrast, a branch can show a
+different scenario after its endogenous target sequence diverges while
+remaining in the same `crn_key` set; in particular, exploratory remains a
+separate adaptive whole-policy comparator rather than a turn-matched causal
+branch.
+
+Runner-native B rows may include the registered mechanism fields listed in the
+table above. A historical `artifact compact` sidecar intentionally projects
+those rows to the core terminal-error fields required by the supporting R
+mixed-effects model. Consequently, the compact R bundle cannot reproduce the
+paper-primary same-history-gap/SelectionCost, expected-information, action, or
+DIR analysis;
+that analysis is recorded in the source run's
+`metrics/experiment-b-inference.json` and its supporting metric rows.
+
+The B strength and margin fields are prospective labels, not outcomes. A target
+preference is `weak` at `|theta| = 1` and `strong` at `|theta| = 2`. The
+balanced top-two probability gap is `near_tie` below `0.20`, `marginal` from
+`0.20` to below `0.50`, and `decisive` at or above `0.50`, all computed before
+the natural response is sampled.
 
 These are deterministic projections, not independent sources of numerical
 truth. For a newly generated run they are written before finalization, listed
@@ -1166,9 +1312,12 @@ Normalization follows the estimand:
 
 B and sensitivity turn metrics include the evaluator-only balanced action
 signature, visible-action divergence, profile-aligned treatment, and
-reinforcement-event indicator where defined. Their terminal/comparison metrics
-include initial and terminal error, EAR, CEC, reinforcement-event rate, and,
-for matched soft/exploratory B branches, action-aware disconfirmation deficit.
+reinforcement-event indicator where defined. Planned Experiment B turns also
+retain the predeclared manipulation role/mechanism, direction-robust predicted
+choice-divergence bound, and execution-match flag. Their terminal/comparison
+metrics include initial and terminal error, EAR, CEC, partial reinforcement,
+and, for matched B branches, paired behavioral-reinforcement counts/rate and
+action-aware disconfirmation deficit.
 These values describe the same retained trajectories; they are not additional
 observations.
 
@@ -1224,23 +1373,38 @@ experiment-specific rows:
 
 | File | Version field | Principal keys |
 | --- | --- | --- |
-| `metrics/experiment-a.jsonl` | none | `trial_id`, `user_id`, `domain`, `target_attribute`, `anchor_direction`, `prior_stratum`, `prior_strength`, `mechanism`, `response_mode`, `updater_id`, `brier`, fitted-reference `acue`, `exact_acue`, `exact_marginal_kl`, `marginal_kl`, nullable update-direction accuracy, evaluated/excluded direction-component counts, update magnitude, and evidence weight |
+| `metrics/experiment-a.jsonl` | none | trial identifiers/factors, `primary_reference_basis`, `analysis_track`, per-row `system_probability_variant` (`raw` for LLM rows and `not_applicable` for deterministic references), primary signed `calibration_residual`, secondary exact/fitted update errors, exact/fitted/system log-odds updates, Brier/KL values, nullable direction accuracy, update magnitude, and evidence weight |
+| `metrics/experiment-a-same-response-audit.json` | `schema_version: 1` | required mechanisms, matched-cell counts, identical selected-anchor/reply/prior/anchor checks, failures, and overall pass |
+| `metrics/experiment-a-exact-calibration.json` | `schema_version: 2` | `analysis_track = same_response_provenance`, exact reference basis, raw LLM-probability variant, secondary-only temperature role, ideal intercept/slope/RMSE, primary target-writer mechanism-versus-balanced signed residual contrasts, secondary ExactACUE magnitude contrasts, and no-claim status |
+| `metrics/experiment-a-held-out-paraphrase-transfer.json` | `schema_version: 2` | outcome-neutral required case/updater coverage, selected-option/context invariance, missing pairs, and nullable Gate 1 readiness; fitted-aware/full-context Brier gaps remain noncontrolling compatibility diagnostics |
 | `metrics/experiment-a-{oracle,exact-oracle}-slopes.jsonl` | none | updater/response-mode counts, `reference_basis`, pooled intercept/slope, residual summaries by mechanism, nested per-mechanism intercepts/slopes, complete-user bootstrap intervals, and inference status |
-| `metrics/experiment-b-terminal.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, initial/terminal profile Brier, EAR, mean CEC, action-aware disconfirmation evidence, reinforcement-event count/rate, projected-choice/tie scores, shadow-to-system marginal KL, coverage/time-to-coverage, displayed/selected option diversity, profile-conditioned exposure and mechanism count/evenness, cumulative information gain, total regret, nullable false-stable attribute rate, and nullable trajectory-level false-stable flag |
+| `metrics/experiment-b-terminal.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs; initial, terminal, and exact-shadow profile Brier; `same_history_attribution_gap`; exact-shadow error improvement; EAR and CEC; exact expected and realized information; mean profile consistency and balanced advantage; ex-ante paired binary choice-divergence probability; disconfirmation opportunity/inversion counts and DIR; reinforcement-event count/rate; prospective weak/strong and balanced-margin summaries; projected scores, shadow divergence, coverage/diversity/exposure, regret, and nullable false-stability fields |
+| `metrics/experiment-b-prospective-strata-occupancy.json` | `schema_version: 1` | pre-response weak/strong user and attribute counts, near-tie/marginal/decisive balanced-choice margin counts, informative soft-conditioning exposure/divergence counts, per policy/updater/initial-condition cells, and an explicit repeated-turn/nonindependence warning |
 | `metrics/experiment-b-native-decoders.jsonl` | `schema_version: 1` | trajectory/domain/updater/battery IDs, decoder and pseudonymous-state IDs, profile Brier, projected-choice/tie scores, regret, and predicted IDs; it does not repeat trajectory-level decomposition fields |
-| `metrics/experiment-b-decomposition.jsonl` | `schema_version: 1` | paired trajectory IDs; evidence-selection, profile-attribution, balanced-attribution, and interaction costs; visible-action and observed-choice divergence; and nullable exploratory information/disconfirmation deficits |
+| `metrics/experiment-b-decomposition.jsonl` | `decomposition_schema_version: 2` | paired trajectory IDs; the four raw soft/balanced updater/shadow terminal errors; SelectionCost; soft/balanced/exploratory same-history attribution gaps and contrasts; observed and reconstructed total soft-minus-balanced updater error; invariant residual/tolerance/pass; the relative CEC penalty; visible-action and observed-choice divergence; expected/realized information and disconfirmation deficits; and paired behavioral-reinforcement numerator, opportunity denominator, and nullable rate |
+| `metrics/experiment-b-inference.json` | `schema_version: 5` | `experiment-b-clustered-randomization-v5`; equally weighted complete-user estimands; one-sided directional tests with null margin, alternative, alpha, p-value, decision, adequacy, exact/Monte-Carlo flag, and sign-pattern count; executable per-model Gate 3 IUT plus post-Gate-3 Holm metadata/decisions; user-cluster and paired-trajectory bootstrap sensitivity intervals; policy gaps/contrasts, seed moderation, total error, CEC hierarchy, EAR, information, choice divergence, partial/paired reinforcement, DIR, and the secondary strict endpoint |
 | `metrics/experiment-b-self-confirmation.jsonl` | `schema_version: 1` | trajectory/attribute/direction, initial/system-terminal/shadow-terminal wrong mass, system and shadow gain, `false_stable`, cumulative LCG, clause booleans, `reportable` |
 | `metrics/experiment-b-power.json` | `schema_version: 1` | frozen factor contrast/formula, complete-user pilot interactions and exclusions, pilot-input SHA-256, bounded simulation/Monte Carlo settings, 16/32/64/128 power points, Wilson uncertainty, advisory threshold decision, and `not_claimed` boundary |
 | `metrics/experiment-c.jsonl` | `schema_version: 1` | split/regime/replicate/user/domain/updater, ranking scores, `score_basis`, `system_projection_score`, history/event/battery digests, predictions, nested native decoder evaluations |
 | `metrics/experiment-{b,c}-llm-raw-calibrated-terminal.jsonl` | `schema_version: 1` | experiment/pairing/split/regime/user/domain/updater, raw-or-calibrated variant, request/prompt/model IDs, battery scores, active-history scope, zero added provider calls, and explicit full-counterfactual-rerun flag |
-| `metrics/sensitivity.jsonl` | `schema_version: 1` | grid coordinates including `profile_conditioning_strength`, domain/policy/updater stratum, trajectory count, mean initial/terminal/shadow error, EAR, CEC, reinforcement-event rate, cumulative and per-turn information gain/regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, attribution cost, and profile-consistent suggestion opportunity/rejection counts and rate |
+| `metrics/sensitivity.jsonl` | `schema_version: 1` | grid coordinates including `profile_conditioning_strength`, domain/policy/updater stratum, trajectory count, mean initial/terminal/shadow error, same-history gap and exact-shadow improvement, EAR, CEC, exact expected and realized information, profile-consistency score and balanced advantage, ex-ante paired-choice divergence, DIR with opportunity count, reinforcement-event rate, regret, explicitly named attribute/profile self-confirming rates, profile false-stable rate, and profile-consistent suggestion opportunity/rejection counts and rate |
+| `metrics/sensitivity-prospective-strata-occupancy.jsonl` | `schema_version: 1` | one point-bound pre-response occupancy report for the selected phase target, including informative soft visible-divergence counts, per-trajectory counts, per-domain qualifying incorrect-profile users, and the frozen manipulation-adequacy rule |
+| `metrics/sensitivity-phase-points.jsonl` | `schema_version: 2` | one row per declared point; primitive dose/exposure/divergence and suggestion counts; exact recomputable criterion results; soft-minus-balanced attribution and CEC gaps; expected/realized information; action characterization; pooled DIR numerator, denominator, rate, and support counts; and a confirmatory region only for live `llm_full_context` |
+| `metrics/sensitivity-phase-domains.jsonl` | `schema_version: 2` | the same phase definition by domain, including paired attribution/CEC gaps and primitive manipulation fields used by cross-run review |
+| `metrics/sensitivity-phase-boundaries.jsonl` | `schema_version: 2` | observed pass intervals under the v2 phase definition; these are grid intervals, not fitted transition points |
+| `metrics/sensitivity-phase-specification.json` | `schema_version: 2` | `phase_definition_id = visible-conditioning-continuous-outcomes-v2`, exact config-bound criteria, visible-action null control, supported runner modes, live confirmatory modes, and secondary endpoints |
 
 Sensitivity also writes `sensitivity-decomposition.jsonl` with paired
 domain/updater selection, attribution, interaction, visible-action-divergence,
-and observed-choice-divergence means, plus
+observed-choice-divergence, and balanced-minus-soft exact-shadow
+information/disconfirmation-deficit means, including the explicit
+soft-minus-balanced attribution-gap alias, plus
 `sensitivity-grand.jsonl` with one descriptive row per grid point and
 `sensitivity-phase-domains.jsonl` with separately classified domain-point
-rows.
+rows. `sensitivity-phase-specification.json` records the `lambda = 0` negative
+control, the positive-dose exposure/divergence/informative-strata requirement,
+and strict self-confirmation as a secondary endpoint that does not control the
+operational joint region.
 
 In Experiment C, the top-level `profile_error`, `behavioral_accuracy`,
 `cross_context_accuracy`, and `intrinsic_regret` are the scores used for
@@ -1451,13 +1615,18 @@ and the paraphrase-suite digest. A completed run can contain only
     {request_id, updater_id, view, prompt_sha256},
     ...
   ],
-  models: [model_id, ...]
+  models: [model_id, ...],
+  probability_calibration: configured_mode,
+  configured_probability_calibration: configured_mode,
+  primary_probability_variant: raw | active_configured_variant
 }
 ```
 
 This is shape notation, not literal JSON. Responses are written in a completed
 run when an LLM replay updater is active. Full requests are written only when
-`artifacts.retain_prompts = true`.
+`artifacts.retain_prompts = true`. For Experiment A,
+`primary_probability_variant = raw`; temperature-scaled test vectors are
+retained separately and are not confirmatory updater rows.
 
 For any run configured with an `llm_*` updater, `llm/input-manifest.json`
 fingerprints the external replay corpus before an artifact directory is

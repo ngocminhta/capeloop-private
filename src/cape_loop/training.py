@@ -68,9 +68,10 @@ def generate_training_examples(
     cell_count = len(MECHANISMS) * 3 * 2
     replicates_per_cell = max(1, count // cell_count)
     for index in range(count):
-        # Traverse all 24 mechanism × target × direction cells before
+        # Traverse every mechanism × target × direction cell before
         # repeating one. This guarantees full design-cell coverage whenever
-        # count >= 24, independently of the training-population size. Within a
+        # count covers that Cartesian product, independently of the training
+        # population size. Within a
         # complete users × cells schedule, every user still visits every cell.
         cell = (index // replicates_per_cell) % cell_count
         within_cell = index % replicates_per_cell

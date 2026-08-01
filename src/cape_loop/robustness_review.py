@@ -18,6 +18,7 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 import json
+import math
 import os
 import re
 import shutil
@@ -37,6 +38,8 @@ from .llm_exchange import ATTRIBUTES, VALUES, LLMResponse, ReplayProvider, read_
 from .openai_provider import read_requests
 from .provider_attempts import DurableProviderAttemptLedger
 from .sensitivity import (
+    PhaseCriterion,
+    classify_phase_point,
     sensitivity_breadth_coverage,
     sensitivity_grid,
 )
@@ -852,8 +855,162 @@ def _recompute_sensitivity_clauses(
     phase_rows: Sequence[Mapping[str, Any]],
     domain_rows: Sequence[Mapping[str, Any]],
     model_rows: Sequence[Mapping[str, Any]],
+    phase_specification: Mapping[str, Any],
 ) -> tuple[dict[str, bool | None], bool | None, dict[str, Any]]:
     points = _expected_sensitivity_points(config)
+    if (
+        phase_specification.get("schema_version") != 2
+        or phase_specification.get("phase_definition_id")
+        != "visible-conditioning-continuous-outcomes-v2"
+        or phase_specification.get("design") != config.sensitivity.design
+        or phase_specification.get("declared_points") != len(points)
+    ):
+        raise ValueError("sensitivity phase specification is incompatible")
+    raw_criteria = phase_specification.get("criteria")
+    if not isinstance(raw_criteria, list) or not raw_criteria:
+        raise ValueError("sensitivity phase criteria are missing")
+    try:
+        phase_criteria = tuple(
+            PhaseCriterion(
+                criterion_id=str(row["criterion_id"]),
+                metric=str(row["metric"]),
+                relation=str(row["relation"]),
+                threshold=float(row["threshold"]),
+            )
+            for row in raw_criteria
+            if isinstance(row, Mapping)
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("sensitivity phase criteria are invalid") from error
+    if len(phase_criteria) != len(raw_criteria):
+        raise ValueError("sensitivity phase criteria are invalid")
+    expected_phase_criteria = (
+        PhaseCriterion(
+            "visible-profile-conditioning-activated",
+            "phase_profile_conditioning_manipulation_gate",
+            "ge",
+            1.0,
+        ),
+        PhaseCriterion(
+            "profile-conditioned-evidence-selection-cost",
+            "phase_selection_cost",
+            "gt",
+            config.sensitivity.phase_min_selection_cost,
+        ),
+        PhaseCriterion(
+            "fitted-aware-calibration",
+            "aware_option_ece",
+            "le",
+            config.sensitivity.phase_max_aware_ece,
+        ),
+        PhaseCriterion(
+            "profile-conditioning-attribution-gap",
+            "phase_soft_minus_balanced_attribution_gap",
+            "gt",
+            config.sensitivity.phase_min_attribution_gap,
+        ),
+        PhaseCriterion(
+            "profile-consistent-suggestions-often-rejected",
+            "phase_profile_consistent_suggestion_rejection_rate",
+            "ge",
+            config.sensitivity.phase_min_suggestion_rejection_rate,
+        ),
+    )
+    if phase_criteria != expected_phase_criteria:
+        raise ValueError("sensitivity phase criteria differ from resolved config")
+
+    def validate_phase_primitives(row: Mapping[str, Any]) -> None:
+        numeric_fields = (
+            "profile_conditioning_strength",
+            "phase_visible_action_divergence_rate",
+            "phase_profile_conditioning_treatment_exposure_rate",
+        )
+        numeric: dict[str, float] = {}
+        for field in numeric_fields:
+            value = row.get(field)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not 0.0 <= float(value) <= 1.0
+            ):
+                raise ValueError(f"sensitivity phase field {field} is invalid")
+            numeric[field] = float(value)
+        coverage = row.get("phase_informative_strata_coverage_passed")
+        if not isinstance(coverage, bool):
+            raise ValueError("sensitivity phase coverage flag is invalid")
+        strength = numeric["profile_conditioning_strength"]
+        visible = numeric["phase_visible_action_divergence_rate"]
+        exposure = numeric[
+            "phase_profile_conditioning_treatment_exposure_rate"
+        ]
+        if strength == 0.0:
+            manipulation_passed = visible == 0.0 and exposure == 0.0
+            role = "negative_control"
+            status = (
+                "negative_control_passed"
+                if manipulation_passed
+                else "negative_control_failed_nonzero_treatment"
+            )
+            expected_gate = 0.0
+        else:
+            manipulation_passed = (
+                exposure > 0.0 and visible > 0.0 and coverage
+            )
+            role = "active_dose"
+            if manipulation_passed:
+                status = "active_dose_activated"
+            elif exposure == 0.0:
+                status = "active_dose_failed_zero_exposure"
+            elif visible == 0.0:
+                status = "active_dose_failed_zero_visible_divergence"
+            else:
+                status = "active_dose_failed_informative_strata_coverage"
+            expected_gate = 1.0 if manipulation_passed else 0.0
+        if (
+            row.get("profile_conditioning_manipulation_role") != role
+            or row.get("profile_conditioning_manipulation_status") != status
+            or row.get("profile_conditioning_manipulation_check_passed")
+            is not manipulation_passed
+            or row.get("phase_profile_conditioning_manipulation_gate")
+            != expected_gate
+        ):
+            raise ValueError("sensitivity manipulation classification is stale")
+
+        opportunities = row.get(
+            "phase_profile_consistent_suggestion_opportunities"
+        )
+        rejections = row.get("phase_profile_consistent_suggestion_rejections")
+        if (
+            isinstance(opportunities, bool)
+            or not isinstance(opportunities, int)
+            or isinstance(rejections, bool)
+            or not isinstance(rejections, int)
+            or not 0 <= rejections <= opportunities
+        ):
+            raise ValueError("sensitivity suggestion counts are invalid")
+        expected_rate = (
+            rejections / opportunities if opportunities else None
+        )
+        observed_rate = row.get(
+            "phase_profile_consistent_suggestion_rejection_rate"
+        )
+        if expected_rate is None:
+            rate_matches = observed_rate is None
+        else:
+            rate_matches = (
+                isinstance(observed_rate, (int, float))
+                and not isinstance(observed_rate, bool)
+                and math.isfinite(float(observed_rate))
+                and math.isclose(
+                    float(observed_rate),
+                    expected_rate,
+                    rel_tol=0.0,
+                    abs_tol=1e-12,
+                )
+            )
+        if not rate_matches:
+            raise ValueError("sensitivity suggestion rejection rate is stale")
     expected_ids = {point.point_id for point in points}
     phase_ids = [row.get("point_id") for row in phase_rows]
     model_ids = [row.get("point_id") for row in model_rows]
@@ -865,7 +1022,8 @@ def _recompute_sensitivity_clauses(
     ):
         raise ValueError("sensitivity point coverage differs from resolved grid")
     if any(
-        row.get("phase_target_updater_id") != FULL_CONTEXT_UPDATER
+        row.get("schema_version") != 2
+        or row.get("phase_target_updater_id") != FULL_CONTEXT_UPDATER
         or row.get("phase_target_is_llm") is not True
         or row.get("phase_target_is_live_llm") is not True
         or row.get("llm_execution_mode") != config.llm.mode
@@ -874,11 +1032,27 @@ def _recompute_sensitivity_clauses(
         for row in phase_rows
     ):
         raise ValueError("sensitivity phase rows are not live llm_full_context evidence")
-    required_domains = set(config.experiment.domains)
+    for row in phase_rows:
+        validate_phase_primitives(row)
+        classified = classify_phase_point(row, phase_criteria)
+        if (
+            row.get("criteria") != classified["criteria"]
+            or row.get("criteria_complete")
+            is not classified["criteria_complete"]
+            or row.get("operational_joint_region")
+            is not classified["joint_region"]
+        ):
+            raise ValueError("sensitivity phase classification is stale")
+        if (
+            float(row.get("profile_conditioning_strength", -1.0)) == 0.0
+            and row.get("operational_joint_region") is not False
+        ):
+            raise ValueError("sensitivity null dose must be outside the region")
+    configured_domains = set(config.experiment.domains)
     expected_domain_keys = {
         (point.point_id, domain)
         for point in points
-        for domain in required_domains
+        for domain in configured_domains
     }
     domain_keys = [
         (row.get("point_id"), row.get("domain_id")) for row in domain_rows
@@ -889,7 +1063,8 @@ def _recompute_sensitivity_clauses(
     ):
         raise ValueError("sensitivity domain-point coverage is incomplete")
     if any(
-        row.get("phase_target_updater_id") != FULL_CONTEXT_UPDATER
+        row.get("schema_version") != 2
+        or row.get("phase_target_updater_id") != FULL_CONTEXT_UPDATER
         or row.get("phase_target_is_llm") is not True
         or row.get("llm_execution_mode") != config.llm.mode
         or row.get("criteria_complete") not in {True, False}
@@ -897,6 +1072,17 @@ def _recompute_sensitivity_clauses(
         for row in domain_rows
     ):
         raise ValueError("sensitivity domain phase rows are inconsistent")
+    for row in domain_rows:
+        validate_phase_primitives(row)
+        classified = classify_phase_point(row, phase_criteria)
+        if (
+            row.get("criteria") != classified["criteria"]
+            or row.get("criteria_complete")
+            is not classified["criteria_complete"]
+            or row.get("operational_joint_region")
+            is not classified["joint_region"]
+        ):
+            raise ValueError("sensitivity domain classification is stale")
     if any(
         not isinstance(row.get("fitted_models"), Mapping)
         or not isinstance(row.get("raw_fitted_models"), Mapping)
@@ -923,18 +1109,26 @@ def _recompute_sensitivity_clauses(
         for row in domain_rows
         if row.get("operational_joint_region") is True
     }
-    both_domains = required_domains <= passing_domains
+    both_domains = {"travel", "writing"} <= passing_domains
     fitted = (
         "fitted_action_aware" in config.experiment.updaters
         and len(model_rows) == len(points)
         and bool(passing)
     )
-    if any(row["operational_joint_region"] is True for row in phase_rows):
+    active_phase_rows = tuple(
+        row
+        for row in phase_rows
+        if float(row.get("profile_conditioning_strength", 0.0)) > 0.0
+    )
+    if any(
+        row["operational_joint_region"] is True
+        for row in active_phase_rows
+    ):
         family_effect: bool | None = True
-    elif all(
+    elif active_phase_rows and all(
         row.get("criteria_complete") is True
         and row.get("operational_joint_region") is False
-        for row in phase_rows
+        for row in active_phase_rows
     ):
         family_effect = False
     else:
@@ -969,6 +1163,7 @@ def _sensitivity_evidence(
         "metrics/gate-report.json",
         "metrics/sensitivity-phase-points.jsonl",
         "metrics/sensitivity-phase-domains.jsonl",
+        "metrics/sensitivity-phase-specification.json",
         "models/sensitivity-fits.jsonl",
         "models/llm-calibration.json",
         "llm/requests.jsonl",
@@ -999,6 +1194,9 @@ def _sensitivity_evidence(
     domain_rows = _safe_jsonl(
         root / "metrics/sensitivity-phase-domains.jsonl"
     )
+    phase_specification = _safe_json(
+        root / "metrics/sensitivity-phase-specification.json"
+    )
     model_rows = _safe_jsonl(root / "models/sensitivity-fits.jsonl")
     clause_values, family_effect, phase_observed = (
         _recompute_sensitivity_clauses(
@@ -1006,6 +1204,7 @@ def _sensitivity_evidence(
             phase_rows,
             domain_rows,
             model_rows,
+            phase_specification,
         )
     )
     if len(phase_rows) != summary["declared_points"]:
@@ -1251,6 +1450,10 @@ def _experiment_a_evidence(pair: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "provider_evidence": provider,
         "held_out_paraphrase": paraphrase,
+        "held_out_paraphrase_ready": verified,
+        # Compatibility alias retained for existing review consumers.  The
+        # value now denotes coverage/invariance readiness, not a positive
+        # fitted-aware Brier gap.
         "held_out_paraphrase_survives": verified,
     }
 
@@ -1313,7 +1516,7 @@ def _aggregate_gate_six(
         pair["sensitivity"]["family_effect_survives"] for pair in pairs
     )
     paraphrases = _tri_conjunction(
-        pair["experiment_a"]["held_out_paraphrase_survives"]
+        pair["experiment_a"]["held_out_paraphrase_ready"]
         for pair in pairs
     )
     by_family = {
@@ -1328,6 +1531,9 @@ def _aggregate_gate_six(
             ],
             "held_out_paraphrase_survives": pair["experiment_a"][
                 "held_out_paraphrase_survives"
+            ],
+            "held_out_paraphrase_ready": pair["experiment_a"][
+                "held_out_paraphrase_ready"
             ],
         }
         for pair in pairs
@@ -1388,19 +1594,22 @@ def _aggregate_gate_six(
             ),
             GateCriterion(
                 CRITERION_IDS[4],
-                "The effect survives held-out natural-language paraphrases.",
+                (
+                    "Held-out natural-language paraphrase execution is "
+                    "complete and preserves controlled-response semantics."
+                ),
                 paraphrases,
                 {
-                    "held_out_paraphrase_survives": {
+                    "held_out_paraphrase_ready": {
                         pair["family_id"]: pair["experiment_a"][
-                            "held_out_paraphrase_survives"
+                            "held_out_paraphrase_ready"
                         ]
                         for pair in pairs
                     }
                 },
                 (
                     "every paired Experiment A run has a complete recomputed "
-                    "held-out llm_full_context transfer result"
+                    "held-out llm_full_context coverage/invariance result"
                 ),
             ),
             GateCriterion(
@@ -1746,8 +1955,13 @@ def _validate_pair_evidence_shape(pair: Mapping[str, Any]) -> None:
         raise ValueError("retained sensitivity criterion is not tri-state")
     if sensitivity.get("family_effect_survives") not in {True, False, None}:
         raise ValueError("retained family effect is not tri-state")
-    if experiment_a.get("held_out_paraphrase_survives") not in {True, False}:
+    if experiment_a.get("held_out_paraphrase_ready") not in {True, False}:
         raise ValueError("retained paraphrase result must be complete")
+    if (
+        experiment_a.get("held_out_paraphrase_survives")
+        != experiment_a.get("held_out_paraphrase_ready")
+    ):
+        raise ValueError("retained paraphrase compatibility alias differs")
 
 
 def verify_gate6_cross_run_review(

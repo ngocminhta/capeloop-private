@@ -1,7 +1,7 @@
 Package: capeloopconfirmatory
 Type: Project
 Title: CAPE-Loop Confirmatory Mixed-Effects Analysis
-Version: 0.1.0
+Version: 0.3.0
 Authors@R: person("CAPE-Loop", "Contributors", role = "aut")
 Description: Reproducible, fail-closed mixed-effects analyses for the two
     confirmatory formulas declared in the CAPE-Loop proposal. This project is

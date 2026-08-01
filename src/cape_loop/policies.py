@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import Protocol
 
@@ -66,10 +66,51 @@ def _rank_pair(
     return (positive_id, negative_id)
 
 
+def _prospective_turn(
+    plan: object | None,
+    trajectory_id: str,
+    turn: int,
+) -> object | None:
+    """Read one outcome-blind instruction without coupling policy modules."""
+
+    if plan is None:
+        return None
+    lookup = getattr(plan, "turn", None)
+    if not callable(lookup):
+        raise TypeError("prospective manipulation plan must expose turn(key, index)")
+    instruction = lookup(trajectory_id, turn)
+    target = getattr(instruction, "target_attribute", None)
+    if isinstance(target, bool) or not isinstance(target, int) or target not in range(3):
+        raise ValueError("prospective turn target_attribute must be 0, 1, or 2")
+    return instruction
+
+
+def _prospective_schedule_key(
+    plan: object | None,
+    trajectory_id: str,
+) -> str:
+    """Use one exogenous-randomization key across profile conditions."""
+
+    if plan is None:
+        return trajectory_id
+    lookup = getattr(plan, "schedule_key", None)
+    if not callable(lookup):
+        return trajectory_id
+    key = lookup(trajectory_id)
+    if not isinstance(key, str) or not key:
+        raise ValueError("prospective schedule key must be a non-empty string")
+    return key
+
+
 @dataclass(frozen=True, slots=True)
 class BalancedPolicy:
     policy_id: str = "balanced"
     policy_version: str = "v1"
+    prospective_plan: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def action(
         self,
@@ -81,13 +122,26 @@ class BalancedPolicy:
         trajectory_id: str,
         target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
-        target = turn % 3
+        planned = _prospective_turn(
+            self.prospective_plan,
+            trajectory_id,
+            turn,
+        )
+        schedule_key = _prospective_schedule_key(
+            self.prospective_plan,
+            trajectory_id,
+        )
+        target = (
+            turn % 3
+            if planned is None
+            else int(getattr(planned, "target_attribute"))
+        )
         negative, positive = domain.isolated_pair(target)
         ranking = _rank_pair(
             negative.option_id,
             positive.option_id,
             master_seed=master_seed,
-            key=(trajectory_id, turn, target, "shared-neutral-ranking"),
+            key=(schedule_key, turn, target, "shared-neutral-ranking"),
         )
         context = InteractionContext(
             context_id=f"{trajectory_id}:{turn}:{self.policy_id}",
@@ -108,10 +162,14 @@ class BalancedPolicy:
         )
         provenance = PolicyProvenance(
             policy_id=self.policy_id,
-            policy_version=self.policy_version,
+            policy_version=(
+                self.policy_version
+                if planned is None
+                else "v3-condition-matched-schedule"
+            ),
             profile_snapshot=_snapshot(belief),
             random_seed=semantic_seed(
-                master_seed, trajectory_id, turn, self.policy_id
+                master_seed, schedule_key, turn, self.policy_id
             ),
             presentation_mechanism="balanced",
             profile_conditioned=False,
@@ -122,8 +180,13 @@ class BalancedPolicy:
 @dataclass(frozen=True, slots=True)
 class SoftProfileConditionedPolicy:
     policy_id: str = "soft_profile_conditioned"
-    policy_version: str = "v1"
+    policy_version: str = "v2-neutral-profile-tie"
     conditioning_strength: float | None = None
+    prospective_plan: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         strength = self.conditioning_strength
@@ -147,19 +210,67 @@ class SoftProfileConditionedPolicy:
         trajectory_id: str,
         target_counts: tuple[int, int, int] | None = None,
     ) -> PolicyAction:
-        target = turn % 3
+        planned = _prospective_turn(
+            self.prospective_plan,
+            trajectory_id,
+            turn,
+        )
+        schedule_key = _prospective_schedule_key(
+            self.prospective_plan,
+            trajectory_id,
+        )
+        target = (
+            turn % 3
+            if planned is None
+            else int(getattr(planned, "target_attribute"))
+        )
         negative, positive = domain.isolated_pair(target)
         expected = belief.expected_theta()[target]
-        direction = -1 if expected <= 0 else 1
-        preferred = negative if direction < 0 else positive
-        other = positive if preferred is negative else negative
+        current_direction = (
+            -1
+            if expected < -1e-12
+            else 1
+            if expected > 1e-12
+            else 0
+        )
         # A three-block Latin-square rotation crosses every attribute with every
         # presentation channel over nine turns instead of confounding channel
         # identity with ``target = turn % 3``.
-        mechanism = ("ranking", "default", "suggestion")[
-            ((turn % 3) + (turn // 3)) % 3
-        ]
-        if self.conditioning_strength is None:
+        planned_role = None if planned is None else getattr(planned, "role", None)
+        forced_active = planned_role in {
+            "informative_active",
+            "decisive_active_control",
+        }
+        direction = current_direction
+        if forced_active and direction == 0:
+            frozen_direction = getattr(planned, "planned_profile_direction", None)
+            if frozen_direction not in {-1, 1}:
+                raise ValueError(
+                    "a prospectively active neutral-profile turn requires a "
+                    "frozen planned_profile_direction"
+                )
+            direction = int(frozen_direction)
+        preferred = negative if direction < 0 else positive
+        other = positive if preferred is negative else negative
+        mechanism = (
+            str(getattr(planned, "mechanism"))
+            if forced_active
+            else ("ranking", "default", "suggestion")[
+                ((turn % 3) + (turn // 3)) % 3
+            ]
+        )
+        if forced_active and mechanism not in {"default", "suggestion"}:
+            raise ValueError(
+                "prospectively active soft turns require default or suggestion"
+            )
+        if forced_active:
+            application_probability = 1.0
+        elif direction == 0:
+            # An exactly directionless profile supplies no profile-consistent
+            # option to promote. Keep the visible action neutral rather than
+            # manufacturing a negative-direction treatment.
+            application_probability = 0.0
+        elif self.conditioning_strength is None:
             # Preserve the ordinary Experiment B/C protocol. Those runs use
             # profile confidence to make conditioning soft and adaptive.
             confidence = belief.sign_mass(target, direction)
@@ -181,14 +292,16 @@ class SoftProfileConditionedPolicy:
                 float(self.conditioning_strength)
                 * legacy_probability
             )
-        apply_profile = uniform(
-            master_seed,
-            "soft-profile-application",
-            trajectory_id,
-            turn,
-            target,
-            mechanism,
-        ) < application_probability
+        apply_profile = forced_active
+        if not forced_active:
+            apply_profile = uniform(
+                master_seed,
+                "soft-profile-application",
+                schedule_key,
+                turn,
+                target,
+                mechanism,
+            ) < application_probability
         if mechanism == "ranking" and apply_profile:
             ranking = (preferred.option_id, other.option_id)
             default_id = None
@@ -199,7 +312,7 @@ class SoftProfileConditionedPolicy:
                 positive.option_id,
                 master_seed=master_seed,
                 key=(
-                    trajectory_id,
+                    schedule_key,
                     turn,
                     target,
                     "shared-neutral-ranking",
@@ -241,16 +354,18 @@ class SoftProfileConditionedPolicy:
             PolicyProvenance(
                 policy_id=self.policy_id,
                 policy_version=(
-                    self.policy_version
+                    "v5-condition-matched-active-turns"
+                    if planned is not None
+                    else self.policy_version
                     if (
                         self.conditioning_strength is None
                         or float(self.conditioning_strength) == 1.0
                     )
-                    else "v2-conditioning-strength"
+                    else "v3-conditioning-strength"
                 ),
                 profile_snapshot=_snapshot(belief),
                 random_seed=semantic_seed(
-                    master_seed, trajectory_id, turn, self.policy_id
+                    master_seed, schedule_key, turn, self.policy_id
                 ),
                 presentation_mechanism=(
                     mechanism if apply_profile else "balanced"
@@ -263,7 +378,7 @@ class SoftProfileConditionedPolicy:
 @dataclass(frozen=True, slots=True)
 class ExploratoryPolicy:
     policy_id: str = "exploratory"
-    policy_version: str = "v2-balanced-coverage"
+    policy_version: str = "v3-balanced-coverage-shared-neutral-ranking"
 
     def action(
         self,
@@ -312,7 +427,7 @@ class ExploratoryPolicy:
             negative.option_id,
             positive.option_id,
             master_seed=master_seed,
-            key=(trajectory_id, turn, target, self.policy_id),
+            key=(trajectory_id, turn, target, "shared-neutral-ranking"),
         )
         context = InteractionContext(
             context_id=f"{trajectory_id}:{turn}:{self.policy_id}",

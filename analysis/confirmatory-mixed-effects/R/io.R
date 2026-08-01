@@ -65,6 +65,30 @@ assert_exact_fields <- function(value, expected, label) {
   invisible(TRUE)
 }
 
+assert_required_optional_fields <- function(
+  value,
+  required,
+  optional,
+  label
+) {
+  if (!is.list(value) || is.null(names(value))) {
+    abort_analysis(label, " must be one JSON object")
+  }
+  missing <- setdiff(required, names(value))
+  extra <- setdiff(names(value), c(required, optional))
+  if (length(missing) || length(extra) || anyDuplicated(names(value))) {
+    abort_analysis(
+      label,
+      " has an invalid field set; missing=[",
+      paste(missing, collapse = ", "),
+      "], extra=[",
+      paste(extra, collapse = ", "),
+      "]"
+    )
+  }
+  invisible(TRUE)
+}
+
 sha256_file <- function(path) {
   digest::digest(file = path, algo = "sha256", serialize = FALSE)
 }
@@ -278,6 +302,11 @@ verify_source_run <- function(
   config <- read_json_object(config_path)
   summary <- read_json_object(file.path(run_dir, "metrics/summary.json"))
   run_id <- require_scalar_character(manifest$run_id, "manifest.run_id")
+  population_seed <- require_scalar_integer(
+    config$run$seed,
+    "config.run.seed",
+    minimum = 0L
+  )
   if (!identical(manifest$status, "complete")) {
     abort_analysis("source run is not complete: ", run_id)
   }
@@ -466,6 +495,7 @@ verify_source_run <- function(
   list(
     path = run_dir,
     run_id = run_id,
+    population_seed = population_seed,
     manifest = manifest,
     config = config,
     summary = summary,
@@ -647,10 +677,15 @@ verify_compact_bundle <- function(
   )) {
     abort_analysis("compact manifest analysis_unit differs from the protocol")
   }
+  expected_row_schema_version <- require_scalar_integer(
+    experiment_spec$input_row_schema_version,
+    "analysis specification input_row_schema_version",
+    minimum = 1L
+  )
   if (require_scalar_integer(
     manifest$row_schema_version,
     "compact manifest.row_schema_version"
-  ) != 1L) {
+  ) != expected_row_schema_version) {
     abort_analysis("unsupported compact analysis row schema_version")
   }
   if (!identical(manifest$analysis_rows_file, "analysis-rows.jsonl")) {
@@ -857,6 +892,18 @@ assert_same_design <- function(source_runs, experiment) {
       "pooled source runs must have identical manifest.source_sha256 values"
     )
   }
+  population_seeds <- vapply(
+    source_runs,
+    `[[`,
+    integer(1),
+    "population_seed"
+  )
+  if (length(unique(population_seeds)) != 1L) {
+    abort_analysis(
+      "pooled source runs must have identical config.run.seed; ",
+      "analyze different seeds separately as robustness replicates"
+    )
+  }
   design_signature <- function(source) {
     experiment_config <- source$config$experiment
     llm <- source$config$llm
@@ -871,6 +918,7 @@ assert_same_design <- function(source_runs, experiment) {
     list(
       schema_version = source$config$schema_version,
       experiment = experiment_config,
+      population = source$config$population %||% list(),
       response_model = source$config$response_model,
       inference = source$config$inference,
       thresholds = source$config$thresholds,
@@ -883,7 +931,7 @@ assert_same_design <- function(source_runs, experiment) {
     if (!identical(reference, candidate)) {
       abort_analysis(
         "source runs differ on scientific design or model semantics; ",
-        "combine only independent repeats of the same declaration, including ",
+        "combine only same-seed reruns of the same declaration, including ",
         "the same Experiment B horizon"
       )
     }
@@ -896,7 +944,7 @@ normalize_experiment_a <- function(source) {
     source$analysis_input_path,
     paste0(source$run_id, " compact Experiment A rows")
   )
-  expected_fields <- c(
+  required_fields <- c(
     "schema_version",
     "source_record_index",
     "trial_id",
@@ -907,16 +955,23 @@ normalize_experiment_a <- function(source) {
     "mechanism",
     "prior_strength",
     "response_mode",
-    "update_error"
+    "analysis_track",
+    "reference_basis",
+    "exact_update_error",
+    "fitted_update_error",
+    "system_log_odds_update",
+    "exact_log_odds_update",
+    "fitted_log_odds_update",
+    "calibration_residual"
   )
   rows <- lapply(seq_along(records), function(index) {
     row <- records[[index]]
     label <- paste0("Experiment A compact row ", index)
-    assert_exact_fields(row, expected_fields, label)
+    assert_exact_fields(row, required_fields, label)
     if (require_scalar_integer(
       row$schema_version,
       paste0(label, ".schema_version")
-    ) != 1L) {
+    ) != 2L) {
       abort_analysis("unsupported compact Experiment A row schema version")
     }
     source_record_index <- require_scalar_integer(
@@ -931,27 +986,76 @@ normalize_experiment_a <- function(source) {
     if (!(mode %in% c("controlled_anchor", "naturally_sampled"))) {
       abort_analysis("unknown compact Experiment A response_mode: ", mode)
     }
-    data.frame(
+    track <- require_scalar_character(
+      row$analysis_track,
+      paste0(label, ".analysis_track")
+    )
+    expected_track <- if (identical(mode, "controlled_anchor")) {
+      "same_response_provenance"
+    } else {
+      "natural_response_secondary"
+    }
+    if (!identical(track, expected_track)) {
+      abort_analysis(
+        "compact Experiment A response_mode/analysis_track mapping is invalid"
+      )
+    }
+    reference_basis <- require_scalar_character(
+      row$reference_basis,
+      paste0(label, ".reference_basis")
+    )
+    if (!identical(reference_basis, "exact_action_aware")) {
+      abort_analysis(
+        "compact Experiment A reference_basis must be exact_action_aware"
+      )
+    }
+    system_log_odds_update <- require_scalar_number(
+      row$system_log_odds_update,
+      paste0(label, ".system_log_odds_update")
+    )
+    exact_log_odds_update <- require_scalar_number(
+      row$exact_log_odds_update,
+      paste0(label, ".exact_log_odds_update")
+    )
+    fitted_log_odds_update <- require_scalar_number(
+      row$fitted_log_odds_update,
+      paste0(label, ".fitted_log_odds_update")
+    )
+    calibration_residual <- require_scalar_number(
+      row$calibration_residual,
+      paste0(label, ".calibration_residual")
+    )
+    if (
+      !isTRUE(all.equal(
+        calibration_residual,
+        system_log_odds_update - exact_log_odds_update,
+        tolerance = sqrt(.Machine$double.eps),
+        check.attributes = FALSE
+      ))
+    ) {
+      abort_analysis(
+        "compact Experiment A calibration_residual differs from ",
+        "system_log_odds_update - exact_log_odds_update"
+      )
+    }
+    normalized <- data.frame(
       source_run_id = source$run_id,
       source_record_index = source_record_index,
       trial_id = require_scalar_character(row$trial_id, paste0(label, ".trial_id")),
-      user = paste(
-        source$run_id,
-        require_scalar_character(row$user_id, paste0(label, ".user_id")),
-        sep = "::"
+      user = require_scalar_character(
+        row$user_id,
+        paste0(label, ".user_id")
       ),
       domain = require_scalar_character(
         row$domain_id,
         paste0(label, ".domain_id")
       ),
-      scenario = paste(
-        source$run_id,
-        require_scalar_character(
-          row$scenario_id,
-          paste0(label, ".scenario_id")
-        ),
-        sep = "::"
+      scenario = require_scalar_character(
+        row$scenario_id,
+        paste0(label, ".scenario_id")
       ),
+      replicate = source$run_id,
+      population_seed = source$population_seed,
       updater = require_scalar_character(
         row$updater_id,
         paste0(label, ".updater_id")
@@ -964,14 +1068,25 @@ normalize_experiment_a <- function(source) {
         row$prior_strength,
         paste0(label, ".prior_strength")
       ),
-      update_error = require_scalar_number(
-        row$update_error,
-        paste0(label, ".update_error")
+      exact_update_error = require_scalar_number(
+        row$exact_update_error,
+        paste0(label, ".exact_update_error")
       ),
+      fitted_update_error = require_scalar_number(
+        row$fitted_update_error,
+        paste0(label, ".fitted_update_error")
+      ),
+      system_log_odds_update = system_log_odds_update,
+      exact_log_odds_update = exact_log_odds_update,
+      fitted_log_odds_update = fitted_log_odds_update,
+      calibration_residual = calibration_residual,
+      analysis_track = track,
+      reference_basis = reference_basis,
       response_mode = mode,
       stringsAsFactors = FALSE,
       check.names = FALSE
     )
+    normalized
   })
   all_rows <- do.call(rbind, rows)
   if (!identical(
@@ -1011,15 +1126,23 @@ normalize_experiment_a <- function(source) {
     )
   }
   normalized <- all_rows[
-    all_rows$response_mode == "naturally_sampled",
+    all_rows$response_mode == "controlled_anchor",
     ,
     drop = FALSE
   ]
   normalized$response_mode <- NULL
   if (
+    any(normalized$analysis_track != "same_response_provenance") ||
+    any(normalized$reference_basis != "exact_action_aware")
+  ) {
+    abort_analysis(
+      "normalized Experiment A rows violate the same-response exact-oracle boundary"
+    )
+  }
+  if (
     require_scalar_integer(
-      source$summary$natural_row_count,
-      "summary.natural_row_count",
+      source$summary$controlled_row_count,
+      "summary.controlled_row_count",
       minimum = 1L
     ) != nrow(normalized)
   ) {
@@ -1062,6 +1185,28 @@ normalize_experiment_b <- function(source) {
     "retained_terminal_error",
     "same_history_shadow"
   )
+  optional_mechanism_fields <- c(
+    "ex_ante_preference_strengths_by_attribute",
+    "ex_ante_preference_strength_strata_by_attribute",
+    "ex_ante_user_preference_strength_stratum",
+    "ex_ante_target_preference_strength",
+    "ex_ante_target_preference_strength_stratum",
+    "ex_ante_balanced_target_attribute",
+    "ex_ante_balanced_choice_probability_margin",
+    "ex_ante_balanced_choice_margin_stratum",
+    "shadow_error_after_turn",
+    "same_history_attribution_gap_after_turn",
+    "expected_action_aware_information_gain",
+    "realized_action_aware_information_gain",
+    "profile_consistency_score",
+    "profile_consistency_advantage_over_balanced",
+    "ex_ante_balanced_choice_divergence_probability",
+    "ex_ante_balanced_choice_probability_comparable",
+    "balanced_choice_set_diverged",
+    "disconfirmation_opportunity_count",
+    "disconfirmation_inversion_count",
+    "disconfirmation_inversion_turn"
+  )
   trajectory_count <- require_scalar_integer(
     source$summary$trajectories,
     "summary.trajectories",
@@ -1099,7 +1244,15 @@ normalize_experiment_b <- function(source) {
   rows <- lapply(seq_along(records), function(index) {
     row <- records[[index]]
     label <- paste0("Experiment B compact row ", index)
-    assert_exact_fields(row, expected_fields, label)
+    # The supporting mixed-effects fit uses only ``expected_fields``. New
+    # runner-native rows also retain the registered mechanism diagnostics;
+    # historical compact sidecars intentionally contain only the core fields.
+    assert_required_optional_fields(
+      row,
+      expected_fields,
+      optional_mechanism_fields,
+      label
+    )
     if (require_scalar_integer(
       row$schema_version,
       paste0(label, ".schema_version")
@@ -1129,23 +1282,20 @@ normalize_experiment_b <- function(source) {
         minimum = 0L
       ),
       trajectory_id = trajectory_id,
-      user = paste(
-        source$run_id,
-        require_scalar_character(row$user_id, paste0(label, ".user_id")),
-        sep = "::"
+      user = require_scalar_character(
+        row$user_id,
+        paste0(label, ".user_id")
       ),
       domain = require_scalar_character(
         row$domain_id,
         paste0(label, ".domain_id")
       ),
-      scenario = paste(
-        source$run_id,
-        require_scalar_character(
-          row$scenario_id,
-          paste0(label, ".scenario_id")
-        ),
-        sep = "::"
+      scenario = require_scalar_character(
+        row$scenario_id,
+        paste0(label, ".scenario_id")
       ),
+      replicate = source$run_id,
+      population_seed = source$population_seed,
       crn_set = paste(
         source$run_id,
         require_scalar_character(row$crn_key, paste0(label, ".crn_key")),
@@ -1312,6 +1462,48 @@ all_cells_positive <- function(data, group, first, second) {
   }, logical(1)))
 }
 
+all_levels_present <- function(data, group, field, expected_levels) {
+  split_rows <- split(data, data[[group]], drop = TRUE)
+  all(vapply(split_rows, function(rows) {
+    observed <- table(
+      factor(as.character(rows[[field]]), levels = expected_levels)
+    )
+    all(observed > 0L)
+  }, logical(1)))
+}
+
+assert_balanced_level_crossing <- function(
+  data,
+  grouping_columns,
+  field,
+  expected_levels,
+  label
+) {
+  group_key <- do.call(
+    interaction,
+    c(
+      lapply(data[grouping_columns], as.character),
+      list(drop = TRUE, lex.order = TRUE, sep = "\r")
+    )
+  )
+  split_rows <- split(data, group_key, drop = TRUE)
+  valid <- all(vapply(split_rows, function(rows) {
+    observed <- table(
+      factor(as.character(rows[[field]]), levels = expected_levels)
+    )
+    all(observed > 0L) && length(unique(as.integer(observed))) == 1L
+  }, logical(1)))
+  if (!valid) {
+    abort_analysis(
+      label,
+      " must contain the same positive row count for every ",
+      field,
+      " level"
+    )
+  }
+  invisible(TRUE)
+}
+
 assert_exact_crossing <- function(
   data,
   grouping_columns,
@@ -1384,20 +1576,42 @@ validate_analysis_rows <- function(
   if (anyDuplicated(rows[business_key])) {
     abort_analysis("normalized analysis contains duplicate scientific row IDs")
   }
-  outcome <- if (identical(experiment, "A")) {
-    rows$update_error
-  } else {
-    rows$terminal_error
+  outcome_name <- require_scalar_character(
+    experiment_spec$outcome_name,
+    "analysis specification outcome_name"
+  )
+  if (!(outcome_name %in% names(rows))) {
+    abort_analysis("analysis rows are missing primary outcome: ", outcome_name)
   }
-  if (any(!is.finite(outcome)) || any(outcome < 0)) {
-    abort_analysis("analysis outcome must be finite and non-negative")
+  outcome <- rows[[outcome_name]]
+  if (any(!is.finite(outcome))) {
+    abort_analysis("analysis outcome must be finite")
+  }
+  if (identical(experiment, "B") && any(outcome < 0)) {
+    abort_analysis("Experiment B outcome must be non-negative")
   }
   if (!(target_updater %in% rows$updater)) {
     abort_analysis("target updater is absent: ", target_updater)
   }
-  aware <- factor_coding$updater_reference
-  if (!(aware %in% rows$updater)) {
-    abort_analysis("reference updater is absent: ", aware)
+  if (identical(experiment, "A")) {
+    if (identical(
+      target_updater,
+      factor_coding$experiment_a_oracle_reference
+    )) {
+      abort_analysis(
+        "Experiment A target updater cannot be the exact oracle reference"
+      )
+    }
+    rows <- rows[rows$updater == target_updater, , drop = FALSE]
+    if (!nrow(rows)) {
+      abort_analysis("Experiment A has no rows for target updater")
+    }
+  } else {
+    reference <- factor_coding$experiment_b_updater_reference
+    if (!(reference %in% rows$updater)) {
+      abort_analysis("reference updater is absent: ", reference)
+    }
+    rows$updater <- set_reference(rows$updater, reference, "updater")
   }
   if (length(unique(rows$user)) < minimum_users) {
     abort_analysis(
@@ -1414,7 +1628,6 @@ validate_analysis_rows <- function(
     )
   }
 
-  rows$updater <- set_reference(rows$updater, aware, "updater")
   domain_reference <- factor_coding$domain_reference_preference
   if (!(domain_reference %in% rows$domain)) {
     domain_reference <- sort(unique(rows$domain))[[1L]]
@@ -1422,11 +1635,38 @@ validate_analysis_rows <- function(
   rows$domain <- set_reference(rows$domain, domain_reference, "domain")
   rows$user <- factor(rows$user)
   rows$scenario <- factor(rows$scenario)
+  rows$replicate <- factor(rows$replicate)
   if (identical(experiment, "B")) {
     rows$crn_set <- factor(rows$crn_set)
   }
 
   if (identical(experiment, "A")) {
+    if (
+      (
+        any(!is.finite(rows$exact_update_error)) ||
+        any(rows$exact_update_error < 0) ||
+        any(!is.finite(rows$fitted_update_error)) ||
+        any(rows$fitted_update_error < 0)
+      )
+    ) {
+      abort_analysis(
+        "Experiment A exact and fitted update errors must be finite and non-negative"
+      )
+    }
+    if (
+      any(rows$analysis_track != experiment_spec$analysis_track) ||
+      any(rows$reference_basis != experiment_spec$reference_basis)
+    ) {
+      abort_analysis(
+        "Experiment A rows differ from the declared track or reference basis"
+      )
+    }
+    residual_delta <- rows$calibration_residual - (
+      rows$system_log_odds_update - rows$exact_log_odds_update
+    )
+    if (any(abs(residual_delta) > sqrt(.Machine$double.eps))) {
+      abort_analysis("Experiment A calibration residual identity failed")
+    }
     required <- unlist(experiment_spec$required_mechanisms, use.names = FALSE)
     absent <- setdiff(required, unique(rows$mechanism))
     if (length(absent)) {
@@ -1438,16 +1678,22 @@ validate_analysis_rows <- function(
     if (any(rows$prior_strength < 0 | rows$prior_strength >= 1)) {
       abort_analysis("Experiment A prior_strength must lie in [0, 1)")
     }
-    if (!all_cells_positive(rows, "user", "updater", "mechanism")) {
+    if (!all_levels_present(rows, "user", "mechanism", required)) {
       abort_analysis(
-        "every Experiment A user must contain every updater-by-mechanism cell"
+        "every Experiment A target user must contain every mechanism"
       )
     }
-    assert_exact_crossing(
+    assert_balanced_level_crossing(
       rows,
-      c("source_run_id", "user", "scenario", "prior_strength"),
-      "updater",
+      c(
+        "source_run_id",
+        "user",
+        "domain",
+        "scenario",
+        "prior_strength"
+      ),
       "mechanism",
+      required,
       "each Experiment A matched stratum"
     )
     rows$mechanism <- set_reference(
@@ -1558,6 +1804,24 @@ validate_result_contract <- function(result, schema) {
   }
   if (!(result$experiment %in% c("A", "B"))) {
     abort_analysis("analysis result has an invalid experiment")
+  }
+  expected_reference <- if (identical(result$experiment, "A")) {
+    "exact_action_aware"
+  } else {
+    "fitted_action_aware"
+  }
+  expected_outcome <- if (identical(result$experiment, "A")) {
+    "calibration_residual"
+  } else {
+    "terminal_error"
+  }
+  if (!identical(result$reference_updater, expected_reference)) {
+    abort_analysis(
+      "analysis result reference_updater violates the experiment boundary"
+    )
+  }
+  if (!identical(result$outcome, expected_outcome)) {
+    abort_analysis("analysis result outcome violates the experiment boundary")
   }
   invisible(TRUE)
 }

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 
 FORMULAS = {
     "A": (
-        "update_error ~ updater * mechanism + domain + prior_strength + "
+        "calibration_residual ~ mechanism + domain + prior_strength + "
         "(1 + mechanism | user) + (1 | scenario)"
     ),
     "B": (
@@ -28,15 +28,25 @@ FORMULAS = {
     ),
 }
 
+POOLED_FORMULAS = {
+    experiment: f"{formula} + (1 | replicate)"
+    for experiment, formula in FORMULAS.items()
+}
+
 PROPOSAL_FORMULAS = {
     "A": (
-        "UpdateError ~ Updater * Mechanism + Domain + PriorStrength + "
+        "CalibrationResidual ~ Mechanism + Domain + PriorStrength + "
         "(1 + Mechanism | User) + (1 | Scenario)"
     ),
     "B": (
         "TerminalError ~ Updater * Policy * InitialProfile + Domain + Turn + "
         "(1 + Policy | User) + (1 | Scenario) + (1 | CRNSet)"
     ),
+}
+
+POOLED_PROPOSAL_FORMULAS = {
+    experiment: f"{formula} + (1 | Replicate)"
+    for experiment, formula in PROPOSAL_FORMULAS.items()
 }
 
 ESTIMATION = {
@@ -55,7 +65,8 @@ ESTIMATION = {
 
 FACTOR_CODING = {
     "contrasts": ["contr.treatment", "contr.poly"],
-    "updater_reference": "fitted_action_aware",
+    "experiment_a_oracle_reference": "exact_action_aware",
+    "experiment_b_updater_reference": "fitted_action_aware",
     "experiment_a_mechanism_reference": "balanced",
     "experiment_b_policy_reference": "balanced",
     "experiment_b_initial_profile_reference": "incorrect",
@@ -70,25 +81,80 @@ EXPERIMENT_SEMANTICS = {
         "legacy_input_file": "events/experiment-a.jsonl",
         "legacy_exclusion_file": "events/experiment-a-exclusions.jsonl",
         "bundle_analysis_unit": "updater_trial",
-        "bundle_outcome_derivation": "retained Experiment A metrics.acue",
-        "response_mode": "naturally_sampled",
-        "outcome_source": (
-            "runner-native compact update_error derived from metrics.acue"
+        "input_row_schema_version": 2,
+        "bundle_outcome_derivation": (
+            "retained anchor-directional system minus exact log-odds update "
+            "as calibration_residual; exact and fitted update errors retained "
+            "as required secondary magnitude diagnostics"
         ),
-        "outcome_name": "update_error",
+        "response_mode": "controlled_anchor",
+        "analysis_track": "same_response_provenance",
+        "reference_basis": "exact_action_aware",
+        "outcome_source": (
+            "runner-native compact calibration_residual equal to "
+            "anchor-directional system_log_odds_update minus "
+            "exact_log_odds_update"
+        ),
+        "outcome_name": "calibration_residual",
+        "retained_calibration_fields": [
+            "system_log_odds_update",
+            "exact_log_odds_update",
+            "fitted_log_odds_update",
+            "calibration_residual",
+        ],
+        "secondary_outcomes": [
+            {
+                "name": "exact_update_error",
+                "source": (
+                    "runner-native compact exact_update_error derived from "
+                    "metrics.exact_acue"
+                ),
+                "required": True,
+                "role": "descriptive_secondary_absolute_magnitude",
+            },
+            {
+                "name": "fitted_update_error",
+                "source": (
+                    "runner-native compact fitted_update_error derived from "
+                    "metrics.acue"
+                ),
+                "required": True,
+                "role": "secondary_reference_diagnostic",
+            }
+        ],
+        "secondary_estimands": [
+            {
+                "id": "target-exact-update-error-by-mechanism",
+                "outcome": "exact_update_error",
+                "aggregation": "descriptive distribution and mean by mechanism",
+                "inferential_status": (
+                    "not fitted by the primary signed-residual model"
+                ),
+            }
+        ],
         "required_mechanisms": [
             "balanced",
             "restricted",
+            "ranking",
             "default",
             "suggested",
         ],
-        "scenario_mapping": "run_id + context.scenario_id",
-        "user_mapping": "run_id + user_id",
+        "scenario_mapping": "scenario_id",
+        "user_mapping": "user_id",
+        "replicate_mapping": "run_id",
+        "pooling_policy": (
+            "Pooled fits require one identical run.seed and add a crossed "
+            "run-level random intercept. Raw user_id and scenario_id remain "
+            "shared clusters across same-seed reruns. Different seeds are "
+            "analyzed separately as robustness replicates and never increase "
+            "the independent-user count."
+        ),
     },
     "B": {
         "run_kind": "closed_loop",
         "input_file": "analysis/experiment-b-turns.jsonl",
         "legacy_input_file": "events/experiment-b-trajectories.jsonl",
+        "input_row_schema_version": 1,
         "bundle_analysis_unit": "retained_trajectory_turn",
         "bundle_outcome_derivation": (
             "per-turn marginal Brier from retained belief_after "
@@ -106,21 +172,29 @@ EXPERIMENT_SEMANTICS = {
         ),
         "required_policies": ["balanced", "soft_profile_conditioned"],
         "required_initial_profiles": ["incorrect"],
-        "scenario_mapping": "run_id + turn.scenario_id",
+        "scenario_mapping": "turn.scenario_id",
         "crn_set_mapping": "run_id + crn_key",
-        "user_mapping": "run_id + user_id",
+        "user_mapping": "user_id",
+        "replicate_mapping": "run_id",
+        "pooling_policy": (
+            "Pooled fits require one identical run.seed and add a crossed "
+            "run-level random intercept. Raw user_id and scenario_id remain "
+            "shared clusters across same-seed reruns. Different seeds are "
+            "analyzed separately as robustness replicates and never increase "
+            "the independent-user count."
+        ),
     },
 }
 
 PRIMARY_CONTRASTS = {
     "A": {
-        "id": "target-minus-aware-within-policy-conditioned-mechanism",
-        "mechanisms": ["restricted", "default", "suggested"],
+        "id": "target-calibration-residual-mechanism-minus-balanced",
+        "mechanisms": ["restricted", "ranking", "default", "suggested"],
         "expression": (
-            "target_updater[mechanism] - "
-            "fitted_action_aware[mechanism]"
+            "calibration_residual[target_updater, mechanism] - "
+            "calibration_residual[target_updater, balanced]"
         ),
-        "multiplicity": "Holm within the three-mechanism primary family",
+        "multiplicity": "Holm within the four-mechanism primary family",
     },
     "B": {
         "id": "incorrect-profile-updater-by-policy",
@@ -136,25 +210,7 @@ PRIMARY_CONTRASTS = {
 }
 
 SECONDARY_CONTRASTS = {
-    "A": [
-        {
-            "id": "balanced-target-minus-aware",
-            "expression": (
-                "target_updater[balanced] - "
-                "fitted_action_aware[balanced]"
-            ),
-        },
-        {
-            "id": "updater-by-mechanism-difference-in-differences",
-            "expression": (
-                "(target_updater[mechanism] - "
-                "fitted_action_aware[mechanism]) - "
-                "(target_updater[balanced] - "
-                "fitted_action_aware[balanced])"
-            ),
-            "mechanisms": ["restricted", "default", "suggested"],
-        },
-    ],
+    "A": [],
     "B": [
         {
             "id": "incorrect-profile-target-policy-effect",
@@ -295,6 +351,10 @@ def _description_imports() -> dict[str, str]:
 
 def validate() -> None:
     spec = _load_json("analysis-spec.json")
+    if spec.get("schema_version") != 3:
+        raise ContractError("analysis spec schema_version must be 3")
+    if spec.get("analysis_id") != "cape-loop-confirmatory-mixed-effects-v3":
+        raise ContractError("analysis spec must use the v3 analysis ID")
     if spec.get("status") != "analysis_protocol_not_results":
         raise ContractError("analysis spec must declare that it is not results")
     if spec.get("family") != "gaussian" or spec.get("link") != "identity":
@@ -316,9 +376,20 @@ def validate() -> None:
             raise ContractError(
                 f"Experiment {experiment} formula differs from the proposal"
             )
+        if declaration.get("pooled_formula") != POOLED_FORMULAS[experiment]:
+            raise ContractError(
+                f"Experiment {experiment} pooled_formula changed"
+            )
         if declaration.get("proposal_formula") != PROPOSAL_FORMULAS[experiment]:
             raise ContractError(
                 f"Experiment {experiment} proposal_formula changed"
+            )
+        if (
+            declaration.get("pooled_proposal_formula")
+            != POOLED_PROPOSAL_FORMULAS[experiment]
+        ):
+            raise ContractError(
+                f"Experiment {experiment} pooled_proposal_formula changed"
             )
         for key, expected in EXPERIMENT_SEMANTICS[experiment].items():
             if declaration.get(key) != expected:
@@ -382,6 +453,11 @@ def validate() -> None:
         )
 
     result_schema = _load_json("analysis-result.schema.json")
+    if (
+        result_schema.get("$id")
+        != "urn:cape-loop:schema:confirmatory-mixed-effects-result:v3"
+    ):
+        raise ContractError("result schema must use the v3 identifier")
     required = result_schema.get("required")
     for field in (
         "status",
@@ -396,6 +472,59 @@ def validate() -> None:
     schema_properties = result_schema.get("properties")
     if not isinstance(schema_properties, dict):
         raise ContractError("result schema has no properties object")
+    if schema_properties.get("schema_version") != {"const": 3}:
+        raise ContractError("result schema must require schema_version 3")
+    if schema_properties.get("analysis_id") != {
+        "const": "cape-loop-confirmatory-mixed-effects-v3"
+    }:
+        raise ContractError("result schema must require the v3 analysis ID")
+    if schema_properties.get("reference_updater") != {
+        "enum": ["exact_action_aware", "fitted_action_aware"]
+    }:
+        raise ContractError(
+            "result schema must distinguish exact A and fitted B references"
+        )
+    if schema_properties.get("outcome") != {
+        "enum": ["calibration_residual", "terminal_error"]
+    }:
+        raise ContractError(
+            "result schema must distinguish signed A and terminal B outcomes"
+        )
+    conditional_boundaries = result_schema.get("allOf")
+    expected_boundaries = [
+        {
+            "if": {
+                "properties": {"experiment": {"const": "A"}},
+                "required": ["experiment"],
+            },
+            "then": {
+                "properties": {
+                    "reference_updater": {
+                        "const": "exact_action_aware"
+                    },
+                    "outcome": {"const": "calibration_residual"},
+                }
+            },
+        },
+        {
+            "if": {
+                "properties": {"experiment": {"const": "B"}},
+                "required": ["experiment"],
+            },
+            "then": {
+                "properties": {
+                    "reference_updater": {
+                        "const": "fitted_action_aware"
+                    },
+                    "outcome": {"const": "terminal_error"},
+                }
+            },
+        },
+    ]
+    if conditional_boundaries != expected_boundaries:
+        raise ContractError(
+            "result schema must contain A/B reference-outcome boundaries"
+        )
     estimation_schema = schema_properties.get("estimation")
     if not isinstance(estimation_schema, dict):
         raise ContractError("result schema has no estimation object")
@@ -439,6 +568,13 @@ def validate() -> None:
         "fit_confirmatory_model",
         "write_output_checksums",
         "not_claimed",
+        "experiment_a_oracle_reference",
+        "experiment_b_updater_reference",
+        "target_updater_controlled_anchor_event",
+        "checksum_bound_anchor_directional_exact_oracle_calibration_residual",
+        "pooled_analysis <- length(source_runs) > 1L",
+        "experiment_spec$pooled_formula",
+        "pooled_run_random_intercept = pooled_analysis",
         'options(\n  contrasts = unlist(spec$factor_coding$contrasts',
     ))
     safe_output = _source_block(
@@ -477,8 +613,30 @@ def validate() -> None:
         "source$manifest$source_sha256",
         "length(unique(source_digests)) != 1L",
         "pooled source runs must have identical manifest.source_sha256 values",
+        "pooled source runs must have identical config.run.seed",
+        "analyze different seeds separately as robustness replicates",
+        "population = source$config$population %||% list()",
+        "replicate = source$run_id",
+        "population_seed = source$population_seed",
+        "all_levels_present <- function(",
+        "assert_balanced_level_crossing <- function(",
+        "rows <- rows[rows$updater == target_updater",
+        "Experiment A target updater cannot be the exact oracle reference",
+        "every Experiment A target user must contain every mechanism",
         "the same Experiment B horizon",
         "assert_exact_fields <- function(value, expected, label)",
+        '"analysis_track"',
+        '"reference_basis"',
+        '"exact_update_error"',
+        '"fitted_update_error"',
+        '"system_log_odds_update"',
+        '"exact_log_odds_update"',
+        '"fitted_log_odds_update"',
+        '"calibration_residual"',
+        "same_response_provenance",
+        "natural_response_secondary",
+        "calibration_residual differs from",
+        "source$summary$controlled_row_count",
         "compact Experiment A source_record_index values must cover",
         "compact Experiment B source_record_index values must cover",
         "source summary compact exclusion declaration differs",
@@ -520,6 +678,10 @@ def validate() -> None:
         )
     if "if (!identical(reference, candidate))" not in same_design:
         raise ContractError("pooled source designs must be exactly identical")
+    if "population = source$config$population" not in same_design:
+        raise ContractError(
+            "pooled design signature must retain population policy"
+        )
 
     model = _read_text("R/model.R")
     _require_anchors("R/model.R", model, (
@@ -537,6 +699,8 @@ def validate() -> None:
         "max_absolute_raw_gradient",
         "max_absolute_scaled_gradient",
         "solve(chol(hessian), raw_gradient)",
+        "A:calibration-residual:",
+        "A_primary_signed_calibration_mechanism_vs_balanced",
     ))
     if re.search(
         (

@@ -1,9 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:cape-loop:schema:confirmatory-mixed-effects-result:v1",
+  "$id": "urn:cape-loop:schema:confirmatory-mixed-effects-result:v3",
   "title": "CAPE-Loop confirmatory mixed-effects result",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "experiment": {
+            "const": "A"
+          }
+        },
+        "required": [
+          "experiment"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reference_updater": {
+            "const": "exact_action_aware"
+          },
+          "outcome": {
+            "const": "calibration_residual"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "experiment": {
+            "const": "B"
+          }
+        },
+        "required": [
+          "experiment"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reference_updater": {
+            "const": "fitted_action_aware"
+          },
+          "outcome": {
+            "const": "terminal_error"
+          }
+        }
+      }
+    }
+  ],
   "required": [
     "schema_version",
     "analysis_id",
@@ -26,10 +72,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 3
     },
     "analysis_id": {
-      "const": "cape-loop-confirmatory-mixed-effects-v1"
+      "const": "cape-loop-confirmatory-mixed-effects-v3"
     },
     "experiment": {
       "enum": [
@@ -61,11 +107,14 @@
       "minLength": 1
     },
     "reference_updater": {
-      "const": "fitted_action_aware"
+      "enum": [
+        "exact_action_aware",
+        "fitted_action_aware"
+      ]
     },
     "outcome": {
       "enum": [
-        "update_error",
+        "calibration_residual",
         "terminal_error"
       ]
     },

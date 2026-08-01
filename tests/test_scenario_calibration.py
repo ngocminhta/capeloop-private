@@ -14,6 +14,7 @@ from cape_loop.conversation_surfaces import load_conversation_bank
 from cape_loop.response import RandomUtilityModel
 from cape_loop.scenario_calibration import (
     AUDIT_POLICY,
+    AUDIT_SCHEMA_VERSION,
     build_scenario_calibration_audit,
     render_blinded_surface_review_markdown,
     render_scenario_calibration_markdown,
@@ -105,44 +106,48 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
             36 * 2 * 64 * 27,
         )
         self.assertEqual(calibration["scenario_anchor_instance_count"], 72)
-        self.assertEqual(calibration["unique_numeric_signature_count"], 24)
-        self.assertEqual(calibration["numeric_signature_repetition_factor"], 3.0)
+        self.assertEqual(calibration["unique_numeric_signature_count"], 72)
+        self.assertEqual(calibration["numeric_signature_repetition_factor"], 1.0)
+        self.assertEqual(
+            calibration["target_half_spans"],
+            [0.1, 0.16, 0.24, 0.34, 0.46, 0.56],
+        )
+        self.assertEqual(
+            calibration["guardrail_scope"]["included_scenario_count"],
+            30,
+        )
+        self.assertEqual(
+            calibration["guardrail_scope"]["excluded_decisive_control_scenario_count"],
+            6,
+        )
         self.assertTrue(calibration["all_cells_passed"])
 
         guardrails = calibration["guardrails"]
-        self.assertTrue(
-            guardrails["order_averaged_balanced_probability"]["passed"]
-        )
+        self.assertTrue(guardrails["order_averaged_balanced_probability"]["passed"])
         self.assertEqual(
             guardrails["order_averaged_balanced_probability"]["outside_count"],
             0,
         )
-        self.assertTrue(
-            guardrails["order_averaged_restricted_probability"]["passed"]
-        )
+        self.assertTrue(guardrails["order_averaged_restricted_probability"]["passed"])
         self.assertEqual(
             guardrails["order_averaged_restricted_probability"]["outside_count"],
             0,
         )
         for mechanism in ("balanced", "restricted", "default", "suggestion"):
             with self.subTest(physical_mechanism=mechanism):
-                physical = guardrails["physical_mechanism_probabilities"][
-                    mechanism
-                ]
+                physical = guardrails["physical_mechanism_probabilities"][mechanism]
                 self.assertTrue(physical["passed"])
                 self.assertEqual(
                     physical["anchor_at_or_below_minimum_count"],
                     0,
                 )
                 self.assertEqual(
-                    physical[
-                        "anchor_at_or_above_complementary_ceiling_count"
-                    ],
+                    physical["anchor_at_or_above_complementary_ceiling_count"],
                     0,
                 )
                 self.assertEqual(
                     physical["evaluated_physical_probability_count"],
-                    36 * 2 * 64 * 27 * 2,
+                    30 * 2 * 64 * 27 * 2,
                 )
         for mechanism in ("ranking", "default", "suggestion"):
             with self.subTest(mechanism=mechanism):
@@ -168,10 +173,9 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
             {"not_completed": 36},
         )
         self.assertEqual(reviews["paper_eligible_count"], 0)
-        self.assertFalse(
-            readiness["scientific_pilot"]["criteria"][
-                "independent_surface_human_review_passed"
-            ]
+        self.assertNotIn(
+            "independent_surface_human_review_passed",
+            readiness["scientific_pilot"]["criteria"],
         )
         self.assertFalse(
             readiness["scientific_pilot"]["criteria"][
@@ -179,7 +183,7 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
             ]
         )
         evidence = self.audit["readiness_contract"]["human_review_evidence"]
-        self.assertFalse(evidence["verification_supported"])
+        self.assertTrue(evidence["verification_supported"])
         self.assertFalse(evidence["verified"])
 
     def test_restricted_peer_nuisance_design_is_counterbalanced(self) -> None:
@@ -198,11 +202,7 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
                 )
                 joint = tuple(cell["joint_counts"].values())
                 self.assertLessEqual(max(joint) - min(joint), 1)
-                self.assertTrue(
-                    cell[
-                        "nuisance_joint_combinations_balanced_within_one"
-                    ]
-                )
+                self.assertTrue(cell["nuisance_joint_combinations_balanced_within_one"])
                 self.assertTrue(cell["passed"])
 
     def test_neutral_conversation_frames_are_counterbalanced(self) -> None:
@@ -230,9 +230,7 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
         warnings = self.audit["warnings"]
         self.assertFalse(warnings["blocks_machine_readiness"])
         self.assertFalse(warnings["blocks_recorded_scientific_readiness"])
-        self.assertFalse(
-            warnings["version_bound_adjudication_mechanism_available"]
-        )
+        self.assertTrue(warnings["version_bound_adjudication_mechanism_available"])
         self.assertEqual(warnings["lexical_overlap_candidates"], [])
         self.assertEqual(warnings["rendered_surface_hygiene"], [])
         self.assertEqual(warnings["raw_option_label_word_count_warnings"], [])
@@ -315,9 +313,7 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
 
         lines = first.splitlines()
         item_headings = [line for line in lines if line.startswith("## Item ")]
-        surface_headings = [
-            line for line in lines if line.startswith("### Surface ")
-        ]
+        surface_headings = [line for line in lines if line.startswith("### Surface ")]
         self.assertEqual(len(item_headings), 36)
         self.assertEqual(item_headings[0], "## Item 001")
         self.assertEqual(item_headings[-1], "## Item 036")
@@ -344,9 +340,7 @@ class CanonicalScenarioCalibrationTests(unittest.TestCase):
             with self.subTest(forbidden_label=forbidden_label):
                 self.assertNotIn(forbidden_label, first)
 
-        headings = "\n".join(
-            line for line in lines if line.startswith("#")
-        ).casefold()
+        headings = "\n".join(line for line in lines if line.startswith("#")).casefold()
         for mechanism in (
             "balanced",
             "restricted",
@@ -474,9 +468,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         return replace(
             target,
             prompt=f"{source.prompt} {marker}",
-            task_family=(
-                target.task_family if task_family is None else task_family
-            ),
+            task_family=(target.task_family if task_family is None else task_family),
             negative_option=replace(
                 target.negative_option,
                 label=f"{source.negative_option.label} {marker}",
@@ -487,15 +479,11 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
             ),
             negative_same_direction_option=replace(
                 target.negative_same_direction_option,
-                label=(
-                    f"{source.negative_same_direction_option.label} {marker}"
-                ),
+                label=(f"{source.negative_same_direction_option.label} {marker}"),
             ),
             positive_same_direction_option=replace(
                 target.positive_same_direction_option,
-                label=(
-                    f"{source.positive_same_direction_option.label} {marker}"
-                ),
+                label=(f"{source.positive_same_direction_option.label} {marker}"),
             ),
         )
 
@@ -574,17 +562,12 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
             minimum_matched_probability=0.49,
         )
         guardrails = audit["probability_calibration"]["guardrails"]
-        self.assertTrue(
-            guardrails["order_averaged_balanced_probability"]["passed"]
-        )
+        self.assertTrue(guardrails["order_averaged_balanced_probability"]["passed"])
         self.assertTrue(
             any(
                 not item["passed"]
-                and item["either_binary_response_at_or_below_minimum_count"]
-                > 0
-                for item in guardrails[
-                    "physical_mechanism_probabilities"
-                ].values()
+                and item["either_binary_response_at_or_below_minimum_count"] > 0
+                for item in guardrails["physical_mechanism_probabilities"].values()
             )
         )
         self.assertFalse(guardrails["passed"])
@@ -613,9 +596,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         synthetic = replace(
             self.catalog,
             scenarios=tuple(
-                replacement
-                if scenario.scenario_id == target.scenario_id
-                else scenario
+                replacement if scenario.scenario_id == target.scenario_id else scenario
                 for scenario in self.catalog.scenarios
             ),
         )
@@ -667,9 +648,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         synthetic = replace(
             self.catalog,
             scenarios=tuple(
-                replacement
-                if scenario.scenario_id == target.scenario_id
-                else scenario
+                replacement if scenario.scenario_id == target.scenario_id else scenario
                 for scenario in self.catalog.scenarios
             ),
         )
@@ -684,8 +663,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                warning["kind"]
-                == "within_split_lexical_redundancy_candidate"
+                warning["kind"] == "within_split_lexical_redundancy_candidate"
                 and {
                     warning["scenario_a"],
                     warning["scenario_b"],
@@ -699,8 +677,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         candidates = [
             scenario
             for scenario in self.catalog.scenarios
-            if scenario.split == "development"
-            and scenario.domain == "travel"
+            if scenario.split == "development" and scenario.domain == "travel"
         ]
         source, target = candidates[:2]
         replacement = self._near_copy_surface(
@@ -711,9 +688,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         synthetic = replace(
             self.catalog,
             scenarios=tuple(
-                replacement
-                if scenario.scenario_id == target.scenario_id
-                else scenario
+                replacement if scenario.scenario_id == target.scenario_id else scenario
                 for scenario in self.catalog.scenarios
             ),
         )
@@ -728,8 +703,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         )
         self.assertFalse(
             any(
-                warning["kind"]
-                == "within_split_lexical_redundancy_candidate"
+                warning["kind"] == "within_split_lexical_redundancy_candidate"
                 and {
                     warning["scenario_a"],
                     warning["scenario_b"],
@@ -754,12 +728,8 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
             planned_turns=3,
         )
         guardrails = audit["probability_calibration"]["guardrails"]
-        self.assertTrue(
-            guardrails["order_averaged_balanced_probability"]["passed"]
-        )
-        self.assertTrue(
-            guardrails["order_averaged_restricted_probability"]["passed"]
-        )
+        self.assertTrue(guardrails["order_averaged_balanced_probability"]["passed"])
+        self.assertTrue(guardrails["order_averaged_restricted_probability"]["passed"])
         for mechanism in ("ranking", "default", "suggestion"):
             with self.subTest(mechanism=mechanism):
                 effect = guardrails["mean_incremental_effects"][mechanism]
@@ -837,8 +807,7 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         self.assertTrue(
             any(
                 warning["scenario_id"] == target.scenario_id
-                and warning["kind"]
-                == "option_label_raw_word_count_difference"
+                and warning["kind"] == "option_label_raw_word_count_difference"
                 and warning["absolute_difference"] > 2
                 for warning in warnings
             )
@@ -846,15 +815,12 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         self.assertTrue(
             any(
                 warning["scenario_id"] == target.scenario_id
-                and warning["kind"]
-                == "option_label_raw_word_count_ratio_outside_range"
+                and warning["kind"] == "option_label_raw_word_count_ratio_outside_range"
                 for warning in warnings
             )
         )
         self.assertFalse(audit["warnings"]["blocks_machine_readiness"])
-        self.assertTrue(
-            audit["warnings"]["blocks_recorded_scientific_readiness"]
-        )
+        self.assertTrue(audit["warnings"]["blocks_recorded_scientific_readiness"])
         self.assertFalse(
             audit["readiness"]["scientific_pilot"]["criteria"][
                 "unresolved_machine_warning_count_is_zero"
@@ -967,28 +933,28 @@ class SyntheticScenarioCalibrationBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "schema_version"):
             render_scenario_calibration_markdown(
                 {
-                    "schema_version": 3,
+                    "schema_version": 999,
                     "audit_policy": AUDIT_POLICY,
                 }
             )
         with self.assertRaisesRegex(ValueError, "schema_version"):
             render_blinded_surface_review_markdown(
                 {
-                    "schema_version": 3,
+                    "schema_version": 999,
                     "audit_policy": AUDIT_POLICY,
                 }
             )
         with self.assertRaisesRegex(ValueError, "audit_policy"):
             render_scenario_calibration_markdown(
                 {
-                    "schema_version": 2,
+                    "schema_version": AUDIT_SCHEMA_VERSION,
                     "audit_policy": "unknown",
                 }
             )
         with self.assertRaisesRegex(ValueError, "audit_policy"):
             render_blinded_surface_review_markdown(
                 {
-                    "schema_version": 2,
+                    "schema_version": AUDIT_SCHEMA_VERSION,
                     "audit_policy": "unknown",
                 }
             )

@@ -10,7 +10,11 @@ import math
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
-from ..beliefs import JointThetaPsiBelief, PreferenceBelief
+from ..beliefs import (
+    JointThetaPsiBelief,
+    MarginalPreferenceBelief,
+    PreferenceBelief,
+)
 from ..conversation_surfaces import ConversationTemplateBank
 from ..domains import (
     DATA_SPLITS,
@@ -133,8 +137,37 @@ class ExperimentARow:
         )
 
     @property
+    def anchor_directional_log_odds_update(self) -> float:
+        """System update toward the controlled anchor direction."""
+
+        return _directional_log_odds_update(
+            self.prior,
+            self.posterior,
+            self.target_attribute,
+            self.anchor_direction,
+        )
+
+    @property
+    def fitted_aware_anchor_directional_log_odds_update(self) -> float:
+        return _directional_log_odds_update(
+            self.prior,
+            self.fitted_aware_posterior,
+            self.target_attribute,
+            self.anchor_direction,
+        )
+
+    @property
+    def exact_anchor_directional_log_odds_update(self) -> float:
+        return _directional_log_odds_update(
+            self.prior,
+            self.exact_posterior,
+            self.target_attribute,
+            self.anchor_direction,
+        )
+
+    @property
     def exact_acue(self) -> float:
-        """Descriptive ACUE against the known generating response model."""
+        """Unsigned secondary error against the known generating response model."""
 
         return action_conditioned_update_error(
             self.prior,
@@ -142,6 +175,27 @@ class ExperimentARow:
             self.prior,
             self.exact_posterior,
         )
+
+    @property
+    def fitted_acue(self) -> float:
+        """Secondary update error against the learned action-aware model."""
+
+        return self.acue
+
+    @property
+    def calibration_residual(self) -> float:
+        """Signed log-odds update minus the warranted exact update."""
+
+        return (
+            self.anchor_directional_log_odds_update
+            - self.exact_anchor_directional_log_odds_update
+        )
+
+    @property
+    def analysis_track(self) -> str:
+        if self.response_mode == "controlled_anchor":
+            return "same_response_provenance"
+        return "natural_response_secondary"
 
     @property
     def fitted_evidence_strength(self) -> float:
@@ -172,6 +226,8 @@ class ExperimentARow:
             "prior_strength": self.prior_strength,
             "mechanism": self.mechanism,
             "response_mode": self.response_mode,
+            "analysis_track": self.analysis_track,
+            "primary_reference_basis": "exact_action_aware",
             "updater_id": self.updater_id,
             "selected_option_id": self.selected_option_id,
             "anchor_option_id": self.anchor_option_id,
@@ -195,6 +251,9 @@ class ExperimentARow:
                 self.exact_posterior.marginals().to_dict()["probabilities"]
             ),
             "metrics": {
+                "primary_calibration_residual": self.calibration_residual,
+                "secondary_exact_update_error": self.exact_acue,
+                "secondary_fitted_update_error": self.fitted_acue,
                 "acue": self.acue,
                 "exact_acue": self.exact_acue,
                 "fitted_aware_kl": self.fitted_aware_kl,
@@ -216,6 +275,16 @@ class ExperimentARow:
                     self.fitted_aware_log_odds_update
                 ),
                 "exact_log_odds_update": self.exact_log_odds_update,
+                "anchor_directional_log_odds_update": (
+                    self.anchor_directional_log_odds_update
+                ),
+                "fitted_aware_anchor_directional_log_odds_update": (
+                    self.fitted_aware_anchor_directional_log_odds_update
+                ),
+                "exact_anchor_directional_log_odds_update": (
+                    self.exact_anchor_directional_log_odds_update
+                ),
+                "calibration_residual": self.calibration_residual,
                 "fitted_evidence_strength": self.fitted_evidence_strength,
             },
         }
@@ -251,6 +320,101 @@ class ExcludedMatchedSet:
             "anchor_direction": self.anchor_direction,
             "minimum_probability": self.minimum_probability,
             "choice_probabilities": dict(self.choice_probabilities),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SameResponseAuditCell:
+    """One updater's mechanism-complete identical-response matched set."""
+
+    matched_set_id: str
+    updater_id: str
+    user_id: str
+    domain_id: str
+    target_attribute: int
+    anchor_direction: int
+    prior_stratum: str
+    required_mechanisms: tuple[str, ...]
+    observed_mechanisms: tuple[str, ...]
+    source_row_count: int
+    selected_option_id: str | None
+    anchor_option_id: str | None
+    local_user_reply: str | None
+    mechanism_coverage: bool
+    selected_anchor_identical: bool
+    local_user_reply_present: bool
+    local_user_reply_identical: bool
+    prior_invariant: bool
+    anchor_invariant: bool
+
+    @property
+    def checks(self) -> dict[str, bool]:
+        return {
+            "mechanism_coverage": self.mechanism_coverage,
+            "selected_anchor_identical": self.selected_anchor_identical,
+            "local_user_reply_identical": self.local_user_reply_identical,
+            "prior_invariant": self.prior_invariant,
+            "anchor_invariant": self.anchor_invariant,
+        }
+
+    @property
+    def passed(self) -> bool:
+        return all(self.checks.values())
+
+    @property
+    def failed_checks(self) -> tuple[str, ...]:
+        return tuple(name for name, passed in self.checks.items() if not passed)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "matched_set_id": self.matched_set_id,
+            "updater_id": self.updater_id,
+            "user_id": self.user_id,
+            "domain_id": self.domain_id,
+            "target_attribute": self.target_attribute,
+            "anchor_direction": self.anchor_direction,
+            "prior_stratum": self.prior_stratum,
+            "required_mechanisms": list(self.required_mechanisms),
+            "observed_mechanisms": list(self.observed_mechanisms),
+            "source_row_count": self.source_row_count,
+            "selected_option_id": self.selected_option_id,
+            "anchor_option_id": self.anchor_option_id,
+            "local_user_reply": self.local_user_reply,
+            "local_user_reply_present": self.local_user_reply_present,
+            "checks": self.checks,
+            "passed": self.passed,
+            "failed_checks": list(self.failed_checks),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SameResponseAudit:
+    """Machine-readable invariant audit for controlled-anchor Experiment A."""
+
+    required_mechanisms: tuple[str, ...]
+    source_row_count: int
+    cells: tuple[SameResponseAuditCell, ...]
+    response_mode: str = "controlled_anchor"
+
+    @property
+    def passed(self) -> bool:
+        return bool(self.cells) and all(cell.passed for cell in self.cells)
+
+    @property
+    def failed_cell_count(self) -> int:
+        return sum(not cell.passed for cell in self.cells)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "analysis": "experiment_a_same_response_audit",
+            "response_mode": self.response_mode,
+            "required_mechanisms": list(self.required_mechanisms),
+            "source_row_count": self.source_row_count,
+            "matched_cell_count": len(self.cells),
+            "failed_cell_count": self.failed_cell_count,
+            "passed": self.passed,
+            "cells": [cell.to_dict() for cell in self.cells],
         }
 
 
@@ -330,7 +494,7 @@ class ExperimentAResult:
         replicates: int = 2000,
         seed: int = 1729,
     ) -> tuple[OracleUpdateSlope, ...]:
-        """Fit descriptive slopes against the known generating posterior."""
+        """Fit primary calibration curves against the generating posterior."""
 
         return estimate_oracle_update_slopes(
             self.rows,
@@ -352,6 +516,18 @@ class ExperimentAResult:
             self.rows,
             response_mode=response_mode,
             volunteered_strengths=volunteered_strengths,
+        )
+
+    def same_response_audit(
+        self,
+        *,
+        required_mechanisms: Sequence[str] = MECHANISMS,
+    ) -> SameResponseAudit:
+        """Verify the controlled-anchor response invariants for every updater."""
+
+        return audit_same_response_provenance(
+            self.rows,
+            required_mechanisms=required_mechanisms,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -389,12 +565,14 @@ def _truth_aligned_prior(
     theta: tuple[int, int, int],
     strength: float,
 ) -> PreferenceBelief:
-    """Mix a uniform joint prior with truth-aligned mass.
+    """Return a factorized truth-aligned prior with declared marginal strength.
 
     Experiment A crosses this declared concentration factor while keeping the
     same prior within every updater/mechanism matched set. Truth alignment is
     balanced by the latent population and avoids conflating prior direction
-    with prior strength.
+    with prior strength. The independent joint is deliberate: evaluated LLM
+    updaters receive these three marginals, so the exact updater must not gain
+    hidden cross-attribute correlation unavailable in its prompt.
     """
 
     if (
@@ -405,17 +583,21 @@ def _truth_aligned_prior(
     ):
         raise ValueError("Experiment A prior strengths must lie in [0, 1)")
     concentration = float(strength)
-    uniform = PreferenceBelief.uniform()
-    point = PreferenceBelief.point_mass(theta)
-    return PreferenceBelief(
+    uniform = MarginalPreferenceBelief.uniform()
+    point = PreferenceBelief.point_mass(theta).marginals()
+    rows = tuple(
         tuple(
             (1.0 - concentration) * baseline
             + concentration * target
             for baseline, target in zip(
-                uniform.probabilities,
-                point.probabilities,
+                uniform.marginal(attribute),
+                point.marginal(attribute),
             )
         )
+        for attribute in range(3)
+    )
+    return PreferenceBelief.from_marginals(
+        MarginalPreferenceBelief(rows)  # type: ignore[arg-type]
     )
 
 
@@ -620,6 +802,8 @@ def run_provenance_audit(
     prior_strengths: Sequence[float] | None = None,
     response_model: RandomUtilityModel | None = None,
     fitted_aware_model: AwareConditionalLogitModel | None = None,
+    exact_susceptibilities: Sequence[Susceptibility] | None = None,
+    exact_susceptibility_weights: Sequence[float] | None = None,
     mechanisms: Sequence[str] = MECHANISMS,
     response_modes: Sequence[str] = (
         "controlled_anchor",
@@ -702,9 +886,33 @@ def run_provenance_audit(
     )
     # A configured paper run may supply the full Cartesian susceptibility grid.
     # Preserve that exact reference rather than replacing it with smoke defaults.
-    exact_reference: ProfileUpdater = registry.get(
-        "exact_action_aware",
-        ExactActionAwareUpdater(declared_response),
+    configured_exact = registry.get("exact_action_aware")
+    if (
+        isinstance(configured_exact, ExactActionAwareUpdater)
+        and exact_susceptibilities is not None
+        and configured_exact.susceptibilities
+        != tuple(exact_susceptibilities)
+    ):
+        raise ValueError(
+            "configured exact updater susceptibility support differs from "
+            "the declared Experiment A reference support"
+        )
+    exact_reference: ProfileUpdater = (
+        configured_exact
+        if configured_exact is not None
+        else ExactActionAwareUpdater(
+            declared_response,
+            (
+                ExactActionAwareUpdater().susceptibilities
+                if exact_susceptibilities is None
+                else tuple(exact_susceptibilities)
+            ),
+            (
+                None
+                if exact_susceptibility_weights is None
+                else tuple(float(value) for value in exact_susceptibility_weights)
+            ),
+        )
     )
 
     rows: list[ExperimentARow] = []
@@ -834,6 +1042,7 @@ def run_provenance_audit(
                         presentation_mechanism={
                             "balanced": "balanced",
                             "restricted": "restriction",
+                            "ranking": "ranking",
                             "default": "default",
                             "suggested": "suggestion",
                         }[mechanism],
@@ -876,6 +1085,9 @@ def run_provenance_audit(
                                 context,
                                 provenance,
                                 observation.selected_option_id,
+                                stable_option_names=(
+                                    response_mode == "controlled_anchor"
+                                ),
                             )
                             observation = Observation(
                                 selected_option_id=(
@@ -1190,7 +1402,7 @@ class OracleUpdateSlope:
             ),
             "inference_status": self.inference_status,
             "estimand": (
-                "system target-attribute positive-direction log-odds update "
+                "system target-attribute anchor-direction log-odds update "
                 f"regressed on the {self.reference_basis} update"
             ),
         }
@@ -1222,8 +1434,8 @@ def estimate_oracle_update_slopes(
 
     def reference_update(row: ExperimentARow) -> float:
         if reference_basis == "fitted_action_aware":
-            return row.fitted_aware_log_odds_update
-        return row.exact_log_odds_update
+            return row.fitted_aware_anchor_directional_log_odds_update
+        return row.exact_anchor_directional_log_odds_update
     selected = tuple(row for row in rows if row.response_mode == response_mode)
     if not selected:
         raise ValueError(f"no Experiment A rows for response mode {response_mode!r}")
@@ -1234,14 +1446,25 @@ def estimate_oracle_update_slopes(
             row for row in selected if row.updater_id == updater_id
         )
         x_values = tuple(reference_update(row) for row in updater_rows)
-        y_values = tuple(row.log_odds_update for row in updater_rows)
+        y_values = tuple(
+            row.anchor_directional_log_odds_update
+            for row in updater_rows
+        )
+        # Belief-derived directional updates are immutable for an Experiment A
+        # row.  Bootstrap draws only change which complete users are repeated,
+        # so retain the numeric pair once instead of repeatedly rebuilding
+        # belief marginals inside every draw.
+        row_values = tuple(zip(updater_rows, x_values, y_values))
         intercept, slope, residuals = _fit_line(x_values, y_values)
         residual_rows = []
         mechanism_slope_rows = []
         for mechanism in sorted({row.mechanism for row in updater_rows}):
-            mechanism_rows = tuple(
-                row for row in updater_rows if row.mechanism == mechanism
+            mechanism_values = tuple(
+                (row, x_value, y_value)
+                for row, x_value, y_value in row_values
+                if row.mechanism == mechanism
             )
+            mechanism_rows = tuple(row for row, _, _ in mechanism_values)
             values = tuple(
                 residual
                 for row, residual in zip(updater_rows, residuals)
@@ -1258,9 +1481,11 @@ def estimate_oracle_update_slopes(
                     ),
                 )
             )
-            mechanism_by_user: dict[str, list[ExperimentARow]] = {}
-            for row in mechanism_rows:
-                mechanism_by_user.setdefault(row.user_id, []).append(row)
+            mechanism_by_user: dict[str, list[tuple[float, float]]] = {}
+            for row, x_value, y_value in mechanism_values:
+                mechanism_by_user.setdefault(row.user_id, []).append(
+                    (x_value, y_value)
+                )
             mechanism_user_ids = sorted(mechanism_by_user)
             try:
                 (
@@ -1268,8 +1493,8 @@ def estimate_oracle_update_slopes(
                     mechanism_slope,
                     mechanism_residual_values,
                 ) = _fit_line(
-                    [reference_update(row) for row in mechanism_rows],
-                    [row.log_odds_update for row in mechanism_rows],
+                    [x_value for _, x_value, _ in mechanism_values],
+                    [y_value for _, _, y_value in mechanism_values],
                 )
             except ValueError:
                 mechanism_slope_rows.append(
@@ -1293,10 +1518,10 @@ def estimate_oracle_update_slopes(
             if len(mechanism_user_ids) >= 2:
                 weights = [1.0] * len(mechanism_user_ids)
                 for replicate in range(replicates):
-                    sampled_rows = [
-                        row
+                    sampled_values = [
+                        values
                         for draw in range(len(mechanism_user_ids))
-                        for row in mechanism_by_user[
+                        for values in mechanism_by_user[
                             mechanism_user_ids[
                                 weighted_index(
                                     weights,
@@ -1313,14 +1538,8 @@ def estimate_oracle_update_slopes(
                     ]
                     try:
                         _, draw_slope, _ = _fit_line(
-                            [
-                                reference_update(row)
-                                for row in sampled_rows
-                            ],
-                            [
-                                row.log_odds_update
-                                for row in sampled_rows
-                            ],
+                            [x_value for x_value, _ in sampled_values],
+                            [y_value for _, y_value in sampled_values],
                         )
                     except ValueError:
                         continue
@@ -1369,18 +1588,18 @@ def estimate_oracle_update_slopes(
                 )
             )
 
-        by_user: dict[str, list[ExperimentARow]] = {}
-        for row in updater_rows:
-            by_user.setdefault(row.user_id, []).append(row)
+        by_user: dict[str, list[tuple[float, float]]] = {}
+        for row, x_value, y_value in row_values:
+            by_user.setdefault(row.user_id, []).append((x_value, y_value))
         user_ids = sorted(by_user)
         slope_draws: list[float] = []
         if len(user_ids) >= 2:
             weights = [1.0] * len(user_ids)
             for replicate in range(replicates):
-                sampled_rows = [
-                    row
+                sampled_values = [
+                    values
                     for draw in range(len(user_ids))
-                    for row in by_user[
+                    for values in by_user[
                         user_ids[
                             weighted_index(
                                 weights,
@@ -1396,10 +1615,8 @@ def estimate_oracle_update_slopes(
                 ]
                 try:
                     _, draw_slope, _ = _fit_line(
-                        [
-                            reference_update(row) for row in sampled_rows
-                        ],
-                        [row.log_odds_update for row in sampled_rows],
+                        [x_value for x_value, _ in sampled_values],
+                        [y_value for _, y_value in sampled_values],
                     )
                 except ValueError:
                     continue
@@ -1456,6 +1673,137 @@ def experiment_a_matched_set_id(row: ExperimentARow) -> str:
         f"{row.user_id}|{row.domain_id}|attribute-{row.target_attribute}|"
         f"direction-{row.anchor_direction:+d}|prior-{row.prior_stratum}|"
         f"{row.response_mode}"
+    )
+
+
+def audit_same_response_provenance(
+    rows: Sequence[ExperimentARow],
+    *,
+    required_mechanisms: Sequence[str] = MECHANISMS,
+) -> SameResponseAudit:
+    """Audit identical controlled responses without conflating changed prompts.
+
+    The assistant message and complete :class:`Observation` are expected to
+    differ across treatments because the visible action is the intervention.
+    This audit therefore holds fixed the selected anchor and the user's local
+    reply while separately checking the prior and anchor option.
+    """
+
+    required = tuple(required_mechanisms)
+    if (
+        not required
+        or len(required) != len(set(required))
+        or not set(required) <= set(MECHANISMS)
+    ):
+        raise ValueError(
+            f"required mechanisms must be distinct members of {MECHANISMS}"
+        )
+    controlled = tuple(
+        row for row in rows if row.response_mode == "controlled_anchor"
+    )
+    if not controlled:
+        raise ValueError("same-response audit requires controlled-anchor rows")
+
+    grouped: dict[tuple[str, str], list[ExperimentARow]] = {}
+    for row in controlled:
+        grouped.setdefault(
+            (experiment_a_matched_set_id(row), row.updater_id),
+            [],
+        ).append(row)
+
+    cells = []
+    required_set = set(required)
+    for (matched_set_id, updater_id), candidates in sorted(grouped.items()):
+        first = candidates[0]
+        observed_set = {row.mechanism for row in candidates}
+        observed = tuple(
+            mechanism
+            for mechanism in MECHANISMS
+            if mechanism in observed_set
+        )
+        observed += tuple(sorted(observed_set - set(MECHANISMS)))
+        mechanism_coverage = (
+            observed_set == required_set
+            and len(candidates) == len(required)
+        )
+
+        selected_ids = {row.selected_option_id for row in candidates}
+        anchor_ids = {row.anchor_option_id for row in candidates}
+        selected_option_id = (
+            next(iter(selected_ids)) if len(selected_ids) == 1 else None
+        )
+        anchor_option_id = (
+            next(iter(anchor_ids)) if len(anchor_ids) == 1 else None
+        )
+        selected_anchor_identical = (
+            selected_option_id is not None
+            and anchor_option_id is not None
+            and selected_option_id == anchor_option_id
+            and all(row.anchor_selected for row in candidates)
+        )
+
+        replies = [row.observation.surface_response for row in candidates]
+        local_user_reply_present = all(
+            isinstance(reply, str) and bool(reply.strip())
+            for reply in replies
+        )
+        unique_replies = set(replies)
+        replies_all_absent = all(reply is None for reply in replies)
+        local_user_reply_identical = (
+            replies_all_absent
+            or (local_user_reply_present and len(unique_replies) == 1)
+        )
+        local_user_reply = (
+            next(iter(unique_replies))
+            if local_user_reply_present and local_user_reply_identical
+            else None
+        )
+
+        prior_invariant = all(
+            row.prior == first.prior for row in candidates
+        )
+        anchors = []
+        anchor_retrievable = True
+        for row in candidates:
+            try:
+                anchors.append(row.context.option(row.anchor_option_id))
+            except KeyError:
+                anchor_retrievable = False
+        anchor_invariant = (
+            anchor_retrievable
+            and anchor_option_id is not None
+            and len(anchors) == len(candidates)
+            and all(anchor == anchors[0] for anchor in anchors)
+        )
+
+        cells.append(
+            SameResponseAuditCell(
+                matched_set_id=matched_set_id,
+                updater_id=updater_id,
+                user_id=first.user_id,
+                domain_id=first.domain_id,
+                target_attribute=first.target_attribute,
+                anchor_direction=first.anchor_direction,
+                prior_stratum=first.prior_stratum,
+                required_mechanisms=required,
+                observed_mechanisms=observed,
+                source_row_count=len(candidates),
+                selected_option_id=selected_option_id,
+                anchor_option_id=anchor_option_id,
+                local_user_reply=local_user_reply,
+                mechanism_coverage=mechanism_coverage,
+                selected_anchor_identical=selected_anchor_identical,
+                local_user_reply_present=local_user_reply_present,
+                local_user_reply_identical=local_user_reply_identical,
+                prior_invariant=prior_invariant,
+                anchor_invariant=anchor_invariant,
+            )
+        )
+
+    return SameResponseAudit(
+        required_mechanisms=required,
+        source_row_count=len(controlled),
+        cells=tuple(cells),
     )
 
 
@@ -1668,6 +2016,8 @@ def fitted_evidence_strength_ordering(
 
 _CONFIRMATORY_METRICS = {
     "acue",
+    "exact_acue",
+    "calibration_residual",
     "fitted_aware_kl",
     "exact_kl",
     "brier",
@@ -1677,6 +2027,7 @@ _CONFIRMATORY_METRICS = {
     "evidence_weight",
     "log_odds_update",
     "fitted_aware_log_odds_update",
+    "exact_log_odds_update",
     "fitted_evidence_strength",
 }
 
@@ -1715,6 +2066,7 @@ def experiment_a_mechanism_contrasts(
     response_mode: str = "controlled_anchor",
     replicates: int = 2000,
     seed: int = 1729,
+    updater_id: str | None = None,
 ) -> tuple[PairedContrast, ...]:
     """Return within-matched-set mechanism contrasts for every updater."""
 
@@ -1726,28 +2078,34 @@ def experiment_a_mechanism_contrasts(
         for row in selected
     }
     results = []
-    for updater_id in sorted({row.updater_id for row in selected}):
+    available_updaters = sorted({row.updater_id for row in selected})
+    selected_updaters = (
+        available_updaters
+        if updater_id is None
+        else [updater_id] if updater_id in available_updaters else []
+    )
+    for candidate_updater_id in selected_updaters:
         pair_keys = sorted(
             {
                 key
                 for key, candidate_updater, mechanism in cells
-                if candidate_updater == updater_id
+                if candidate_updater == candidate_updater_id
                 and mechanism == first_mechanism
-                and (key, updater_id, second_mechanism) in cells
+                and (key, candidate_updater_id, second_mechanism) in cells
             }
         )
         if not pair_keys:
             continue
         first = [
             _metric_value(
-                cells[(key, updater_id, first_mechanism)],
+                cells[(key, candidate_updater_id, first_mechanism)],
                 metric,
             )
             for key in pair_keys
         ]
         second = [
             _metric_value(
-                cells[(key, updater_id, second_mechanism)],
+                cells[(key, candidate_updater_id, second_mechanism)],
                 metric,
             )
             for key in pair_keys
@@ -1758,11 +2116,11 @@ def experiment_a_mechanism_contrasts(
                 second,
                 [key[0] for key in pair_keys],
                 contrast_id=(
-                    f"experiment-a:{metric}:{updater_id}:"
+                    f"experiment-a:{metric}:{candidate_updater_id}:"
                     f"{first_mechanism}-vs-{second_mechanism}"
                 ),
-                first_label=f"{updater_id}/{first_mechanism}",
-                second_label=f"{updater_id}/{second_mechanism}",
+                first_label=f"{candidate_updater_id}/{first_mechanism}",
+                second_label=f"{candidate_updater_id}/{second_mechanism}",
                 replicates=replicates,
                 seed=seed,
             )
@@ -2002,12 +2360,13 @@ def compare_experiment_a_raw_calibrated(
 
 @dataclass(frozen=True, slots=True)
 class ExperimentAConfirmatoryResult:
-    """Serializable Experiment A analysis components ready for artifact writing."""
+    """Serializable exact-referenced Experiment A analysis components."""
 
     oracle_update_slopes: tuple[OracleUpdateSlope, ...]
     evidence_strength: EvidenceStrengthAnalysis
     exact_oracle_update_slopes: tuple[OracleUpdateSlope, ...] = ()
     mechanism_contrasts: tuple[PairedContrast, ...] = ()
+    exact_update_error_contrasts: tuple[PairedContrast, ...] = ()
     updater_mechanism_interactions: tuple[PairedContrast, ...] = ()
     marginal_regression: ClusterRobustOLSResult | None = None
     raw_calibrated_comparison: RawCalibratedComparison | None = None
@@ -2016,9 +2375,28 @@ class ExperimentAConfirmatoryResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": 3,
             "analysis": "experiment_a_confirmatory",
+            "analysis_track": "same_response_provenance",
+            "primary_reference_basis": "exact_action_aware",
+            "secondary_reference_basis": "fitted_action_aware",
+            "primary_outcome": "calibration_residual",
+            "primary_contrast": (
+                "target writer non-balanced mechanism minus balanced"
+            ),
+            "secondary_magnitude_outcome": "exact_acue",
+            "marginal_regression_outcome": "calibration_residual",
+            "marginal_regression_scope": "predeclared_target_writer_only",
             "independent_unit": "complete latent user",
             "bootstrap_replicates": self.bootstrap_replicates,
+            "primary_exact_oracle_update_slopes": [
+                result.to_dict()
+                for result in self.exact_oracle_update_slopes
+            ],
+            "secondary_fitted_oracle_update_slopes": [
+                result.to_dict() for result in self.oracle_update_slopes
+            ],
+            # Compatibility aliases retained for existing analysis readers.
             "oracle_update_slopes": [
                 result.to_dict() for result in self.oracle_update_slopes
             ],
@@ -2027,8 +2405,17 @@ class ExperimentAConfirmatoryResult:
                 for result in self.exact_oracle_update_slopes
             ],
             "evidence_strength": self.evidence_strength.to_dict(),
+            # Compatibility alias; in schema v3 these are the primary signed
+            # calibration-residual contrasts, not unsigned ACUE contrasts.
             "mechanism_contrasts": [
                 contrast.to_dict() for contrast in self.mechanism_contrasts
+            ],
+            "primary_signed_calibration_residual_contrasts": [
+                contrast.to_dict() for contrast in self.mechanism_contrasts
+            ],
+            "secondary_exact_update_error_contrasts": [
+                contrast.to_dict()
+                for contrast in self.exact_update_error_contrasts
             ],
             "updater_mechanism_interactions": [
                 contrast.to_dict()

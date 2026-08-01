@@ -776,7 +776,7 @@ class TrainingTests(unittest.TestCase):
             get_domain("travel"),
             users,
             RandomUtilityModel(),
-            count=8,
+            count=10,
             seed=11,
         )
 
@@ -787,6 +787,8 @@ class TrainingTests(unittest.TestCase):
                 return "default"
             if context.suggested_option_id is not None:
                 return "suggested"
+            if ":ranking:" in context.context_id:
+                return "ranking"
             directions = {
                 -1 if option.features[target] < 0 else 1
                 for option in context.options
@@ -805,7 +807,13 @@ class TrainingTests(unittest.TestCase):
             set(by_theta.values()),
             {
                 frozenset(
-                    {"balanced", "restricted", "default", "suggested"}
+                    {
+                        "balanced",
+                        "restricted",
+                        "ranking",
+                        "default",
+                        "suggested",
+                    }
                 )
             },
         )

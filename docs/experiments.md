@@ -18,6 +18,10 @@ The stable object of study is the **updater–logging-policy pair**. Experiment 
 tests whether an updater assigns warranted weight to evidence generated under
 different elicitation mechanisms. Experiment B tests how an updater and an
 adaptive interaction policy jointly determine the evidence that is collected.
+The pair-level construct is **policy-conditioned evidential legibility**: a
+history can remain informative to exact inference while a particular writer
+translates it inaccurately. This is operationalized by policy-specific
+same-history attribution gaps, not by a composite policy score.
 Experiment C tests whether conclusions about an updater change with the policy
 that produced its evaluation history. Strict five-clause self-confirmation is a
 strong conditional downstream outcome, not the premise on which the other
@@ -31,7 +35,7 @@ Experiments A–C call the same preparation path before their main runner:
 2. load the travel and/or writing domain;
 3. build a deterministic split manifest;
 4. generate disjoint train, development, and test latent-user groups;
-5. generate randomized training interactions across the four provenance
+5. generate randomized training interactions across the five provenance
    mechanisms;
 6. fit four-parameter aware and unaware likelihood models on the same training
    interactions;
@@ -62,6 +66,10 @@ authorized live responses are available.
 Exact action-aware updater state is a full joint over preference and
 susceptibility. Its public preference belief is the theta marginal. Runners
 retain the joint whenever an exact evaluated updater or exact shadow is present.
+`models/exact-action-aware-reference.json` records the declared response
+coefficients, full uniform susceptibility support and weights, and supplied
+preference-prior boundary used by the exact reference. Split membership is not
+leaked into that prior.
 
 The split manifest assigns identifiers for preference groups, susceptibility
 groups, option templates, dialogue templates, scenario families, and
@@ -128,7 +136,7 @@ release-review obligation.
 
 ### Catalog-backed deterministic selection
 
-Every checked-in configuration binds the canonical 1.4.0 catalog and its exact
+Every checked-in configuration binds the canonical 1.5.0 catalog and its exact
 SHA-256. Selection first filters by domain, split, and target attribute. For a
 longitudinal history, it derives one semantic-keyed permutation for that
 trajectory and cell, then consumes the permutation without replacement until
@@ -283,6 +291,7 @@ Supported mechanisms are:
 | --- | --- |
 | `balanced` | Anchor and opposite-direction option; no default or suggestion |
 | `restricted` | Anchor and same-direction option |
+| `ranking` | The balanced pair with its displayed order reversed |
 | `default` | Balanced pair with the anchor preselected |
 | `suggested` | Balanced pair with the anchor recommended |
 
@@ -291,15 +300,27 @@ declared simulator gives the held anchor less than
 `response_model.minimum_matched_probability` in any requested mechanism.
 Exclusions are retained when event retention is enabled.
 
-`controlled_anchor` supplies the same anchor observation in every mechanism.
-This is a functional provenance-sensitivity control, not an average treatment
-effect. `naturally_sampled` samples from the declared response distribution for
-each context. With the hybrid surface bank, the anchor keeps the same stable
-display name and exact local user sentence across controlled mechanisms. The
-assistant base wording is shared. Restricted changes the option pair, ranking
-changes its order, and only default or suggestion inserts a fixed treatment
-sentence. Naturally sampled rows render whichever option the mathematical
-response model selected.
+`controlled_anchor` is the primary **same-response provenance track**. It
+supplies the same anchor observation in every mechanism while the choice set,
+display order, default, or suggestion changes. With the hybrid surface bank,
+the anchor keeps the same stable display name and exact local user sentence
+across mechanisms. The assistant base wording is shared. Restricted changes
+the option pair, ranking reverses its order, and only default or suggestion
+inserts a fixed treatment sentence.
+
+Before analysis, `metrics/experiment-a-same-response-audit.json` verifies
+complete mechanism coverage, the identical selected anchor and local reply,
+the invariant prior, and the invariant anchor identity for every matched
+updater cell. A failed audit aborts the run. This track identifies how much
+evidential weight the updater assigns to provenance; it is not an average
+treatment effect on user choice.
+
+`naturally_sampled` samples separately from the declared response distribution
+for each context and is retained as a secondary A robustness track. The primary
+natural-response feedback-loop test is Experiment B, where policy-dependent
+actions can change later responses and histories. The three public live A
+presets intentionally request only `controlled_anchor`; the offline A preset
+retains both modes.
 
 The configured policy must be exactly `balanced`; mechanism variation is
 constructed by the elicitation layer rather than a policy trajectory.
@@ -338,6 +359,8 @@ metrics/experiment-a.jsonl
 metrics/experiment-a-confirmatory.json
 metrics/experiment-a-control-reference.json
 metrics/experiment-a-control-baseline.json
+metrics/experiment-a-same-response-audit.json
+metrics/experiment-a-exact-calibration.json
 metrics/experiment-a-hypothesis-estimands.json
 metrics/experiment-a-oracle-slopes.jsonl
 metrics/experiment-a-exact-oracle-slopes.jsonl
@@ -356,12 +379,14 @@ metrics/gate-report.json
 metrics/summary.json
 ```
 
-The compact A file includes both `controlled_anchor` and `naturally_sampled`
-rows. It exposes identifiers, mechanism, prior strength, response mode, and
-the registered fitted-reference ACUE as `update_error`; the full event and
-exact-reference files remain the source for reconstructing complete posteriors
-and causal chains. A compact row is a projection of an evaluated trial, not an
-additional trial.
+The compact A file uses row schema v2. It includes whichever response modes the
+configuration executes and exposes identifiers, mechanism, prior strength,
+`analysis_track`, `reference_basis = "exact_action_aware"`, exact and fitted
+update errors, system/exact/fitted log-odds updates, and
+`calibration_residual = system_log_odds_update - exact_log_odds_update`.
+The full event and exact-reference files remain the source for reconstructing
+complete posteriors and causal chains. A compact row is a projection of an
+evaluated trial, not an additional trial.
 `analysis/experiment-a-exclusions.jsonl` mirrors the versioned exclusion rows
 independently of raw event retention so confirmatory admission never silently
 drops an excluded matched set.
@@ -372,12 +397,25 @@ copying identical dialogue once for every updater while retaining the source
 record linkage and the A metrics used in analysis.
 
 Metric rows include marginal Brier score, fitted-aware reference Brier,
-excess Brier, registered fitted-reference action-conditioned update error,
-exact action-aware ACUE and KL diagnostics, marginal KL, update-direction
-accuracy, update magnitude, and evidence weight. The exact diagnostic is
-available because controlled users are generated from the known response
-model. It does not silently replace the registered fitted-reference H1/H2
-estimands; a confirmatory migration would require a new analysis version.
+excess Brier, exact- and fitted-reference action-conditioned update errors,
+exact and fitted log-odds updates, marginal KL, update-direction accuracy,
+update magnitude, and evidence weight. For controlled rows, the exact
+action-aware posterior is primary: the selected anchor is fixed by the
+same-response design, and the oracle evaluates its warranted likelihood under
+the declared simulator response model while integrating uniformly over the
+susceptibility support prospectively assigned to the test split. It never uses
+the realized user's susceptibility or empirical test frequencies. The runner
+records the support and every prior weight in
+`models/exact-action-aware-reference.json`. The fitted action-aware reference
+is retained as a secondary learnability and model-misspecification robustness
+analysis.
+
+Experiment A's crossed truth-aligned prior is an independent joint reconstructed
+from the same attribute marginals included in the LLM request. The exact
+reference therefore receives no hidden cross-attribute prior information. The
+primary A system posterior is also always the raw LLM vector. Development-fitted
+temperature scaling is retained only in secondary forecast-calibration outputs,
+so an unchanged raw prior cannot become an apparent primary update.
 
 To avoid repeating the exact reference once per updater,
 `experiment-a.jsonl` retains each updater row's theta belief projections and an
@@ -388,26 +426,32 @@ on `exact_reference_id`. The in-memory experiment row also exposes
 
 The confirmatory bundle adds:
 
-- pooled and mechanism-specific directional log-odds update slopes against the
-  fitted-aware reference, each with a user-clustered bootstrap interval;
-- parallel, separately labeled pooled and mechanism-specific slopes against
-  the exact generating-model posterior for controlled diagnosis;
+- primary pooled and mechanism-specific calibration curves of system log-odds
+  update against the warranted exact action-aware update, each with
+  user-clustered bootstrap intervals; ideal calibration has intercept `0`,
+  slope `1`, and residual RMSE `0`;
+- primary target-writer signed calibration-residual contrasts comparing each
+  non-balanced mechanism with balanced presentation of the same response;
+- secondary target-writer ExactACUE magnitude contrasts on those same matched
+  responses;
+- separately labeled fitted-aware slopes as secondary learnability and
+  misspecification robustness;
 - a data-derived fitted evidence-strength ordering across mechanisms;
-- raw-versus-calibrated forecast scores and one-vs-rest marginal-class
-  reliability bins;
-- user-clustered paired mechanism contrasts and updater×mechanism interactions;
+- raw-primary versus temperature-scaled-secondary forecast scores and
+  one-vs-rest marginal-class reliability bins;
 - a marginal OLS model with user-clustered CR1 covariance;
 - Holm correction over its estimable non-intercept coefficient family; and
 - paired user-cluster pilot-power simulation when enough complete differences
   exist.
 
-The separate hypothesis-estimand artifact prevents those general-purpose ACUE
-analyses from being mistaken for H1 or H2. It reports H1's narrow
-anchor-directional and update-strength contrasts, H2's explicit
-distance-to-unaware versus distance-to-aware comparison, and H7's
-mitigation/valid-learning component. H1/H2 test particular failure modes; they
-do not classify a model as globally provenance-blind or provenance-aware. The
-frozen formulas and incomplete-data rules are in [Metrics](metrics.md).
+The separate hypothesis-estimand artifact retains the earlier directional H1
+over-update contrast, H2 distance-to-unaware contrast, and H7
+mitigation/valid-learning component for diagnostic continuity. H1/H2 no longer
+control the primary claim: they test extreme directional failure patterns and
+must not be interpreted as a universal provenance-blindness test. The primary
+claim is model- and mechanism-specific causal-provenance **miscalibration**
+against the exact oracle. The formulas and incomplete-data rules are in
+[Metrics](metrics.md).
 
 The dependency-free CR1 regression is an auditable marginal robustness
 analysis. It is **not** the proposal's confirmatory generalized mixed-effects
@@ -418,6 +462,23 @@ convergence/singularity diagnostics. Executing it on verified paper runs and
 reviewing any inferential claim remain a separate statistical stage. A
 configured bootstrap count of zero uses 200 replicates as an explicitly
 recorded smoke fallback, not a paper default.
+
+### Bounded live Experiment A presets
+
+Each public live A preset crosses four users, two domains, three attributes, two
+anchor directions, two prior strengths, five mechanisms, and one
+`llm_full_context` updater in `controlled_anchor` mode:
+
+```text
+480 controlled experiment updates
++ 60 five-mechanism development-calibration updates
++ 40 controlled held-out-paraphrase updates
+= 580 logical requests and, with zero retries, 580 physical attempts
+```
+
+At 2,048 maximum output tokens per attempt, the preflight allocation is
+1,187,840 output tokens. These are bounded estimability pilots, not a powered
+sample or paper evidence.
 
 ### Six-control execution protocol
 
@@ -569,7 +630,7 @@ unchanged. It records `claim_status = "not_claimed"`,
 closed-loop Experiment B component is still required for any full H7 claim.
 Exact formulas are in [Metrics](metrics.md).
 
-### Held-out paraphrase transfer and Gate 1
+### Held-out paraphrase readiness and Gate 1
 
 The held-out suite has train/development/test surface families and rejects any
 family that crosses splits. Experiment A renders test cases from controlled
@@ -578,15 +639,25 @@ evaluates the fitted-aware updater and, when configured, `llm_full_context`.
 Every case and score carries content hashes tying the surface text to its source
 and suite version.
 
-Gate 1 checks aware/unaware Brier ordering by domain, a full-context gap,
-mechanism transfer, domain coverage, and the held-out criterion. The held-out
-criterion preserves `verified = null` when required case/updater pairs are
-missing; it never treats missing LLM evidence as failure or success. Thus a
-structured-only smoke run is incomplete, while a complete response corpus can
-exercise the full computational check. `claim_status` remains `not_claimed` in
+Gate 1 is outcome neutral. It checks the same-response audit, exact-oracle
+self-consistency, complete declared mechanism/domain coverage, and whether the
+exact warranted update differs nontrivially from balanced for at least two
+non-balanced mechanisms in both domains. It does not require
+`llm_full_context` to make an error.
+
+For held-out surfaces, the controlling criterion is complete required
+case/updater coverage plus structural invariance: every paraphrase of a source
+must retain its selected option, domain, mechanism, and visible-context
+binding. The artifact is schema v2 and preserves `verified = null` when
+required pairs are missing. Historical fitted-aware versus full-context Brier
+gaps and `qualifying_mechanisms` remain in the artifact as descriptive
+compatibility diagnostics, but neither controls Gate 1. Fitted
+aware-versus-unaware learnability is likewise reported outside the gate. Thus
+a structured-only smoke run is incomplete, while a complete response corpus
+can exercise the full readiness check. `claim_status` remains `not_claimed` in
 either case.
 
-## Experiment B: policy-dependent evidence and closed-loop reinforcement
+## Experiment B: evidential legibility and behavioral feedback
 
 Use:
 
@@ -617,12 +688,44 @@ The bounded live pair is
 with balanced, soft-profile-conditioned, and exploratory policies, and evaluate
 one `llm_full_context` model at a time alongside local reference updaters. Each
 uses eight users, two domains, and six turns, so every preference dimension is
-revisited once. The preflight bound is 576 trajectory updates plus 48
-development-calibration calls: 624 physical attempts with retries disabled.
+revisited once. The preflight bound is 576 trajectory updates plus 60
+five-mechanism development-calibration calls: 636 physical attempts with
+retries disabled.
 Run the same frozen design separately for each model family; never combine
 provider calls from different models into one nominal updater. The request and
 token ceilings are defined and preflighted in
 [Live execution](live-execution.md).
+
+For the OpenRouter calibration, first build and stress the manipulation without
+a key or model call:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b manipulation-audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/experiment-b-manipulation-audit
+```
+
+The output contains the complete JSON schedule, a readable active-turn table,
+and the multi-seed simulator audit. The plan is admitted from ex-ante inputs
+only; simulated outcomes describe it but never reselect scenarios or change
+admission. A local exact action-aware updater evolves adaptive policy state;
+target-writer behavioral reinforcement is deliberately `not_evaluated` because
+the audit has no evaluated LLM output.
+
+The model suite is also a dry plan unless live execution is stated explicitly:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b model-suite \
+  configs/live/experiment_b_openrouter.toml \
+  --output-root runs/experiment-b-suite
+```
+
+It freezes Gemini 3.6 Flash, GPT-5.6 Luna, and Mistral Large 3
+(`mistralai/mistral-large-2512`) as the full primary panel. DeepSeek V4 Flash is
+a post-pilot secondary replication of the incorrect-seed balanced-versus-soft
+contrast. Every model is analyzed separately; no model outputs are pooled, and
+DeepSeek is outside the primary analysis set. Adding `--execute-live`
+authorizes all four isolated sequential OpenRouter runs.
 
 ### Executed crossing
 
@@ -646,9 +749,9 @@ uncertain
 empty
 ```
 
-`experiment.initial_profile_conditions` selects a nonempty subset. The offline
-reference uses all four; the bounded live calibration uses `correct` and
-`incorrect`. The checked-in configurations select balanced, softly
+`experiment.initial_profile_conditions` selects a nonempty subset. Both
+checked-in Experiment B presets use `correct` and `incorrect`; `uncertain` and
+`empty` remain available for separate diagnostics. The presets select balanced, softly
 profile-conditioned, and exploratory policies where the budget permits. Other
 known policies may be selected by a different valid closed-loop config. The
 strict contract requires the ranking/default/suggestion mechanism declaration,
@@ -668,22 +771,85 @@ Every trajectory has:
   attribute update to test whether strengthening above the seeded wrong mass
   changed a later action signature.
 
+Experiment A is the fixed-response attribution arm: it holds the selected item
+and reply constant and already includes balanced, restricted, ranking, default,
+and suggestion contexts. Experiment B is the natural-response feedback arm:
+the presentation may change the sampled choice. An A-side attribution failure
+does not establish a changed response, and a B-side choice change does not by
+itself establish updater misattribution. The outputs keep those paths separate.
+
+The existing `llm_provenance_aware` condition tests the combined effect of
+structured provenance metadata and a provenance-aware instruction. It is not a
+pure source-label ablation. Crossing metadata absent/present with instruction
+absent/present, assistant-only input, and neutralized assistant wording is a
+versioned extension and is not silently added to the current primary design.
+
 Turn records retain evaluated joint state when that updater has one and always
 retain the exact shadow's joint state before and after the event. Terminal
 evaluated/shadow joint states are retained separately.
 
-The soft policy always displays both preference directions. Across turns it
-rotates ranking, default, and suggestion channels and applies the
-profile-consistent treatment with a probability determined by current profile
-confidence.
+Before a natural response is drawn, every turn records two prospective
+difficulty labels:
+
+- latent target-preference strength is `weak` for `|theta| = 1` and `strong`
+  for `|theta| = 2`; trajectory rows also retain the three attribute strata
+  and label a user `mixed` when both magnitudes occur; and
+- the top-two choice-probability gap under the matched balanced action is
+  `near_tie` below `0.20`, `marginal` from `0.20` to below `0.50`, and
+  `decisive` at or above `0.50`.
+
+These strata are computed from the frozen latent user and declared response
+model before observing the sampled choice. They support prespecified
+heterogeneity summaries without treating seeds as independent users or
+post-selecting cases that happened to diverge. For configurations with
+`manipulation.planning_mode = "required"`, the outcome-blind scheduler fails
+before a model call unless every balanced/soft six-turn pair has at least two
+near-tie/marginal active turns, one decisive active control, two active
+mechanisms, both preference directions available, and sufficient active
+susceptibility mass (ASM). Realized choice divergence is never an admission
+condition.
+
+Every action also records three prospective mechanism descriptors:
+
+- structural profile consistency in `[-1, 1]` and its difference from the
+  paired balanced counterfactual;
+- exact expected information gain about the preference marginal, obtained by
+  integrating over every possible displayed response before sampling one; and
+- for paired binary actions with the same option IDs, the exact shared-noise
+  probability that the presentation changes the choice relative to balanced
+  (shared Gumbels for random utility; shared inverse-CDF noise for the
+  rule-based sensitivity model).
+
+These are reported beside realized exact information, visible-action
+divergence, and realized-choice divergence. A null choice-probability value
+means the actions do not share an identical binary choice set, not that
+susceptibility is zero. Reports retain the comparable-turn denominator and the
+separate changed-choice-set rate so policies are not compared on hidden
+coverage differences.
+
+The soft policy always displays both preference directions. Required active
+turns use the predeclared scenario and mechanism and must visibly diverge from
+balanced; the promoted direction follows the current profile, with planner
+admission calibrated conservatively across either possible profile direction.
+If an updater produces an exactly neutral target expectation, the active turn
+uses the initial-profile direction frozen before outcomes and records that
+fallback explicitly. Correct and incorrect initial-profile conditions reuse one
+condition-invariant scenario-role-mechanism and exogenous-randomization schedule
+per domain-user-replicate group, so their moderation contrast does not change
+the underlying stimuli.
+Adaptive-observation turns continue to rotate ranking, default, and suggestion
+and apply treatment with a probability determined by current profile
+confidence. Runtime records the planned role, mechanism, susceptibility bound,
+and execution match on every scheduled turn and fails on a required mismatch.
 
 For sensitivity runs, a numeric policy-strength dose multiplies that legacy
 adaptive treatment probability. A dose of `0` is the balanced-action negative
 control, and `1` exactly reproduces the ordinary soft-policy implementation.
-The ordinary Experiment B policy has no numeric override and retains its
-original `v1` behavior and provenance version.
+The ordinary unplanned policy has no numeric dose override. Required-plan
+execution uses the `v5-condition-matched-active-turns` provenance version; adaptive
+turns retain the same confidence-dependent behavior inside that schedule.
 
-The exploratory policy is `v2-balanced-coverage`. At each turn it restricts
+The exploratory policy is `v3-balanced-coverage-shared-neutral-ranking`. At each turn it restricts
 selection to the least-exposed attribute or attributes, then chooses the one
 with greatest current marginal entropy, with a deterministic index tie-break.
 Consequently, every complete three-turn block covers all three attributes and
@@ -697,44 +863,88 @@ Balanced versus profile-conditioned shadow paths supply evidence-selection
 comparisons. Evaluated belief versus its same-history shadow supplies
 attribution comparisons.
 
+After every update, trajectory construction asserts that the evaluated updater
+and exact shadow have consumed the identical ordered event-ID history. A
+history mismatch aborts the run instead of emitting a reassuring flag.
+
 Every soft-policy turn also receives an evaluator-only balanced-policy action
 signature constructed from the same user, scenario, profile, turn, and semantic
 random seed. This creates direct, paired indicators for whether the visible
 action and observed choice diverged from their balanced counterparts. It is a
 policy contrast, not another user interaction.
 
-The terminal and decomposition artifacts report four continuous loop
-diagnostics in addition to the unchanged strict five-clause predicate:
+Experiment B's primary and supporting endpoints are continuous. The sole
+primary claim is Gate 3's conjunction of the soft-policy attribution gap, its
+paired soft-minus-balanced contrast, and evidence-selection cost. Gate 2, seed
+moderation, and nested net harm form the gated Holm-adjusted secondary family.
+Terminal, decomposition, and inference artifacts additionally report the
+supporting measures below:
 
+- **policy-specific attribution gap** `G_policy`: evaluated-system terminal
+  error minus exact same-history shadow error;
+- **primary attribution-gap contrast:** the prospectively schedule-matched
+  `G_soft - G_balanced`;
+- **secondary seed moderation:** the incorrect-minus-correct moderation of that
+  contrast;
+- **supporting whole-policy comparator:** `G_soft - G_exploratory`; exploratory
+  target and scenario selection remains adaptive, so this is not a turn-matched
+  causal branch;
 - **error amplification ratio (EAR):** terminal marginal Brier error divided by
   initial marginal Brier error;
-- **cumulative excess confidence (CEC):** the existing cumulative learning-
-  confidence gain, averaged over attributes that were wrong initially;
-- **disconfirmation deficit (DD):** exploratory action-aware disconfirming
+- **cumulative excess confidence (CEC):** cumulative system-minus-exact-shadow
+  log-odds confidence gain, averaged over attributes that were wrong initially;
+- **paired CEC contrast:** soft-policy CEC minus balanced-policy CEC for the
+  same user/domain/updater/replicate; this is Gate 2's controlling **relative
+  confidence penalty**, not by itself absolute amplification or reinforcement;
+- **action-aware information deficit:** exploratory exact-shadow information
+  gain minus soft-policy exact-shadow information gain;
+- **disconfirmation deficit (DD):** exploratory exact-shadow disconfirming
   log-evidence minus soft-policy disconfirming log-evidence for the initially
-  false profile direction; and
-- **reinforcement-event rate:** the fraction of turns on which a visible
+  false profile direction;
+- **evidence-selection cost:** profile-policy shadow error minus
+  balanced-policy shadow error;
+- **same-history attribution cost:** evaluated-system error minus exact-shadow
+- **total updater-policy effect:** soft terminal updater error minus balanced
+  terminal updater error, which must equal SelectionCost plus the soft-minus-
+  balanced attribution-gap contrast within the configured tolerance;
+- **partial reinforcement-event rate:** the fraction of turns on which a visible
   profile-aligned action differs from balanced, the selected response supports
   the false direction, and the evaluated updater gains more false confidence
-  than its exact same-history shadow.
+  than its exact same-history shadow; and
+- **paired behavioral-reinforcement rate:** events divided by active false-
+  profile-aligned soft-treatment opportunities, additionally requiring a
+  same-turn soft-versus-balanced choice change toward the false profile. The
+  rate is null with no opportunities.
 
-EAR is undefined when initial error is numerically zero, and DD is available
-only when a matched exploratory trajectory exists. These continuous measures
-can show partial feedback-loop formation without claiming a stable
-self-confirming equilibrium.
+The runner additionally reports **Disconfirmation Inversion Rate (DIR)**. An
+opportunity is an initially false attribute-turn on which the exact shadow
+reduces false-sign confidence; an inversion occurs when the evaluated updater
+increases that same false-sign confidence. DIR divides inversions by
+opportunities and remains null when no opportunity exists. It has no
+profile-action or behavior-change clause and therefore remains distinct from
+the reinforcement-event and strict self-confirmation rates.
 
-The runner reports deterministic 95% percentile-bootstrap intervals for
-evidence-selection cost, profile- and balanced-policy attribution costs, the
-self-confirmation interaction, cumulative LCG, five-clause profile rate, and
-later-action-influence rate. The primary interval resamples complete latent
-users after reducing repeated domains and trajectories to equally weighted
-user means. A complete paired-trajectory resampling is retained as a
-sensitivity analysis. It must not be interpreted as making repeated
-trajectories independent users. Fewer than eight user clusters is explicitly
-marked `insufficient_clusters`.
+EAR is undefined when initial error is numerically zero, and exploratory
+deficits are available only when a matched exploratory trajectory exists.
+These continuous measures can show partial feedback-loop formation without
+claiming a stable self-confirming equilibrium. The original strict five-clause
+self-confirmation rate remains a secondary endpoint and diagnostic gate; a null
+strict rate does not erase an updater-side attribution or evidence-selection
+failure.
 
-These are paired, cluster-aware nonparametric intervals. They are not a GLMM or
-a user-level mixed-effects model. The latter is implemented by the separate,
+The runner's inference-v5 artifact first reduces repeated rows to equally
+weighted complete-user means. Its primary directional decisions use one-sided
+paired sign-flip inference: all $2^n$ signs are enumerated for at most 16 users;
+larger samples use 16,384 deterministic Monte Carlo patterns, include the
+observed assignment, and use a plus-one correction. The minimum is eight users
+and alpha is `0.05`. Sign exchangeability around the tested null margin is the
+required assumption.
+
+Deterministic 95% percentile user-cluster bootstrap intervals are sensitivity
+summaries. Complete paired-trajectory resampling is an additional sensitivity
+and must not be interpreted as making repeated trajectories independent users.
+These analyses are not a GLMM or a user-level mixed-effects model. The latter
+is implemented by the separate,
 version-pinned [R mixed-effects harness](../analysis/confirmatory-mixed-effects/README.md)
 and must be fitted on verified paper runs in the declared R environment.
 Its scenario random intercept uses the actual scenario displayed on each
@@ -868,10 +1078,14 @@ events/experiment-b-trajectories.jsonl         # when retain_events = true
 events/experiment-b-terminal-batteries.jsonl   # when retain_events = true
 events/experiment-b-held-out-terminal-suites.jsonl # when retain_events = true
 metrics/experiment-b-terminal.jsonl
+metrics/experiment-b-prospective-strata-occupancy.json
 metrics/experiment-b-native-decoders.jsonl
 metrics/experiment-b-held-out-actions.jsonl
 metrics/experiment-b-terminal-calibration.json
 metrics/experiment-b-decomposition.jsonl
+design/experiment-b-manipulation-plan.json
+design/experiment-b-manipulation-plan.md
+design/experiment-b-offline-manipulation-audit.json  # live LLM configurations
 metrics/experiment-b-h7-mitigation.json
 metrics/experiment-b-self-confirmation.jsonl
 metrics/experiment-b-inference.json
@@ -889,29 +1103,61 @@ metrics/gate-report.json
 metrics/summary.json
 ```
 
+The always-retained turn and terminal rows contain the legibility/action fields
+even when raw trajectory retention is disabled. The raw event record adds
+complete beliefs, gain vectors, visible contexts, responses, and policy
+provenance for forensic reconstruction. `experiment-b-inference.json` is
+schema v5 (`experiment-b-clustered-randomization-v5`). Its `directional_tests`
+retain the null margin, alternative, alpha, p-value, decision, cluster count,
+exact-versus-Monte-Carlo status, and sign-pattern count. Older completed runs
+remain valid under their original schema and do not acquire these estimands
+retroactively.
+
+Its `multiplicity` result executes
+`experiment-b-within-model-gatekeeping-v1`. Gate 3 is the primary IUT and uses
+the maximum of its three component p-values. Only after that conjunction
+rejects does Holm operate on the frozen secondary family: the Gate 2 IUT,
+incorrect-minus-correct moderation, and nested net harm. Missing members remain
+in the family with p=1. Supporting endpoints and bounded calibration are
+descriptive, and every model run is analyzed separately without pooling or an
+“any-model” decision. The gate report consumes these adjusted decisions; it
+cannot replace configured selection or net-harm margins with artifact values.
+
 The compact B file flattens each retained trajectory into one row per turn. It
 keeps the trajectory/user/domain/updater/policy/initial-condition identifiers,
-the common-random-number key, per-turn marginal Brier error, retained terminal
-error, and same-history shadow indicator. It omits the repeated full joint
-belief and native-memory payloads that make the raw trajectory audit large.
-The number of compact rows is the number of retained turns, not a larger
-experimental sample.
+the common-random-number key, prospective user/target preference-strength
+strata, the balanced-action target and choice-probability margin/stratum,
+per-turn system/shadow Brier and attribution gap, exact expected and realized
+information, action profile consistency and balanced advantage, ex-ante
+paired-choice divergence, DIR opportunities/inversions, retained terminal
+error, and same-history shadow indicator. It omits the repeated full joint belief and native-memory payloads
+that make the raw trajectory audit large. The number of compact rows is the
+number of retained turns, not a larger experimental sample.
+
+The paper-primary clustered inference is not the supporting R terminal-error
+model. It is written directly to `metrics/experiment-b-inference.json` from the
+source trajectories. Historical `artifact compact` sidecars retain only the
+core fields needed by the R model, so they cannot reconstruct the new
+same-history, action-characterization, or DIR estimands on their own.
 
 The B conversation trace instead keeps each trajectory as one readable record:
 its turns appear in order with per-turn metrics, followed by the terminal
 evaluation. It omits posterior arrays, latent truth, and native-memory payloads.
 
 Each Experiment B terminal row includes profile Brier and projected behavioral
-scores, same-history shadow-to-system marginal KL, preference-dimension
+scores, exact-shadow error, same-history attribution gap, exact-shadow
+improvement, expected and realized information, action profile consistency,
+ex-ante paired-choice divergence, DIR counts/rate, same-history
+shadow-to-system marginal KL, preference-dimension
 coverage and time-to-full-coverage, displayed-option diversity, distinct
 selected-option count, profile-conditioned exposure rate, mechanism
-count/evenness, cumulative action-aware information gain, total intrinsic
-regret, and the explicitly defined false-stable attribute rate and trajectory
-flag for incorrect-seed trajectories. It also includes top-label profile ECE
-and fixed reliability bins over its three preference-attribute forecasts. The
-pooled calibration artifact groups these records by public projection or
-deterministic decoder and states that trajectory/user, not attribute, is the
-dependence unit.
+count/evenness, prospective weak/strong and balanced-margin summaries,
+cumulative action-aware information gain, total intrinsic regret, and the
+explicitly defined false-stable attribute rate and trajectory flag for
+incorrect-seed trajectories. It also includes top-label profile ECE and fixed
+reliability bins over its three preference-attribute forecasts. The pooled
+calibration artifact groups these records by public projection or deterministic
+decoder and states that trajectory/user, not attribute, is the dependence unit.
 
 Held-out action rows include the suite ID/digest, adapter kind, action bindings,
 behavioral accuracy, cross-context accuracy, and intrinsic regret. They must be
@@ -942,13 +1188,24 @@ pilots include that target, but neither has been executed as a paper result.
 
 With correctly configured replay or explicitly authorized live LLM updaters,
 the code can compute the declared checks, but still records
-`claim_status = "not_claimed"`. Gate 2 additionally requires adequate
-user-clustered intervals whose lower bounds are above zero for both mean LCG
-and the five-clause profile rate. Gate 3 requires an adequate user-clustered
-same-history attribution interval whose lower bound is above zero. Missing
-bootstrap evidence makes these gates incomplete; insufficient clusters or an
-interval crossing zero makes the corresponding gate fail its computational
-checks.
+`claim_status = "not_claimed"`. Inference v5 identifies policy-specific
+same-history gaps, their policy/seed contrasts, SelectionCost, and the total
+soft-minus-balanced updater error as the primary continuous family; EAR, CEC,
+reinforcement, DIR, and disconfirmation/information deficits explain distinct
+parts of the result.
+
+Within the incorrect-initial-profile stratum, Gate 2 requires an active soft
+manipulation, visible action divergence, some natural-choice divergence, later
+action influence, and one-sided complete-user evidence for a positive
+soft-minus-balanced CEC relative penalty. Gate 3 uses the same stratum for the
+separate policy-conditioned-legibility conjunction: positive soft-policy $G$,
+positive soft-minus-balanced $G$, and SelectionCost below the frozen `0.02`
+noninferiority margin. The nested `gate-3-net-profile-harm` additionally
+requires incorrect-seed total soft-minus-balanced updater error above `0.02`.
+It is serialized under `nested_gates` rather than replacing or renumbering Gate
+3. Bootstrap intervals remain sensitivity evidence. With
+`bootstrap_replicates = 0`, both the intervals and directional gate decisions
+are `not_computed`; too few users makes the directional decision inadequate.
 
 Gate 4 first restricts to incorrect-seed, soft-profile-conditioned native
 trajectories whose choices retained both preference directions. It checks
@@ -990,6 +1247,11 @@ collection state is reported only in
 
 ## Experiment C: logging-policy-dependent evaluation validity
 
+Experiment C remains a secondary version-1 study. It asks whether system
+rankings and selected systems change with the policy that generated the
+evaluation history; it is not needed to identify Experiment A's updater-side
+provenance calibration or Experiment B's feedback-loop decomposition.
+
 Use:
 
 ```bash
@@ -999,9 +1261,9 @@ PYTHONPATH=src python -m cape_loop run configs/offline/experiment_c.toml
 The bounded live pair is `configs/live/experiment_c_openai.toml` and
 `configs/live/experiment_c_openrouter.toml`. Each crosses the same seven local
 systems plus one `llm_full_context` writer over both splits, domains, and all
-three regimes. Its whole-design bound is 768 evaluation calls plus 48
-calibration calls, with retries disabled and hard ceilings validated before
-credential access.
+three regimes. Its whole-design bound is 768 evaluation calls plus 60
+five-mechanism calibration calls, or 828 physical attempts with retries
+disabled and hard ceilings validated before credential access.
 
 For external-decoder reranking, the separate offline
 `configs/offline/experiment_c_rescore_source.toml` preserves all seven local
@@ -1403,14 +1665,15 @@ dose `lambda`, the soft policy applies its otherwise unchanged
 confidence-dependent treatment with probability:
 
 ```text
-lambda × legacy_soft_policy_probability
+lambda × ordinary_soft_policy_probability
 ```
 
 Thus `0` yields balanced visible actions, intermediate values produce weak and
 moderate exposure, and `1` is the exact legacy/full-strength baseline. This
 axis changes what the user and updater see; it is distinct from
 `presentation_multipliers`, which changes simulated user susceptibility to a
-visible treatment. The `1` endpoint also retains the legacy `v1` policy
+visible treatment. The `1` endpoint retains the ordinary
+`v2-neutral-profile-tie` policy
 provenance string, so provenance-aware prompts are identical to ordinary
 full-strength runs; only intermediate/null-dose points use the versioned dose
 label. Because the null dose is intended to remove the harmful
@@ -1418,6 +1681,14 @@ mechanism, it is a negative control and is not required to lie inside a
 declared all-level harmful region. The complete dose axis is retained for
 manipulation summaries and phase-boundary inference; it is not silently added
 to the version-1 Gate 6 broad-simulator-parameter clause.
+
+Every point receives an explicit visible-manipulation classification. At
+`lambda = 0`, both profile-conditioned treatment exposure and visible-action
+divergence must be zero; otherwise the negative control fails. At every
+positive dose, both quantities must be positive. A positive-dose point with
+zero visible divergence is a failed manipulation, even if a response-model
+coefficient or reference calculation changed. Null points are never eligible
+for the positive-dose operational region.
 
 The runner supports `llm_response_only`, `llm_full_context`, and
 `llm_provenance_aware` in replay, direct OpenAI, or OpenRouter mode. One shared
@@ -1448,6 +1719,7 @@ conversations/sensitivity.md             # diverse human preview, at most 100
 metrics/sensitivity.jsonl
 metrics/sensitivity-decomposition.jsonl
 metrics/sensitivity-grand.jsonl
+metrics/sensitivity-prospective-strata-occupancy.jsonl
 metrics/sensitivity-phase-points.jsonl
 metrics/sensitivity-phase-domains.jsonl
 metrics/sensitivity-phase-boundaries.jsonl
@@ -1478,24 +1750,41 @@ domain, policy, and updater; `sensitivity-decomposition.jsonl` contains paired
 policy contrasts; both attribute-assessment and trajectory/profile rate
 denominators are named explicitly; `sensitivity-grand.jsonl` is descriptive
 only. Terminal rows also expose EAR, CEC, reinforcement-event rate, and direct
-visible-action/choice divergence diagnostics. When an exploratory branch is
-present in an ordinary Experiment B run, its paired decomposition row
-additionally exposes DD; the canonical sensitivity contract intentionally uses
-only balanced and soft branches.
+visible-action/choice divergence diagnostics. Ordinary Experiment B retains
+exploratory-minus-soft information and disconfirmation deficits. Sensitivity
+uses only balanced and soft branches and therefore reports the corresponding
+balanced-minus-soft exact-shadow deficits without additional model calls.
+
+`sensitivity-prospective-strata-occupancy.jsonl` records one pre-response
+coverage report per grid point for the selected phase target. An active-dose
+point must have positive exposure, positive visible divergence, and at least
+two incorrect-profile users per domain whose soft trajectory contains at least
+two visibly divergent near-tie/marginal turns. Failure blocks the
+trajectory-level mechanism interpretation; rows and outcomes remain retained.
 
 Phase criteria are declared by metric, relation, and threshold in the resolved
-configuration. The fifth frozen criterion requires the phase-target users to
-reject at least 20% of profile-consistent suggestions by default. The
-opportunity and rejection counts are retained per point; a point with no
-eligible suggestion remains incomplete rather than receiving a zero rate.
-Boundary rows identify adjacent observed grid values where a criterion or
-joint-region label changes while all other boundary axes are fixed. They are
-observed-grid intervals, not interpolated causal thresholds.
+configuration. The operational joint region requires an activated visible
+manipulation, positive evidence-selection cost, adequate fitted-aware response
+calibration, a positive soft-minus-balanced same-history attribution-gap
+contrast, and at least 20%
+rejection of profile-consistent suggestions by default. The opportunity and
+rejection counts are retained per point; a point with no eligible suggestion
+remains incomplete rather than receiving a zero rate. Strict wrong-profile
+self-confirmation is listed in the phase specification as a secondary endpoint
+and does not control the operational joint region. Boundary rows identify
+adjacent observed grid values where a criterion or joint-region label changes
+while all other boundary axes are fixed. They are observed-grid intervals, not
+interpolated causal thresholds.
 
 The phase target prefers `llm_full_context`, then
 `llm_provenance_aware`, `llm_response_only`, and the structured
 `full_context_blind` proxy. Every grand row states the selected updater,
 whether it is an external LLM, and whether execution was replay or live.
+Only a live `llm_full_context` target can populate the confirmatory joint-region
+field. Other LLM/proxy targets remain diagnostic. In particular, at
+`lambda = 0` a provenance-aware updater can still see the soft branch's
+metadata, so that cell is only a visible-action negative control, not a
+full-prompt no-treatment control.
 
 Gate 6 now reports the proposal's six clauses separately. Another-response-
 model, broad-parameter, both-domain, and exact/fitted-reference clauses are
@@ -1518,9 +1807,9 @@ Both runs must retain prompts, responses, exchange/provider manifests, accepted
 provider audit, settled physical-attempt journal, and development-only or
 no-calibration manifest. Sensitivity contributes Gate 6, phase/domain, and
 fitted-model rows; Experiment A contributes its fixed held-out paraphrase
-suite, bound cases/scores, and transfer result. The importer recomputes both
-the within-sensitivity clauses and the held-out transfer, including the binding
-from each LLM score to its retained provider response.
+suite, bound cases/scores, and readiness result. The importer recomputes both
+the within-sensitivity clauses and the held-out coverage/invariance check,
+including the binding from each LLM score to its retained provider response.
 
 All family pairs use the same scientific design. Only run name, seed, output
 location, and LLM provider/model/transport fields may differ. Calibration,

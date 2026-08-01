@@ -34,7 +34,7 @@ from cape_loop.robustness_review import (
     build_gate6_cross_run_review,
     verify_gate6_cross_run_review,
 )
-from cape_loop.sensitivity import sensitivity_grid
+from cape_loop.sensitivity import PhaseCriterion, sensitivity_grid
 
 
 def _digest(value: object) -> str:
@@ -326,13 +326,68 @@ def _make_sensitivity_run(
         response_model_families=config.sensitivity.response_model_families,
         rule_noise_values=config.sensitivity.rule_noise_values,
     )[0]
+    criteria = (
+        PhaseCriterion(
+            "visible-profile-conditioning-activated",
+            "phase_profile_conditioning_manipulation_gate",
+            "ge",
+            1.0,
+        ),
+        PhaseCriterion(
+            "profile-conditioned-evidence-selection-cost",
+            "phase_selection_cost",
+            "gt",
+            config.sensitivity.phase_min_selection_cost,
+        ),
+        PhaseCriterion(
+            "fitted-aware-calibration",
+            "aware_option_ece",
+            "le",
+            config.sensitivity.phase_max_aware_ece,
+        ),
+        PhaseCriterion(
+            "profile-conditioning-attribution-gap",
+            "phase_soft_minus_balanced_attribution_gap",
+            "gt",
+            config.sensitivity.phase_min_attribution_gap,
+        ),
+        PhaseCriterion(
+            "profile-consistent-suggestions-often-rejected",
+            "phase_profile_consistent_suggestion_rejection_rate",
+            "ge",
+            config.sensitivity.phase_min_suggestion_rejection_rate,
+        ),
+    )
     phase = {
-        "schema_version": 1,
+        "schema_version": 2,
         **point.to_dict(),
         "phase_target_updater_id": "llm_full_context",
         "phase_target_is_llm": True,
         "phase_target_is_live_llm": True,
         "llm_execution_mode": "openai",
+        "phase_visible_action_divergence_rate": 0.5,
+        "phase_profile_conditioning_treatment_exposure_rate": 0.5,
+        "phase_informative_strata_coverage_passed": True,
+        "profile_conditioning_manipulation_role": "active_dose",
+        "profile_conditioning_manipulation_status": "active_dose_activated",
+        "profile_conditioning_manipulation_check_passed": True,
+        "phase_profile_conditioning_manipulation_gate": 1.0,
+        "phase_selection_cost": (
+            config.sensitivity.phase_min_selection_cost + 0.1
+        ),
+        "aware_option_ece": 0.0,
+        "phase_attribution_cost": (
+            config.sensitivity.phase_min_attribution_gap + 0.1
+        ),
+        "phase_soft_minus_balanced_attribution_gap": (
+            config.sensitivity.phase_min_attribution_gap + 0.1
+        ),
+        "phase_profile_consistent_suggestion_opportunities": 1,
+        "phase_profile_consistent_suggestion_rejections": 1,
+        "phase_profile_consistent_suggestion_rejection_rate": 1.0,
+        "criteria": {
+            criterion.criterion_id: True for criterion in criteria
+        },
         "criteria_complete": True,
         "operational_joint_region": True,
     }
@@ -357,6 +412,18 @@ def _make_sensitivity_run(
                 "fitted_models": {"aware": {"fixture": True}},
             },
         ),
+    )
+    run.write_json(
+        "metrics/sensitivity-phase-specification.json",
+        {
+            "schema_version": 2,
+            "phase_definition_id": (
+                "visible-conditioning-continuous-outcomes-v2"
+            ),
+            "design": config.sensitivity.design,
+            "declared_points": 1,
+            "criteria": [criterion.to_dict() for criterion in criteria],
+        },
     )
     gate = GateReport(
         gate_id="gate-6",

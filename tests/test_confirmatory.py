@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
+from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
 from cape_loop.domains import TRAVEL
 from cape_loop.experiments.provenance import (
     ExperimentAConfirmatoryResult,
@@ -211,7 +213,7 @@ class ExperimentAConfirmatoryTests(unittest.TestCase):
         }
         self.assertEqual(
             set(mechanism_slopes),
-            {"balanced", "default", "restricted", "suggested"},
+            {"balanced", "default", "ranking", "restricted", "suggested"},
         )
         self.assertTrue(
             all(
@@ -250,7 +252,7 @@ class ExperimentAConfirmatoryTests(unittest.TestCase):
         baseline = fitted_evidence_strength_ordering(self.result.rows)
         self.assertEqual(
             {label for label, _ in baseline.aggregate_strengths},
-            {"balanced", "default", "restricted", "suggested"},
+            {"balanced", "default", "ranking", "restricted", "suggested"},
         )
         self.assertEqual(baseline.volunteered_control_coverage, 0)
         volunteered = {
@@ -270,6 +272,39 @@ class ExperimentAConfirmatoryTests(unittest.TestCase):
             dict(with_control.aggregate_strengths),
         )
 
+    def test_oracle_bootstrap_reuses_belief_derived_row_updates(self) -> None:
+        original_marginals = PreferenceBelief.marginals
+        marginal_calls = 0
+
+        def counted_marginals(
+            belief: PreferenceBelief,
+        ) -> MarginalPreferenceBelief:
+            nonlocal marginal_calls
+            marginal_calls += 1
+            return original_marginals(belief)
+
+        selected_count = sum(
+            row.response_mode == "controlled_anchor"
+            for row in self.result.rows
+        )
+        with patch.object(
+            PreferenceBelief,
+            "marginals",
+            new=counted_marginals,
+        ):
+            slopes = estimate_oracle_update_slopes(
+                self.result.rows,
+                replicates=20,
+                seed=17,
+                reference_basis="exact_action_aware",
+            )
+
+        self.assertTrue(slopes)
+        # Each selected row contributes two sign masses to the exact reference
+        # and two to the system update. Bootstrap replication must not trigger
+        # any additional belief marginalization.
+        self.assertEqual(marginal_calls, 4 * selected_count)
+
     def test_mechanism_contrast_interaction_and_marginal_model(self) -> None:
         contrasts = experiment_a_mechanism_contrasts(
             self.result.rows,
@@ -282,6 +317,20 @@ class ExperimentAConfirmatoryTests(unittest.TestCase):
         self.assertEqual(
             {item.contrast_id.split(":")[2] for item in contrasts},
             {"fitted_action_aware", "no_update"},
+        )
+        residual_contrasts = experiment_a_mechanism_contrasts(
+            self.result.rows,
+            first_mechanism="default",
+            second_mechanism="balanced",
+            metric="calibration_residual",
+            updater_id="fitted_action_aware",
+            replicates=30,
+            seed=4,
+        )
+        self.assertEqual(len(residual_contrasts), 1)
+        self.assertIn(
+            ":calibration_residual:fitted_action_aware:",
+            residual_contrasts[0].contrast_id,
         )
         interaction = experiment_a_updater_mechanism_interaction(
             self.result.rows,

@@ -196,6 +196,17 @@ assign a choice, write treatment wording, vary the user reply, or run the
 evaluated profile-writing task. A run reuses the frozen bank rather than asking
 the authoring model to rewrite every trial.
 
+Scenario authoring and scenario approval are separate components.
+`scenario_calibration.py` checks deterministic structural and numerical
+guardrails. `scenario_review.py` creates a whole-catalog, version-bound review
+kit and later imports two independent surface reviews, two independent
+scientific reviews, a neutral-choice pretest, and a target-masked
+attractiveness pretest. Promotion recomputes the source audit and all frozen
+thresholds; only a complete passing bundle creates a new `frozen-paper`
+catalog and matching reviewed conversation bank. Generated prose, catalog
+status strings, pilot outputs, and researcher approval alone cannot cross this
+boundary.
+
 The evaluated writer is a separate model call. Its model-facing projection
 uses readable option descriptions and a domain-specific codebook such as
 “`-2` strongly favors lower-cost; `+2` strongly favors higher-cost.” It omits
@@ -209,10 +220,18 @@ an intentional information ablation.
 
 ### Matched elicitation and policies
 
-The elicitation constructor creates balanced, restricted, defaulted, and
-suggested contexts while holding the anchor option fixed. It validates option
-identity, feature invariance, treatment references, alternative direction, and
-anchor eligibility.
+The elicitation constructor creates balanced, restricted, ranking, defaulted,
+and suggested contexts while holding the anchor option fixed. Ranking reverses
+the balanced display order while keeping the option set unchanged. The
+constructor validates option identity, feature invariance, treatment
+references, alternative direction, rank reversal, and anchor eligibility.
+
+Experiment A's primary path then fixes the same selected anchor and local user
+reply across those five contexts. A machine audit checks the response, prior,
+anchor, and mechanism coverage before analysis. This isolates updater-side
+provenance attribution. Experiment B is the separate natural-response path:
+the policy may alter later actions, responses, and therefore the evidence
+stream.
 
 Policies receive a declared public profile view, domain/scenario state, and the
 semantic random source. They return both visible context and provenance.
@@ -235,12 +254,22 @@ Structured preference support is:
 attribute marginals are projections. The exact action-aware reference can also
 retain a theta-by-susceptibility joint distribution. Exact inference enumerates
 the declared finite likelihood and is an oracle only under simulator
-assumptions.
+assumptions. In controlled Experiment A, it is the primary reference: the
+anchor response is fixed by design, and its warranted posterior uses the same
+declared likelihood that governs simulator responses. The runner records its
+coefficients and the uniform prospective test-split susceptibility support in
+`models/exact-action-aware-reference.json`.
+
+Experiment A's truth-aligned preference prior is factorized from the exact
+marginals sent in the LLM request, so the oracle has no hidden
+cross-attribute prior correlation. Raw LLM probability vectors drive A's
+primary updates; temperature-scaled counterparts are secondary diagnostics.
 
 The fitted aware and unaware likelihoods are capacity matched. Both are trained
 on the same declared training records; calibration is a separate temperature
 transformation fitted on development records only. Raw and calibrated bundles
-remain distinct, and test labels cannot inform either stage.
+remain distinct, and test labels cannot inform either stage. They are secondary
+learnability and misspecification checks, not the primary controlled A oracle.
 
 Every updater declares an `UpdateViewKind`, constructs immutable state, and
 returns an auditable update:
@@ -260,16 +289,35 @@ request.
 ### Evaluation, statistics, and artifacts
 
 The evaluator is the sole general consumer of latent truth. It computes
-structured error, welfare, selection/attribution decompositions, ranking
-statistics, and the multi-clause false-self-confirmation predicate. It cannot
-alter profiles or policies.
+structured error, welfare, exact-oracle calibration, selection/attribution
+decompositions, ranking statistics, and the multi-clause
+false-self-confirmation predicate. B additionally retains prospective
+weak/strong preference strata and near-tie/marginal/decisive balanced-choice
+margin strata before response sampling. Its paired decomposition materializes
+the soft and balanced updater/shadow terminal errors and asserts the invariant
+`soft_minus_balanced_terminal_error = evidence_selection_cost +
+soft_minus_balanced_attribution_gap` within the declared numerical tolerance.
+The soft-minus-balanced CEC contrast is labeled the **relative confidence
+penalty** and is kept distinct from absolute soft-policy CEC, EAR, partial
+reinforcement, paired behavioral reinforcement, and the strict five-clause
+predicate. Continuous confidence, information, disconfirmation, selection,
+attribution, and total-error outcomes remain separately interpretable; the
+strict predicate is secondary. The evaluator cannot alter profiles or policies.
 
 Experiment-level statistics use declared pairing and cluster units. The
-dependency-free Python analyses provide clustered contrasts, bootstrap
-intervals, reliability and ranking summaries, gate diagnostics, and bounded
-power utilities. The optional version-pinned R harness implements the
-confirmatory mixed-effects formulas; its directory contains protocol and
-software, not a fitted result.
+dependency-free `experiment-b-clustered-randomization-v5` path reduces paired
+estimands to equally weighted complete-user means and uses one-sided paired
+sign-flip tests for directional gate decisions. It enumerates all sign patterns
+through 16 users and uses a deterministic bounded Monte Carlo reference beyond
+that point. The frozen SelectionCost noninferiority margin is `0.02`; the
+separate, nested net-harm margin on total soft-minus-balanced updater terminal
+error is also `0.02`. Complete-user percentile-bootstrap intervals and
+paired-trajectory intervals are sensitivity summaries, not the primary
+directional decisions.
+Other dependency-free analyses provide reliability and ranking summaries,
+gate diagnostics, and bounded power utilities. The optional version-pinned R
+harness implements the confirmatory mixed-effects formulas; its directory
+contains protocol and software, not a fitted result.
 
 `RunArtifacts` writes canonical JSON/JSONL, resolved configuration,
 environment identity, manifests, and checksums. Verification rejects malformed
@@ -291,12 +339,22 @@ evaluated in-memory record
 ```
 
 Neither projection branch calls a simulator or provider or creates a second
-observation. A writes one updater×trial analysis row but groups conversation
-evaluations under one trace per trial. B flattens each retained trajectory for
-analysis while keeping the same trajectory as one multi-turn conversation
-record. C writes one analysis row per evaluation but stores a fixed history
-once across its replayed updaters. Sensitivity keeps its existing aggregate
-analysis and uses the B-style trace with a sensitivity-point condition.
+observation. A writes one schema-v2 updater×trial analysis row containing its
+same-response or secondary-natural track, exact/fitted errors, log-odds
+updates, and exact-oracle residual; it groups conversation evaluations under
+one trace per trial. B flattens each retained trajectory for analysis, including
+the prospective strength and balanced-margin strata, while keeping the same
+trajectory as one multi-turn conversation record. C writes one analysis row
+per evaluation but stores a fixed history once across its replayed updaters and
+remains the secondary version-1 evaluation-validity study. Sensitivity keeps
+its existing aggregate analysis and uses the B-style trace with a
+sensitivity-point condition.
+
+Sensitivity's visible `profile_conditioning_strength` manipulation is audited:
+the zero-dose negative control must have no treatment exposure or visible
+divergence, while a positive dose needs both. A positive dose with no visible
+divergence is a failed manipulation. Strict self-confirmation does not control
+the operational sensitivity region.
 
 The conversation JSONL is exhaustive. It excludes latent truth, feature
 vectors, posterior arrays, and native-memory payloads, so size grows with

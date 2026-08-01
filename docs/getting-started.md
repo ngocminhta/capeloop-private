@@ -91,7 +91,8 @@ PYTHONPATH=src python -m cape_loop demo one-scenario \
   --execute-live
 ```
 
-`--mechanism` accepts `balanced`, `restricted`, `default`, or `suggested`.
+`--mechanism` accepts `balanced`, `restricted`, `ranking`, `default`, or
+`suggested`.
 The mathematical response model selects an option first. The frozen
 conversation bank then renders the assistant presentation and the constrained
 user reply. Finally, the selected OpenRouter model receives the full-context
@@ -379,6 +380,13 @@ PYTHONPATH=src python -m cape_loop run configs/offline/experiment_c_seed_314159.
 Verify every printed directory separately. The canonical dataset is the set of
 verified run directories, not a flattened table assembled later.
 
+Read Experiment A and B as two distinct data tracks. A's primary
+`controlled_anchor` rows hold the selected option and user reply fixed across
+five presentation mechanisms and compare the writer with the exact
+action-aware oracle. B samples natural responses in endogenous trajectories,
+so the policy may change the evidence stream. The fitted reference remains a
+secondary robustness comparison.
+
 The default storage and primary formats are:
 
 ```text
@@ -417,14 +425,19 @@ The three runner-native compact files are:
 
 | Experiment | File | One row means |
 | --- | --- | --- |
-| A | `analysis/experiment-a-rows.jsonl` | One evaluated updater×trial pair, including controlled and naturally sampled response modes |
-| B | `analysis/experiment-b-turns.jsonl` | One retained turn from one closed-loop trajectory |
+| A | `analysis/experiment-a-rows.jsonl` | One schema-v2 updater×trial row with its analysis track, exact/fitted errors, log-odds updates, and exact-oracle residual |
+| B | `analysis/experiment-b-turns.jsonl` | One retained turn with prospective preference-strength and balanced-choice-margin strata |
 | C | `analysis/experiment-c-rows.jsonl` | One fixed-history or endogenous evaluation/ranking row |
 
 Experiment A also always writes
 `analysis/experiment-a-exclusions.jsonl`, one row per excluded matched set, so
 the confirmatory loader can audit exclusions even when raw events are not
-retained.
+retained. Its primary audit artifacts are
+`metrics/experiment-a-same-response-audit.json` and
+`metrics/experiment-a-exact-calibration.json`; the generating-model assumptions
+are recorded in `models/exact-action-aware-reference.json`. A's confirmatory
+system updates use raw LLM vectors; temperature-scaled vectors are secondary
+calibration diagnostics.
 
 These rows are projections of records the runner already produced. They do not
 create another user, interaction, LLM request, or observation, and therefore
@@ -448,7 +461,11 @@ PYTHONPATH=src python -m cape_loop run configs/offline/sensitivity.toml
 It is a 22-point baseline-first one-at-a-time design. It includes a
 behaviorally active soft-policy dose (`0`, `0.33`, `0.67`, `1`) in addition to
 simulator and horizon axes. It measures marginal departures from the baseline
-and explicitly does not estimate interactions among sensitivity axes.
+and explicitly does not estimate interactions among sensitivity axes. Dose
+zero is a no-treatment negative control. Positive-dose points need both
+treatment exposure and visible-action divergence; zero divergence is recorded
+as a failed manipulation. Strict self-confirmation is secondary and does not
+control the sensitivity joint region.
 
 ## Inspect a run
 
@@ -554,7 +571,7 @@ offline validate and keyless plan
 | Conversation authoring | Create a candidate frozen bank; separate from experiments | Explicit OpenRouter calls |
 | Static smoke | Endpoint, schema, identity, audit, replay conversion | 6 attempts |
 | Adaptive smoke | Provider/runner integration | 6 logical updates |
-| Bounded pilot | Reviewed A/B/C or Gate 6 design | 624–848 attempts/provider |
+| Bounded pilot | Reviewed A/B/C or Gate 6 design | 580–828 attempts/provider |
 | Paper collection | Frozen design and release plan | Separately approved |
 
 The approved pilot ceiling is 900 physical attempts and 6,000,000

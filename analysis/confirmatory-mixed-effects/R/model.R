@@ -363,25 +363,24 @@ evaluate_contrast_family <- function(
 experiment_a_contrasts <- function(
   fit,
   target_updater,
-  reference_updater,
   experiment_spec,
   confidence_level
 ) {
   emmeans_grid <- emmeans::emmeans(
     fit,
-    specs = ~ updater * mechanism,
+    specs = ~ mechanism,
     lmer.df = "satterthwaite"
   )
   grid <- emmeans_grid@grid
-  target_gap <- function(mechanism) {
+  mechanism_gap <- function(mechanism) {
     cell_vector(
       grid,
-      list(updater = target_updater, mechanism = mechanism),
+      list(mechanism = mechanism),
       1
     ) +
       cell_vector(
         grid,
-        list(updater = reference_updater, mechanism = mechanism),
+        list(mechanism = "balanced"),
         -1
       )
   }
@@ -390,73 +389,34 @@ experiment_a_contrasts <- function(
     use.names = FALSE
   )
   primary_methods <- setNames(
-    lapply(primary_mechanisms, target_gap),
-    paste0("A:target-minus-aware:", primary_mechanisms)
+    lapply(primary_mechanisms, mechanism_gap),
+    paste0(
+      "A:calibration-residual:",
+      primary_mechanisms,
+      "-vs-balanced"
+    )
   )
   primary_expressions <- setNames(
     paste0(
+      "calibration_residual[",
       target_updater,
-      "[",
+      ", ",
       primary_mechanisms,
-      "] - ",
-      reference_updater,
-      "[",
-      primary_mechanisms,
-      "]"
+      "] - calibration_residual[",
+      target_updater,
+      ", balanced]"
     ),
     names(primary_methods)
   )
-  primary <- evaluate_contrast_family(
+  evaluate_contrast_family(
     emmeans_grid,
     primary_methods,
     primary_expressions,
-    "A_primary_policy_conditioned_mechanisms",
+    "A_primary_signed_calibration_mechanism_vs_balanced",
     "primary",
     confidence_level,
     stats::sigma(fit)
   )
-
-  secondary_methods <- list(
-    "A:target-minus-aware:balanced" = target_gap("balanced")
-  )
-  secondary_expressions <- c(
-    "A:target-minus-aware:balanced" = paste0(
-      target_updater,
-      "[balanced] - ",
-      reference_updater,
-      "[balanced]"
-    )
-  )
-  for (mechanism in primary_mechanisms) {
-    identifier <- paste0("A:updater-by-mechanism:", mechanism, "-vs-balanced")
-    secondary_methods[[identifier]] <- target_gap(mechanism) -
-      target_gap("balanced")
-    secondary_expressions[[identifier]] <- paste0(
-      "(",
-      target_updater,
-      "[",
-      mechanism,
-      "] - ",
-      reference_updater,
-      "[",
-      mechanism,
-      "]) - (",
-      target_updater,
-      "[balanced] - ",
-      reference_updater,
-      "[balanced])"
-    )
-  }
-  secondary <- evaluate_contrast_family(
-    emmeans_grid,
-    secondary_methods,
-    secondary_expressions,
-    "A_secondary_balanced_and_interactions",
-    "secondary",
-    confidence_level,
-    stats::sigma(fit)
-  )
-  rbind(primary, secondary)
 }
 
 experiment_b_contrasts <- function(
@@ -780,7 +740,6 @@ fit_confirmatory_model <- function(
           experiment_a_contrasts(
             fit,
             target_updater,
-            reference_updater,
             experiment_spec,
             estimation_spec$confidence_level
           )

@@ -2,7 +2,7 @@ schema_version = 1
 
 [scenarios]
 catalog_file = "data/scenarios/scenario-catalog-v1.json"
-catalog_sha256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+catalog_sha256 = "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 conversation_file = "data/scenarios/conversation-templates-v1.json"
 selection_policy = "deterministic-stratified-v1"
 
@@ -81,7 +81,7 @@ response_model_families = ["random_utility", "rule_based"]
 rule_noise_values = [0.15, 0.10, 0.25]
 phase_min_selection_cost = 0.0
 phase_max_aware_ece = 0.10
-phase_min_attribution_cost = 0.0
+phase_min_attribution_gap = 0.0
 phase_min_self_confirming_rate = 0.0
 phase_min_suggestion_rejection_rate = 0.20
 

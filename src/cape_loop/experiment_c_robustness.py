@@ -757,12 +757,24 @@ def _validate_ranking(
 def _validate_gate_report(
     raw: Mapping[str, Any],
 ) -> dict[str, Any]:
+    schema_version = raw.get("schema_version")
+    if schema_version == 1:
+        expected_fields = {"schema_version", "claim_status", "gates"}
+    elif schema_version == 2:
+        expected_fields = {
+            "schema_version",
+            "claim_status",
+            "gates",
+            "nested_gates",
+        }
+    else:
+        raise ValueError("gate report has invalid version or claim semantics")
     _exact_fields(
         raw,
-        {"schema_version", "claim_status", "gates"},
+        expected_fields,
         name="gate report",
     )
-    if raw["schema_version"] != 1 or raw["claim_status"] != CLAIM_STATUS:
+    if raw["claim_status"] != CLAIM_STATUS:
         raise ValueError("gate report has invalid version or claim semantics")
     gates = raw["gates"]
     if not isinstance(gates, list) or len(gates) != 6:
@@ -838,6 +850,84 @@ def _validate_gate_report(
         if gate["computed_status"] != expected_status:
             raise ValueError("gate computed_status disagrees with its criteria")
         by_id[gate_id] = gate
+    nested_gates = raw.get("nested_gates", [])
+    if not isinstance(nested_gates, list):
+        raise ValueError("gate report nested_gates must be a list")
+    nested_ids: set[str] = set()
+    for gate in nested_gates:
+        if not isinstance(gate, Mapping):
+            raise ValueError("nested gate report entries must be objects")
+        _exact_fields(
+            gate,
+            {
+                "schema_version",
+                "gate_id",
+                "title",
+                "evidence_scope",
+                "computed_status",
+                "claim_status",
+                "criteria",
+            },
+            name="nested gate report entry",
+        )
+        gate_id = gate["gate_id"]
+        if (
+            not isinstance(gate_id, str)
+            or gate_id in by_id
+            or gate_id in nested_ids
+        ):
+            raise ValueError("gate report has an invalid or duplicate nested gate_id")
+        if (
+            gate["schema_version"] != 1
+            or gate["claim_status"] != CLAIM_STATUS
+            or gate["computed_status"]
+            not in {
+                "incomplete",
+                "meets_computational_checks",
+                "does_not_meet_checks",
+            }
+        ):
+            raise ValueError("nested gate report entry has invalid semantics")
+        criteria = gate["criteria"]
+        if not isinstance(criteria, list) or not criteria:
+            raise ValueError("nested gate report entry must contain criteria")
+        decisions: list[bool | None] = []
+        for criterion in criteria:
+            if not isinstance(criterion, Mapping):
+                raise ValueError("nested gate criterion must be an object")
+            _exact_fields(
+                criterion,
+                {
+                    "criterion_id",
+                    "description",
+                    "passed",
+                    "observed",
+                    "requirement",
+                },
+                name="nested gate criterion",
+            )
+            if not (
+                criterion["passed"] is None
+                or isinstance(criterion["passed"], bool)
+            ):
+                raise ValueError(
+                    "nested gate criterion passed must be Boolean or null"
+                )
+            decisions.append(criterion["passed"])
+        expected_status = (
+            "incomplete"
+            if any(decision is None for decision in decisions)
+            else (
+                "meets_computational_checks"
+                if all(decisions)
+                else "does_not_meet_checks"
+            )
+        )
+        if gate["computed_status"] != expected_status:
+            raise ValueError(
+                "nested gate computed_status disagrees with its criteria"
+            )
+        nested_ids.add(gate_id)
     if set(by_id) != {f"gate-{index}" for index in range(1, 7)}:
         raise ValueError("gate report coverage is incomplete")
     gate_5 = by_id["gate-5"]

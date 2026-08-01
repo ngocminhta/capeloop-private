@@ -64,10 +64,17 @@ The live pilot counts are whole-design bounds, not expected call counts:
 
 | Pilot | Experiment calls | Calibration | A paraphrases | Physical bound | Maximum output allocation |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| A primary/replication/OpenRouter | 768 | 48 | 32 | 848 | 1,736,704 |
-| B pair | 576 | 48 | 0 | 624 | 1,277,952 |
-| C pair | 768 | 48 | 0 | 816 | 1,671,168 |
+| A primary/replication/OpenRouter | 480 | 60 | 40 | 580 | 1,187,840 |
+| B pair | 576 | 60 | 0 | 636 | 1,302,528 |
+| C pair | 768 | 60 | 0 | 828 | 1,695,744 |
 | Gate 6 OAT pair | 720 | 0 | 0 | 720 | 1,474,560 |
+
+The A row is the current controlled-only design: four users × two domains ×
+three attributes × two anchor directions × two prior strengths × five
+mechanisms × one LLM updater gives 480 experiment requests. Its one-user,
+five-mechanism development probe adds 60 requests, and the controlled held-out
+paraphrase suite adds 40. All three presets disable retries, so 580 logical
+requests are also 580 physical-attempt bounds.
 
 The offline Gate 4 and Experiment C external-rescore source configs do not call
 models. They are sized so their later selected OpenRouter or optional direct
@@ -98,7 +105,29 @@ and one evaluated LLM arm at a time. They select the `correct` and `incorrect`
 seeds and cross balanced, soft, and exploratory policies. This revisits every
 attribute, preserves eight independent user clusters across two domains,
 supports the disconfirmation-deficit comparison, and stays below the approved
-request ceiling. Repeat the frozen config separately for each model family.
+request ceiling.
+
+The checked-in
+`data/model-suites/experiment-b-bounded-calibration-v1.json` freezes the
+multi-model use of that base design. Its primary panel is Gemini 3.6 Flash,
+GPT-5.6 Luna, and Mistral Large 3 (`mistralai/mistral-large-2512`), each run over
+the complete B design in an isolated output subtree. DeepSeek V4 Flash is a
+post-pilot targeted secondary replication containing only the incorrect-seed
+balanced-versus-soft contrast. Every model has a separate analysis; no model
+outputs are pooled, and DeepSeek is outside the primary analysis set.
+
+Plan all four arms, including their resolved conditions, output paths, and hard
+budgets, without loading a credential or calling a model:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b model-suite \
+  configs/live/experiment_b_openrouter.toml \
+  --output-root runs/experiment-b-suite
+```
+
+Only the additional `--execute-live` flag authorizes the command to execute the
+four paid OpenRouter runs sequentially. Planning is the default; a successful
+plan is not model evidence.
 
 ## Root schema
 
@@ -114,6 +143,7 @@ schema_version = 1
 [response_model]
 [inference]
 [thresholds]
+[manipulation]
 [sensitivity]
 [llm]
 [artifacts]
@@ -312,7 +342,7 @@ sparse.
 | --- | --- | --- |
 | `kind` | string | `"provenance_audit"` |
 | `domains` | nonempty string array | `["travel", "writing"]` |
-| `mechanisms` | nonempty string array | `["balanced", "restricted", "default", "suggested"]` |
+| `mechanisms` | nonempty string array | `["balanced", "restricted", "ranking", "default", "suggested"]` |
 | `response_modes` | nonempty string array | `["controlled_anchor", "naturally_sampled"]` |
 | `prior_strengths` | nonempty numeric array | `[0.0]` |
 | `initial_profile_conditions` | nonempty string array | `["correct", "incorrect", "uncertain", "empty"]` |
@@ -333,15 +363,22 @@ users. When both domains are selected, the same shared user ID and latent state
 produce one retained population row per domain; those rows are not additional
 independent users.
 
-For `closed_loop`, the same `bootstrap_replicates` value requests both the
-clustered inferential bootstrap and the Experiment B pilot-power simulation
-count. Power simulation alone is bounded to the inclusive range 200–10,000:
-zero therefore retains the inexpensive 200-replicate planning smoke fallback,
-and requests above 10,000 are capped in the power artifact. The candidate user
-counts (16, 32, 64, 128), alpha (0.05), target power (0.80), factor contrast,
-and lower-Wilson-bound decision rule are frozen in code rather than exposed as
-quietly mutable paper settings. The resulting candidate is advisory and never
-commits the final sample size automatically.
+For `closed_loop`, `bootstrap_replicates = 0` retains point estimates but marks
+the Experiment B clustered intervals and one-sided directional tests as
+`not_computed`; Gates 2 and 3 therefore cannot pass. Any positive value enables
+both the complete-user bootstrap intervals and the one-sided paired
+complete-user sign-flip decisions. The value is the bootstrap resample count;
+it does **not** set the number of sign patterns. The latter is determined from
+the number of complete user clusters, using exact enumeration for small samples
+and a code-bounded Monte Carlo reference distribution for larger samples.
+
+The same positive value is also requested for the Experiment B pilot-power
+simulation, which is separately bounded to 200–10,000 simulations. A zero value
+still produces the inexpensive 200-simulation planning fallback. The candidate
+user counts (16, 32, 64, 128), alpha (0.05), target power (0.80), factor
+contrast, and lower-Wilson-bound decision rule are frozen in code rather than
+exposed as quietly mutable paper settings. The resulting candidate is advisory
+and never commits the final sample size automatically.
 
 `prior_strengths` is Experiment A's executable prior-concentration factor.
 Every value must be finite, unique, and in `[0, 1)`. For each latent user, a
@@ -352,6 +389,14 @@ same prior. The default `[0.0]` preserves the original uniform-prior pilot.
 Use, for example, `[0.0, 0.35, 0.70]` for a crossed confirmatory run and account
 for the proportional increase in LLM requests. B, C, and sensitivity reject
 any value other than `[0.0]`.
+
+For Experiment A, `controlled_anchor` selects the primary same-response track:
+the selected anchor and local user reply are identical across all requested
+mechanisms and the runner verifies that invariant. `naturally_sampled` is an
+optional secondary A robustness track. The checked-in offline A preset selects
+both; all public live A presets select only `controlled_anchor`. The primary
+controlled analysis uses the exact action-aware generating-model reference;
+the fitted aware reference remains secondary.
 
 `initial_profile_conditions` is an Experiment B factor. It accepts a unique
 nonempty subset of `correct`, `incorrect`, `uncertain`, and `empty`; other run
@@ -394,9 +439,10 @@ suggestion
 ```
 
 Experiment A (`provenance_audit`) accepts only `balanced`, `restricted`,
-`default`, and `suggested`. Experiments B, C, and sensitivity require the set
-`ranking`, `default`, and `suggestion`; their policies produce the actual
-presentation context.
+`ranking`, `default`, and `suggested`. Its ranking condition reverses the
+balanced display order while holding the anchor and option set fixed.
+Experiments B, C, and sensitivity require the set `ranking`, `default`, and
+`suggestion`; their policies produce the actual presentation context.
 
 Accepted response modes:
 
@@ -415,7 +461,7 @@ fixed_bias
 hard_filter
 ```
 
-`exploratory` means `v2-balanced-coverage`, not unconstrained entropy
+`exploratory` means `v3-balanced-coverage-shared-neutral-ranking`, not unconstrained entropy
 maximization. Each complete three-turn block covers all three attributes, while
 the within-block order may adapt to current marginal entropy. The scenario
 capacity checker consequently uses \(\lceil T/3\rceil\) scenarios per cell for
@@ -544,7 +590,8 @@ calibration artifact records `kind = "none"`.
 
 This `[inference]` calibration applies only to fitted simulator likelihood
 references. LLM belief-vector calibration is configured independently under
-`[llm]`.
+`[llm]`. It also does not enable or disable Experiment B's clustered inference:
+that switch is `experiment.bootstrap_replicates`, as described above.
 
 ## `[thresholds]`
 
@@ -556,9 +603,73 @@ references. LLM belief-vector calibration is configured independently under
 | `false_stability_tolerance` | `0.02` | in `[0, 1]`; maximum longitudinal excursion from seeded wrong mass for false-stable classification |
 | `direction_tolerance` | `1e-9` | nonnegative; update-direction comparisons |
 | `ranking_tie_tolerance` | `1e-6` | nonnegative; Experiment C ranking ties |
+| `selection_noninferiority_margin` | `0.02` | in `[0, 2]` on the marginal-Brier error scale; Experiment B SelectionCost practical noninferiority margin |
+| `net_harm_margin` | `0.02` | in `[0, 2]` on the marginal-Brier error scale; Experiment B soft-minus-balanced updater-error harm margin |
+| `decomposition_tolerance` | `1e-12` | positive; numerical equality tolerance for the Experiment B error decomposition |
 
-These thresholds affect diagnostic labels. Freeze them before analyzing a
-paper-intended test set.
+The two `0.02` margins have different scientific roles. The legibility gate
+tests the incorrect-initial-profile soft-versus-balanced comparison:
+SelectionCost must be below the frozen noninferiority margin while the two
+attribution-gap contrasts are positive. The nested net-profile-harm gate uses
+that same stratum and additionally tests whether soft-minus-balanced updater
+terminal error is above the separate harm margin. These are one-sided paired
+complete-user randomization decisions when Experiment B inference is enabled,
+not decisions from the sign of a point estimate alone; clustered intervals
+remain reported as sensitivity evidence. `decomposition_tolerance` is only an
+accounting invariant for
+
+```text
+soft-minus-balanced updater error
+= SelectionCost + soft-minus-balanced same-history attribution gap
+```
+
+and is not a scientific effect-size margin. Freeze all scientific thresholds
+before analyzing a paper-intended test set.
+
+## `[manipulation]`
+
+| Key | Default | Validation/use |
+| --- | ---: | --- |
+| `planning_mode` | `"disabled"` | `"disabled"` or `"required"`; required planning is available only for Experiment B |
+| `minimum_informative_active_turns` | `2` | positive integer; minimum susceptible active turns in every paired trajectory |
+| `minimum_active_mechanisms` | `2` | positive integer, currently at most `2` because the planner actively schedules default and suggestion |
+| `minimum_decisive_active_controls` | `1` | positive integer; minimum active control turns expected to resist the presentation change |
+| `minimum_informative_choice_divergence_probability` | `0.02` | in `[0, 1]`; minimum conservative shared-noise choice-divergence probability for an informative active turn, across either current-profile direction |
+| `maximum_decisive_choice_divergence_probability` | `0.05` | in `[0, 1]`; maximum predicted divergence probability for a decisive active control |
+| `minimum_active_susceptibility_mass` | `0.05` | nonnegative; minimum per-trajectory sum of conservative predicted divergence probabilities over active turns |
+| `require_counter_profile_options` | `true` | Boolean; retain both preference directions rather than removing all counter-profile evidence |
+| `offline_response_seeds` | `32` | positive integer; simulator draws in the offline stress audit; use a smaller explicit CLI override for smoke checks and reserve 64 for a one-time final audit when runtime permits |
+
+With `planning_mode = "required"`, Experiment B must include both `balanced`
+and `soft_profile_conditioned`, a scenario catalog, and enough turns for the
+declared informative and decisive roles. The runner fixes one scenario, role,
+mechanism, neutral ranking, and response-noise schedule per
+domain-user-replicate group and reuses it across correct and incorrect initial
+profiles. Active promotion follows the current profile direction; if that
+direction is exactly neutral, it uses and logs the condition-specific initial
+direction frozen in the plan. Realized choices, updated profiles, and
+evaluated-model outputs are forbidden admission inputs. A plan that misses any
+requirement fails before an evaluated-model call.
+
+Run the same planning logic and its multi-seed simulator stress audit before
+spending API budget:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b manipulation-audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/experiment-b-manipulation-audit
+```
+
+This command has no live-execution flag and makes zero LLM calls. It writes the
+complete JSON schedule, a readable Markdown plan, and a JSON audit covering
+active-treatment execution, neutral-direction fallback use, susceptibility,
+choice divergence, expected information, SelectionCost, condition/domain
+strata, prospective roles, and a descriptive active-turn cross-tab over role,
+mechanism, effective/planned direction, target, and domain. Cross-tab counts
+reconcile to the pooled active total but do not create new admission gates.
+`--response-seeds N`
+overrides only the offline simulator draw count. Passing this audit establishes
+coverage under the declared simulator, not an LLM effect or paper eligibility.
 
 ## `[sensitivity]`
 
@@ -567,7 +678,7 @@ paper-intended test set.
 | `design` | `"cartesian"` | `"cartesian"` or `"one_at_a_time"` |
 | `decision_noise_values` | `[0.6, 1.0, 1.6]` | nonempty; finite, positive, and unique |
 | `presentation_multipliers` | `[0.5, 1.0, 1.5]` | nonempty; finite, nonnegative, and unique |
-| `profile_conditioning_strength_values` | `[1.0]` | nonempty; finite, unique policy-propensity doses in `[0, 1]`; `1` preserves legacy soft conditioning and `0` is the balanced-action negative control |
+| `profile_conditioning_strength_values` | `[1.0]` | nonempty; finite, unique policy-propensity doses in `[0, 1]`; `1` preserves ordinary soft conditioning and `0` is the balanced-action negative control |
 | `rank_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
 | `default_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
 | `suggestion_multipliers` | `[1.0]` | nonempty; finite, nonnegative, and unique |
@@ -578,8 +689,8 @@ paper-intended test set.
 | `rule_noise_values` | `[0.15]` | nonempty; finite, unique values in `[0, 1]`; used only for rule-based points |
 | `phase_min_selection_cost` | `0.0` | finite; phase selection-cost threshold |
 | `phase_max_aware_ece` | `0.10` | finite value in `[0, 1]` |
-| `phase_min_attribution_cost` | `0.0` | finite; phase attribution-cost threshold |
-| `phase_min_self_confirming_rate` | `0.0` | finite value in `[0, 1]` |
+| `phase_min_attribution_gap` | `0.0` | finite; phase soft-minus-balanced same-history attribution-gap threshold |
+| `phase_min_self_confirming_rate` | `0.0` | finite value in `[0, 1]`; reference threshold for the secondary strict endpoint, not an operational-joint-region criterion |
 | `phase_min_suggestion_rejection_rate` | `0.20` | finite value in `[0, 1]`; frozen “often rejects” criterion |
 
 These fields are consumed only by `kind = "sensitivity"`. Under
@@ -594,13 +705,19 @@ interactions among axes; artifacts record
 `interaction_effects_estimable = false`. The two live Gate 6 OAT pilots contain
 14 points whose trajectory lengths sum to 45. The first value on the policy
 dose axis is `1.0` so the baseline point is byte-for-byte compatible with the
-legacy soft-policy propensity; `0.0`, `0.33`, and `0.67` are separate OAT
+ordinary soft-policy propensity; `0.0`, `0.33`, and `0.67` are separate OAT
 departures. The dose participates in grid completion, manipulation summaries,
 and phase-boundary inference but does not silently change the version-1
 Gate 6 broad-simulator-parameter clause. In particular, the null point is a
-negative control rather than a level at which harm should persist. The suggestion rejection rate
-counts only profile-conditioned suggestions where the counter-profile option
-remains displayed; selecting that alternative is a rejection.
+negative control rather than a level at which harm should persist. At the null,
+treatment exposure and visible-action divergence must both be zero. A positive
+dose passes its manipulation check only when both exposure and visible-action
+divergence are positive; zero divergence is a failed manipulation, not a null
+effect estimate. The strict self-confirming-profile rate remains a secondary
+endpoint and does not control the operational joint region. The suggestion
+rejection rate counts only profile-conditioned suggestions where the
+counter-profile option remains displayed; selecting that alternative is a
+rejection.
 
 ## `[llm]`
 
@@ -676,15 +793,22 @@ For any Experiment A, B, or C run with an `llm_` updater and
 `calibration = "temperature"`, the runner selects the first
 `calibration_users` users from the declared development population and executes
 a fixed matched provenance probe. The probe spans balanced, restricted,
-default, and suggested contexts with naturally sampled responses. Runtime
+ranking, default, and suggested contexts with naturally sampled responses. Runtime
 validation fails if `calibration_users` exceeds the available development
 population.
 
 Using development labels only, the runner fits one scalar temperature per LLM
 updater ID. The response-only, full-context, and provenance-aware views
-therefore do not share a fitted calibrator. A calibrated provider wrapper then
-transforms all subsequent test/runtime probability vectors. It does not change
-prompts, information views, model identity, or reasoning effort.
+therefore do not share a fitted calibrator. A calibrated provider wrapper
+constructs the corresponding test/runtime diagnostic vectors. It does not
+change prompts, information views, model identity, or reasoning effort.
+
+Experiment A is intentionally different from B/C: A's primary updater rows,
+gates, exact-oracle residuals, and held-out paraphrase checks consume the raw
+returned vector. Its temperature-scaled vector is secondary calibration
+diagnostics only. B/C consume the configured active calibrated vector for their
+realized histories. This boundary prevents temperature scaling from creating an
+apparent A update when the raw response exactly repeats the supplied prior.
 
 The following artifact boundary is always explicit:
 
@@ -696,9 +820,11 @@ The following artifact boundary is always explicit:
 - `metrics/llm-development-calibration.jsonl` retains raw and calibrated
   development Brier scores;
 - `llm/test-raw-responses.jsonl` retains uncalibrated outputs underlying
-  calibrated test/runtime updates; and
-- `llm/responses.jsonl` contains the active calibrated responses consumed by
-  experiment updaters.
+  test/runtime updates;
+- `llm/test-calibrated-responses.jsonl` retains their temperature-scaled
+  counterparts; and
+- `llm/responses.jsonl` contains the responses consumed by the primary
+  experiment path: raw for A, configured-active for B/C.
 
 `calibration = "none"` skips the development probe and uses raw responses
 directly. `calibration_users` remains a positive declared field but is not
@@ -754,7 +880,9 @@ Every adaptive configuration containing an `llm_*` updater is passed through
 the same credential-free preflight:
 
 ```text
-A = matched experiment cells + temperature calibration + held-out paraphrases
+A = users × domains × 3 attributes × 2 anchor directions × prior strengths
+    × mechanisms × response modes × LLM updater count
+    + temperature calibration + eligible held-out paraphrases
 B = users × domains × configured initial profiles × repeats × policies × turns
     × LLM updater count + calibration
 C = (max(8, users) development users + users test users) × domains

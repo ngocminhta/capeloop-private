@@ -1,8 +1,8 @@
 {
-  "$id": "urn:cape-loop:schema:heldout-paraphrase-criterion:v1",
+  "$id": "urn:cape-loop:schema:heldout-paraphrase-criterion:v2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "A nullable verification result: null means the required external or paired evaluation records are incomplete.",
+  "description": "Outcome-neutral held-out surface readiness. Null verification means required case/updater coverage is incomplete; fitted-aware Brier gaps are retained only as secondary diagnostics.",
   "properties": {
     "complete": {
       "type": "boolean"
@@ -40,6 +40,14 @@
         "null"
       ]
     },
+    "invariance_failures": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
     "material_gap": {
       "minimum": 0,
       "type": "number"
@@ -63,6 +71,7 @@
             "enum": [
               "balanced",
               "restricted",
+              "ranking",
               "default",
               "suggested"
             ]
@@ -91,6 +100,7 @@
         "enum": [
           "balanced",
           "restricted",
+          "ranking",
           "default",
           "suggested"
         ]
@@ -102,8 +112,19 @@
       "minimum": 1,
       "type": "integer"
     },
+    "response_invariant": {
+      "type": "boolean"
+    },
     "schema_version": {
-      "const": 1
+      "const": 2
+    },
+    "secondary_missing_pairs": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
     },
     "verified": {
       "type": [
@@ -117,6 +138,8 @@
     "criterion_id",
     "verified",
     "complete",
+    "response_invariant",
+    "invariance_failures",
     "material_gap",
     "required_mechanisms",
     "covered_domains",
@@ -125,6 +148,7 @@
     "qualifying_mechanisms",
     "mean_gaps",
     "missing_pairs",
+    "secondary_missing_pairs",
     "gate_1_argument"
   ],
   "title": "CAPE-Loop Gate 1 held-out paraphrase criterion",

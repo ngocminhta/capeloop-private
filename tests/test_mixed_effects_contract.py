@@ -31,6 +31,11 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
 
     def test_protocol_cannot_be_mistaken_for_results(self) -> None:
         declaration = self.load_json("analysis-spec.json")
+        self.assertEqual(declaration["schema_version"], 3)
+        self.assertEqual(
+            declaration["analysis_id"],
+            "cape-loop-confirmatory-mixed-effects-v3",
+        )
         self.assertEqual(declaration["status"], "analysis_protocol_not_results")
         self.assertEqual(declaration["family"], "gaussian")
         self.assertEqual(declaration["link"], "identity")
@@ -61,14 +66,22 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
         self.assertEqual(
             experiments["A"]["formula"],
             (
-                "update_error ~ updater * mechanism + domain + "
+                "calibration_residual ~ mechanism + domain + "
                 "prior_strength + (1 + mechanism | user) + (1 | scenario)"
+            ),
+        )
+        self.assertEqual(
+            experiments["A"]["pooled_formula"],
+            (
+                "calibration_residual ~ mechanism + domain + "
+                "prior_strength + (1 + mechanism | user) + "
+                "(1 | scenario) + (1 | replicate)"
             ),
         )
         self.assertEqual(
             experiments["A"]["proposal_formula"],
             (
-                "UpdateError ~ Updater * Mechanism + Domain + "
+                "CalibrationResidual ~ Mechanism + Domain + "
                 "PriorStrength + (1 + Mechanism | User) + (1 | Scenario)"
             ),
         )
@@ -78,6 +91,14 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
                 "terminal_error ~ updater * policy * initial_profile + "
                 "domain + turn + (1 + policy | user) + (1 | scenario) + "
                 "(1 | crn_set)"
+            ),
+        )
+        self.assertEqual(
+            experiments["B"]["pooled_formula"],
+            (
+                "terminal_error ~ updater * policy * initial_profile + "
+                "domain + turn + (1 + policy | user) + (1 | scenario) + "
+                "(1 | crn_set) + (1 | replicate)"
             ),
         )
         self.assertEqual(
@@ -92,7 +113,8 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             declaration["factor_coding"],
             {
                 "contrasts": ["contr.treatment", "contr.poly"],
-                "updater_reference": "fitted_action_aware",
+                "experiment_a_oracle_reference": "exact_action_aware",
+                "experiment_b_updater_reference": "fitted_action_aware",
                 "experiment_a_mechanism_reference": "balanced",
                 "experiment_b_policy_reference": "balanced",
                 "experiment_b_initial_profile_reference": "incorrect",
@@ -122,44 +144,40 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             experiments["A"]["primary_contrast"],
             {
                 "id": (
-                    "target-minus-aware-within-policy-conditioned-mechanism"
+                    "target-calibration-residual-mechanism-minus-balanced"
                 ),
-                "mechanisms": ["restricted", "default", "suggested"],
+                "mechanisms": [
+                    "restricted",
+                    "ranking",
+                    "default",
+                    "suggested",
+                ],
                 "expression": (
-                    "target_updater[mechanism] - "
-                    "fitted_action_aware[mechanism]"
+                    "calibration_residual[target_updater, mechanism] - "
+                    "calibration_residual[target_updater, balanced]"
                 ),
                 "multiplicity": (
-                    "Holm within the three-mechanism primary family"
+                    "Holm within the four-mechanism primary family"
                 ),
             },
         )
         self.assertEqual(
             experiments["A"]["secondary_contrasts"],
+            [],
+        )
+        self.assertEqual(
+            experiments["A"]["secondary_estimands"],
             [
                 {
-                    "id": "balanced-target-minus-aware",
-                    "expression": (
-                        "target_updater[balanced] - "
-                        "fitted_action_aware[balanced]"
+                    "id": "target-exact-update-error-by-mechanism",
+                    "outcome": "exact_update_error",
+                    "aggregation": (
+                        "descriptive distribution and mean by mechanism"
                     ),
-                },
-                {
-                    "id": (
-                        "updater-by-mechanism-difference-in-differences"
+                    "inferential_status": (
+                        "not fitted by the primary signed-residual model"
                     ),
-                    "expression": (
-                        "(target_updater[mechanism] - "
-                        "fitted_action_aware[mechanism]) - "
-                        "(target_updater[balanced] - "
-                        "fitted_action_aware[balanced])"
-                    ),
-                    "mechanisms": [
-                        "restricted",
-                        "default",
-                        "suggested",
-                    ],
-                },
+                }
             ],
         )
         self.assertEqual(
@@ -232,6 +250,7 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
                 "turns[].belief_after marginal Brier against top-level theta"
             ),
         )
+        self.assertEqual(experiment_b["input_row_schema_version"], 1)
         self.assertEqual(
             experiment_b["turn_source"],
             "compact turn equals source_turn_index + 1",
@@ -243,11 +262,17 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
         self.assertEqual(experiment_b["outcome_name"], "terminal_error")
         self.assertEqual(
             experiment_b["scenario_mapping"],
-            "run_id + turn.scenario_id",
+            "turn.scenario_id",
         )
         self.assertEqual(
             experiment_b["crn_set_mapping"],
             "run_id + crn_key",
+        )
+        self.assertEqual(experiment_b["user_mapping"], "user_id")
+        self.assertEqual(experiment_b["replicate_mapping"], "run_id")
+        self.assertIn(
+            "Different seeds are analyzed separately",
+            experiment_b["pooling_policy"],
         )
 
     def test_r_input_contract_binds_source_and_validates_compact_rows(
@@ -270,6 +295,59 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             experiment_a["legacy_exclusion_file"],
             "events/experiment-a-exclusions.jsonl",
         )
+        self.assertEqual(experiment_a["input_row_schema_version"], 2)
+        self.assertEqual(experiment_a["response_mode"], "controlled_anchor")
+        self.assertEqual(
+            experiment_a["analysis_track"],
+            "same_response_provenance",
+        )
+        self.assertEqual(
+            experiment_a["reference_basis"],
+            "exact_action_aware",
+        )
+        self.assertEqual(
+            experiment_a["outcome_name"],
+            "calibration_residual",
+        )
+        self.assertEqual(
+            experiment_a["retained_calibration_fields"],
+            [
+                "system_log_odds_update",
+                "exact_log_odds_update",
+                "fitted_log_odds_update",
+                "calibration_residual",
+            ],
+        )
+        self.assertEqual(
+            experiment_a["secondary_outcomes"],
+            [
+                {
+                    "name": "exact_update_error",
+                    "source": (
+                        "runner-native compact exact_update_error derived "
+                        "from metrics.exact_acue"
+                    ),
+                    "required": True,
+                    "role": "descriptive_secondary_absolute_magnitude",
+                },
+                {
+                    "name": "fitted_update_error",
+                    "source": (
+                        "runner-native compact fitted_update_error derived "
+                        "from metrics.acue"
+                    ),
+                    "required": True,
+                    "role": "secondary_reference_diagnostic",
+                }
+            ],
+        )
+        self.assertEqual(experiment_a["user_mapping"], "user_id")
+        self.assertEqual(experiment_a["scenario_mapping"], "scenario_id")
+        self.assertEqual(experiment_a["replicate_mapping"], "run_id")
+        self.assertIn(
+            "Different seeds are analyzed separately",
+            experiment_a["pooling_policy"],
+        )
         source = self.read_r_source("R/io.R")
         for anchor in (
             "canonical_config_sha256 <- function(path)",
@@ -284,12 +362,34 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             "observed_config_sha256 <- canonical_config_sha256(config_path)",
             "source$manifest$source_sha256",
             "length(unique(source_digests)) != 1L",
+            "pooled source runs must have identical config.run.seed",
+            "analyze different seeds separately as robustness replicates",
+            "population = source$config$population %||% list()",
+            "replicate = source$run_id",
+            "population_seed = source$population_seed",
+            "all_levels_present <- function(",
+            "assert_balanced_level_crossing <- function(",
+            "rows <- rows[rows$updater == target_updater",
+            "Experiment A target updater cannot be the exact oracle reference",
+            "every Experiment A target user must contain every mechanism",
             "the same Experiment B horizon",
             "if (!identical(reference, candidate))",
             "assert_exact_fields <- function(value, expected, label)",
             "source$summary$analysis_row_count",
+            "source$summary$controlled_row_count",
             "row$retained_terminal_error",
             "row$same_history_shadow",
+            '"analysis_track"',
+            '"reference_basis"',
+            '"exact_update_error"',
+            '"fitted_update_error"',
+            '"system_log_odds_update"',
+            '"exact_log_odds_update"',
+            '"fitted_log_odds_update"',
+            '"calibration_residual"',
+            "same_response_provenance",
+            "natural_response_secondary",
+            "calibration_residual differs from",
             "compact Experiment A source_record_index values must cover",
             "compact Experiment B source_record_index values must cover",
             "source summary compact exclusion declaration differs",
@@ -400,6 +500,9 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             "pointwise_unadjusted_confidence_upper",
             "standardized_pointwise_unadjusted_confidence_lower",
             "standardized_pointwise_unadjusted_confidence_upper",
+            "specs = ~ mechanism",
+            "A:calibration-residual:",
+            "A_primary_signed_calibration_mechanism_vs_balanced",
         ):
             self.assertIn(anchor, model if anchor not in fit else fit)
         self.assertNotIn("max_absolute_gradient =", model)
@@ -438,6 +541,57 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
             "not_claimed",
         )
         self.assertEqual(
+            result_schema["properties"]["schema_version"]["const"],
+            3,
+        )
+        self.assertEqual(
+            result_schema["properties"]["analysis_id"]["const"],
+            "cape-loop-confirmatory-mixed-effects-v3",
+        )
+        self.assertEqual(
+            result_schema["properties"]["reference_updater"]["enum"],
+            ["exact_action_aware", "fitted_action_aware"],
+        )
+        self.assertEqual(
+            result_schema["properties"]["outcome"]["enum"],
+            ["calibration_residual", "terminal_error"],
+        )
+        self.assertEqual(
+            result_schema["allOf"],
+            [
+                {
+                    "if": {
+                        "properties": {"experiment": {"const": "A"}},
+                        "required": ["experiment"],
+                    },
+                    "then": {
+                        "properties": {
+                            "reference_updater": {
+                                "const": "exact_action_aware"
+                            },
+                            "outcome": {
+                                "const": "calibration_residual"
+                            },
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"experiment": {"const": "B"}},
+                        "required": ["experiment"],
+                    },
+                    "then": {
+                        "properties": {
+                            "reference_updater": {
+                                "const": "fitted_action_aware"
+                            },
+                            "outcome": {"const": "terminal_error"},
+                        }
+                    },
+                },
+            ],
+        )
+        self.assertEqual(
             set(result_schema["properties"]["status"]["enum"]),
             {"complete", "not_confirmatory", "not_estimable"},
         )
@@ -454,11 +608,6 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
         for text in (readme, guide):
             normalized = " ".join(text.split())
             self.assertIn(
-                "do not test the direction or magnitude of the target's "
-                "belief update",
-                normalized,
-            )
-            self.assertIn(
                 "does not alone establish all five self-confirmation clauses",
                 normalized,
             )
@@ -470,6 +619,15 @@ class MixedEffectsAnalysisContractTests(unittest.TestCase):
                 "Holm adjustment applies to p-values",
                 normalized,
             )
+        normalized_readme = " ".join(readme.split())
+        self.assertIn(
+            "Positive contrasts mean the treatment causes more over-updating",
+            normalized_readme,
+        )
+        self.assertIn(
+            "descriptive secondary magnitude estimand",
+            normalized_readme,
+        )
 
     def test_every_locked_package_has_a_basic_immutable_record(self) -> None:
         lock = self.load_json("renv.lock")

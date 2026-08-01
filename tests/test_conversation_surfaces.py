@@ -341,6 +341,17 @@ class ScenarioConversationTemplateTests(unittest.TestCase):
             "I'll go with Hotel B.",
         )
 
+    def test_frozen_assistant_template_cannot_assert_a_user_preference(self) -> None:
+        unsafe = frozen_presentation_templates()
+        unsafe["balanced"] = unsafe["balanced"].replace(
+            "{prompt}",
+            "{prompt} Based on your profile, you prefer {option_1_name}.",
+        )
+        unsafe = expand_presentation_templates(unsafe["balanced"])
+        template = scenario_template(presentations=unsafe)
+        with self.assertRaisesRegex(ValueError, "asserts a persistent"):
+            template.validate_frozen_authoring_contract()
+
     def test_template_mappings_and_rendered_mappings_are_immutable(self) -> None:
         template = scenario_template()
         rendered = template.render(

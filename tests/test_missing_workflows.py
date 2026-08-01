@@ -102,7 +102,7 @@ class HeldOutParaphraseTests(unittest.TestCase):
                     ParaphraseEvaluationRecord.from_case(
                         case,
                         updater_id="llm_full_context",
-                        brier=0.14,
+                        brier=0.06,
                         belief_payload={"kind": "llm", "case": case.case_id},
                     ),
                 )
@@ -115,10 +115,26 @@ class HeldOutParaphraseTests(unittest.TestCase):
         )
         self.assertTrue(criterion.complete)
         self.assertTrue(criterion.verified)
+        self.assertTrue(criterion.response_invariant)
+        self.assertEqual(criterion.qualifying_mechanisms, ())
         self.assertEqual(
             criterion.to_dict()["gate_1_argument"],
             True,
         )
+
+        without_secondary = evaluate_gate1_paraphrase_transfer(
+            cases,
+            (
+                record
+                for record in records
+                if record.updater_id == "llm_full_context"
+            ),
+            suite=suite,
+            required_mechanisms=2,
+        )
+        self.assertTrue(without_secondary.complete)
+        self.assertTrue(without_secondary.verified)
+        self.assertTrue(without_secondary.secondary_missing_pairs)
 
         incomplete = evaluate_gate1_paraphrase_transfer(
             cases,

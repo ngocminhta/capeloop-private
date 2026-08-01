@@ -95,6 +95,8 @@ class ExternalSchemaTests(unittest.TestCase):
         criterion = ParaphraseTransferCriterion(
             verified=None,
             complete=False,
+            response_invariant=True,
+            invariance_failures=(),
             material_gap=0.01,
             required_mechanisms=2,
             covered_domains=("travel",),
@@ -103,6 +105,7 @@ class ExternalSchemaTests(unittest.TestCase):
             qualifying_mechanisms=(),
             mean_gaps=(),
             missing_pairs=("test-template-2:writing:restricted",),
+            secondary_missing_pairs=(),
         )
 
         records = {
@@ -191,7 +194,12 @@ class ExternalSchemaTests(unittest.TestCase):
                 self.assertIn("/2020-12/", schema["$schema"])
                 self.assertEqual(
                     schema["$id"],
-                    f"urn:cape-loop:schema:{name}:v1",
+                    (
+                        "urn:cape-loop:schema:"
+                        "heldout-paraphrase-criterion:v2"
+                        if name == "heldout-paraphrase-criterion"
+                        else f"urn:cape-loop:schema:{name}:v1"
+                    ),
                 )
                 self.assertNotIn("$ref", str(schema))
 

@@ -51,6 +51,7 @@ _ANALYSIS_UNITS = {
     "B": "retained_trajectory_turn",
     "C": "evaluation_row",
 }
+_ROW_SCHEMA_VERSIONS = {"A": 2, "B": 1, "C": 1}
 _A_FIELDS = frozenset(
     {
         "schema_version",
@@ -63,7 +64,14 @@ _A_FIELDS = frozenset(
         "mechanism",
         "prior_strength",
         "response_mode",
-        "update_error",
+        "analysis_track",
+        "reference_basis",
+        "exact_update_error",
+        "fitted_update_error",
+        "system_log_odds_update",
+        "exact_log_odds_update",
+        "fitted_log_odds_update",
+        "calibration_residual",
     }
 )
 _B_FIELDS = frozenset(
@@ -106,7 +114,11 @@ _C_FIELDS = frozenset(
     }
 )
 _OUTCOME_DERIVATIONS = {
-    "A": "retained Experiment A metrics.acue",
+    "A": (
+        "retained anchor-directional system minus exact log-odds update as "
+        "calibration_residual; exact and fitted update errors retained as "
+        "required secondary magnitude diagnostics"
+    ),
     "B": (
         "per-turn marginal Brier from retained belief_after "
         "against immutable trajectory theta"
@@ -322,18 +334,58 @@ def _experiment_a_row(
 ) -> dict[str, Any]:
     if compact:
         scenario_id = raw.get("scenario_id")
-        update_error = raw.get("update_error")
+        exact_update_error = raw.get("exact_update_error")
+        fitted_update_error = raw.get("fitted_update_error")
+        system_log_odds_update = raw.get("system_log_odds_update")
+        exact_log_odds_update = raw.get("exact_log_odds_update")
+        fitted_log_odds_update = raw.get("fitted_log_odds_update")
+        analysis_track = raw.get("analysis_track")
+        reference_basis = raw.get("reference_basis")
     else:
         scenario_id = _required_mapping(
             raw.get("context"),
             "Experiment A context",
         ).get("scenario_id")
-        update_error = _required_mapping(
+        metrics = _required_mapping(
             raw.get("metrics"),
             "Experiment A metrics",
-        ).get("acue")
+        )
+        exact_update_error = metrics.get("exact_acue")
+        fitted_update_error = metrics.get("acue")
+        system_log_odds_update = metrics.get(
+            "anchor_directional_log_odds_update",
+            metrics.get("log_odds_update"),
+        )
+        exact_log_odds_update = metrics.get(
+            "exact_anchor_directional_log_odds_update",
+            metrics.get("exact_log_odds_update"),
+        )
+        fitted_log_odds_update = metrics.get(
+            "fitted_aware_anchor_directional_log_odds_update",
+            metrics.get("fitted_aware_log_odds_update"),
+        )
+        response_mode = raw.get("response_mode")
+        analysis_track = (
+            "same_response_provenance"
+            if response_mode == "controlled_anchor"
+            else "natural_response_secondary"
+        )
+        reference_basis = "exact_action_aware"
+    system_update = _required_number(
+        system_log_odds_update,
+        "system_log_odds_update",
+    )
+    exact_update = _required_number(
+        exact_log_odds_update,
+        "exact_log_odds_update",
+    )
+    retained_residual = (
+        raw.get("calibration_residual")
+        if compact
+        else system_update - exact_update
+    )
     row = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_record_index": source_record_index,
         "trial_id": _required_text(raw.get("trial_id"), "trial_id"),
         "user_id": _required_text(raw.get("user_id"), "user_id"),
@@ -349,10 +401,62 @@ def _experiment_a_row(
             raw.get("response_mode"),
             "response_mode",
         ),
-        "update_error": _required_number(update_error, "update_error"),
+        "analysis_track": _required_text(
+            analysis_track,
+            "analysis_track",
+        ),
+        "reference_basis": _required_text(
+            reference_basis,
+            "reference_basis",
+        ),
+        "exact_update_error": _required_number(
+            exact_update_error,
+            "exact_update_error",
+        ),
+        "fitted_update_error": _required_number(
+            fitted_update_error,
+            "fitted_update_error",
+        ),
+        "system_log_odds_update": system_update,
+        "exact_log_odds_update": exact_update,
+        "fitted_log_odds_update": _required_number(
+            fitted_log_odds_update,
+            "fitted_log_odds_update",
+        ),
+        "calibration_residual": _required_number(
+            retained_residual,
+            "calibration_residual",
+        ),
     }
-    if raw.get("schema_version") != 1:
+    expected_schema = 2 if compact else 1
+    if raw.get("schema_version") != expected_schema:
         raise ValueError("unsupported Experiment A row schema_version")
+    if row["reference_basis"] != "exact_action_aware":
+        raise ValueError(
+            "Experiment A v2 reference_basis must be exact_action_aware"
+        )
+    expected_track = (
+        "same_response_provenance"
+        if row["response_mode"] == "controlled_anchor"
+        else "natural_response_secondary"
+    )
+    if row["analysis_track"] != expected_track:
+        raise ValueError(
+            "Experiment A analysis_track differs from response_mode"
+        )
+    tolerance = 1e-12 + 1e-9 * abs(
+        row["system_log_odds_update"] - row["exact_log_odds_update"]
+    )
+    if abs(
+        row["calibration_residual"]
+        - (
+            row["system_log_odds_update"]
+            - row["exact_log_odds_update"]
+        )
+    ) > tolerance:
+        raise ValueError(
+            "Experiment A calibration_residual is inconsistent"
+        )
     if compact:
         retained_index = _required_integer(
             raw.get("source_record_index"),
@@ -916,7 +1020,7 @@ def export_compact_analysis(
             "claim_status": "not_claimed",
             "experiment": experiment,
             "analysis_unit": _ANALYSIS_UNITS[experiment],
-            "row_schema_version": 1,
+            "row_schema_version": _ROW_SCHEMA_VERSIONS[experiment],
             "row_count": row_count,
             "source_record_count": source_record_count,
             "configured_turns": (
@@ -1106,7 +1210,11 @@ def verify_compact_analysis(
         errors.append("analysis_rows_sha256 does not match analysis-rows.jsonl")
     if manifest.get("analysis_rows_file") != "analysis-rows.jsonl":
         errors.append("compact analysis_rows_file is not canonical")
-    if manifest.get("row_schema_version") != 1:
+    if (
+        experiment in _ROW_SCHEMA_VERSIONS
+        and manifest.get("row_schema_version")
+        != _ROW_SCHEMA_VERSIONS[experiment]
+    ):
         errors.append("unsupported compact row_schema_version")
     if not isinstance(manifest.get("source_run_id"), str) or not manifest[
         "source_run_id"
@@ -1325,7 +1433,11 @@ def verify_compact_analysis(
                             "compact Experiment C has a duplicate scientific key"
                         )
                     observed_c_keys.add(key)
-                elif row.get("schema_version") != 1:
+                elif (
+                    experiment in _ROW_SCHEMA_VERSIONS
+                    and row.get("schema_version")
+                    != _ROW_SCHEMA_VERSIONS[experiment]
+                ):
                     raise ValueError(
                         "compact analysis row has unsupported schema_version"
                     )

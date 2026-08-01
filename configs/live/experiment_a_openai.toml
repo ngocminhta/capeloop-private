@@ -2,7 +2,7 @@ schema_version = 1
 
 [scenarios]
 catalog_file = "data/scenarios/scenario-catalog-v1.json"
-catalog_sha256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+catalog_sha256 = "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 conversation_file = "data/scenarios/conversation-templates-v1.json"
 selection_policy = "deterministic-stratified-v1"
 
@@ -21,8 +21,8 @@ deterministic = false
 [experiment]
 kind = "provenance_audit"
 domains = ["travel", "writing"]
-mechanisms = ["balanced", "restricted", "default", "suggested"]
-response_modes = ["controlled_anchor", "naturally_sampled"]
+mechanisms = ["balanced", "restricted", "ranking", "default", "suggested"]
+response_modes = ["controlled_anchor"]
 prior_strengths = [0.0, 0.7]
 policies = ["balanced"]
 updaters = [
@@ -73,7 +73,8 @@ api_key_env = "OPENAI_API_KEY"
 base_url = "https://api.openai.com"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-# 848 logical calls × one physical attempt; 52 attempts remain as headroom.
+# 480 experiment + 60 calibration + 40 held-out paraphrase calls = 580
+# physical attempts; 320 attempts remain as headroom.
 max_retries = 0
 max_output_tokens = 2048
 max_requests = 900

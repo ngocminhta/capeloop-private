@@ -108,14 +108,47 @@ changing or clearing `openrouter_upstream_provider`. Preserve the reviewed
 presets: copy one into ignored `configs/local/`, change the model/route there,
 then validate the resolved local file before execution.
 
-For the next Experiment B calibration, use three separate copies of the same
-frozen B config: Gemini 3.6 Flash at minimal reasoning, GPT-5.6 Luna at low
-reasoning, and Mistral Large 3 (`mistralai/mistral-large-2512`) with the
-reasoning field empty. Clear the Google-specific upstream-provider pin for Luna
-and Mistral, then record and review the returned route metadata before admitting
-either run. Claude Sonnet 5 is not in this primary trio because its completed
+The canonical Experiment B panel is frozen in
+`data/model-suites/experiment-b-bounded-calibration-v1.json`:
+
+| Analysis set | Model | Effort | Conditions | Maximum attempts |
+| --- | --- | --- | --- | ---: |
+| Primary | `google/gemini-3.6-flash` | `minimal` | full B design | 636 |
+| Primary | `openai/gpt-5.6-luna` | `low` | full B design | 636 |
+| Primary | `mistralai/mistral-large-2512` | omitted | full B design | 636 |
+| Targeted secondary | `deepseek/deepseek-v4-flash` | omitted | incorrect seed; balanced versus soft only | 252 |
+
+The primary trio was frozen before the bounded multi-user calibration. DeepSeek
+is explicitly post-pilot and secondary because the quick pilot motivated its
+targeted replication. Analyze every model separately; never pool the DeepSeek
+arm into the primary panel, and do not treat model names as independent user
+clusters. Claude Sonnet 5 is not in the primary trio because its completed
 quick-pilot route exposed a nonempty moderation pipeline that the current
 integrity contract rejects.
+
+Plan the complete suite without a credential or model call:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b model-suite \
+  configs/live/experiment_b_openrouter.toml \
+  --output-root runs/experiment-b-suite
+```
+
+The JSON printed to standard output resolves every arm's model, route,
+conditions, isolated output directory, request count, and token ceiling. This
+is planning only: it reports `live_execution = false` and does not read
+`OPENROUTER_API_KEY`. To authorize all four paid runs, one after another, add
+the flag explicitly:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b model-suite \
+  configs/live/experiment_b_openrouter.toml \
+  --output-root runs/experiment-b-suite \
+  --execute-live
+```
+
+`--execute-live` on this suite command authorizes four sequential runs, not one
+smoke request. Each arm has its own provider ledger and output subtree.
 
 ### Conversation-template authoring
 
@@ -156,6 +189,44 @@ provider call.
 Do not regenerate language once per user, condition, or trial: that would add
 an uncontrolled model-dependent treatment.
 
+### Scenario review and promotion
+
+Before treating the catalog as paper evidence, create a whole-catalog kit with
+no provider calls:
+
+```bash
+PYTHONPATH=src python -m cape_loop scenarios audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/scenario-review-kit --split all --turns 16
+```
+
+Keep `review-item-map.json` with the researchers. Give blinded reviewers
+copies of the corresponding JSON templates; those copies already contain the
+opaque item IDs and visible material. Collect exactly two completed surface
+reviews, two completed scientific reviews, one neutral-choice pretest, and one
+masked-attractiveness pretest in an otherwise empty evidence directory. The
+reviewers must be distinct as declared by the protocol, and the two scientific
+reviewer IDs must also approve the actual masked materials.
+
+Then verify and, only if every rule passes, derive new reviewed inputs:
+
+```bash
+PYTHONPATH=src python -m cape_loop scenarios review-promote \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/scenario-review-kit \
+  artifacts/scenario-review-responses \
+  artifacts/scenario-reviewed-release \
+  --catalog-version 1.6.0 --frozen-on YYYY-MM-DD
+```
+
+This command makes no model call and never edits `data/scenarios/`. It always
+retains the imported evidence and aggregate report in a new output directory.
+If a review or pretest misses a threshold, no reviewed catalog is written;
+revise and version the source prospectively rather than replacing a failed
+stimulus after seeing experiment outcomes. On a full pass, the companion bank
+also receives a new bank ID and protocol-bound reviewed source; an unchanged
+`unreviewed` development-bank identity is never presented as reviewed.
+
 ### Selected Gate 4 systems
 
 The repository-selected Gate 4 stack is:
@@ -188,6 +259,53 @@ collectors remain implemented as optional origin replications. They are not
 prerequisites for the selected OpenRouter workflow, are retained in separate
 directories, and do not by themselves prove statistically independent errors.
 
+## Experiment B manipulation audit
+
+Before any paid Experiment B collection, build the prospective matched schedule
+and stress it across local simulator response seeds:
+
+```bash
+PYTHONPATH=src python -m cape_loop experiment-b manipulation-audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/experiment-b-manipulation-audit
+```
+
+This command cannot call an LLM: it has no `--execute-live` option, reads no API
+credential, and reports `llm_calls = 0`. The optional `--response-seeds N`
+changes only the number of local simulator draws; the config default is 32.
+Use a smaller override for a smoke check and reserve 64 for a one-time final
+offline audit when runtime permits. It writes:
+
+```text
+experiment-b-manipulation-plan.json
+experiment-b-manipulation-plan.md
+experiment-b-offline-manipulation-audit.json
+```
+
+The plan is outcome-blind. It predeclares at least two informative active turns,
+one decisive active control, both default and suggestion mechanisms, retained
+counter-profile options, and a minimum trajectory active susceptibility mass.
+Correct and incorrect initial-profile branches share the same frozen
+scenario-role-mechanism schedule and exogenous randomization key. Required
+active turns follow the current profile direction; an exactly neutral current
+profile uses the frozen initial-profile direction and logs that fallback. The
+audit then describes expected information, predicted and simulated choice
+susceptibility, visible-action divergence, realized exact-shadow SelectionCost,
+fallback use, condition/domain and role-specific summaries, and
+attribute/direction coverage. Its simulated outcomes never revise or admit the
+already frozen plan. For transparency, the audit also emits a descriptive
+active-turn cross-tab over role, mechanism, runtime effective direction, frozen
+planned direction, target attribute, and domain. Its counts must reconcile with
+the pooled active-instruction and role totals, but the cells are not additional
+post-outcome admission gates.
+
+Passing establishes only that the treatment reaches suitable decisions under
+the declared simulator. It does not establish an LLM effect, behavioral
+reinforcement, natural language quality, or paper eligibility. With
+`manipulation.planning_mode = "required"`, every ordinary live B run repeats the
+planning and offline audit inside its run directory and refuses the evaluated
+model calls if the prospective schedule is not ready.
+
 ## Budget preflight
 
 Planning and validation read no credential. The universal adaptive preflight
@@ -211,15 +329,19 @@ zero retries; do not raise these ceilings merely to make a design pass.
 
 | Adaptive pilot | Physical-attempt bound | Maximum output allocation |
 | --- | ---: | ---: |
-| Experiment A | 848 | 1,736,704 |
-| Experiment B | 624 | 1,277,952 |
-| Experiment C | 816 | 1,671,168 |
+| Experiment A | 580 | 1,187,840 |
+| Experiment B | 636 | 1,302,528 |
+| Experiment C | 828 | 1,695,744 |
 | Gate 6 OAT | 720 | 1,474,560 |
+
+The A bound is 480 controlled same-response updates, 60 development
+calibration updates, and 40 controlled held-out-paraphrase updates. The B and C
+bounds each include the same five-mechanism 60-request calibration probe.
 
 The listed B presets use that two-domain, eight-user,
 `llm_full_context`-only six-turn design. They cross correct/incorrect seeds with
 balanced, soft, and exploratory policies, revisit each preference dimension,
-retain local reference updaters, and fit at 624 calls including calibration.
+retain local reference updaters, and fit at 636 calls including calibration.
 Run one selected model per completed source run; the preset is a bounded
 calibration design, not a preregistered paper sample.
 
@@ -289,8 +411,14 @@ models/llm-calibration.json
 llm/development-raw-responses.jsonl
 metrics/llm-development-calibration.jsonl
 llm/test-raw-responses.jsonl
+llm/test-calibrated-responses.jsonl
 llm/responses.jsonl
 ```
+
+For Experiment A, `llm/responses.jsonl` and every primary update/error metric
+use the raw vector; the calibrated test file is secondary diagnostics only.
+For B/C, `llm/responses.jsonl` contains the configured active calibrated
+vectors used by the realized histories.
 
 `calibration = "none"` is an explicit raw-probability ablation. Sensitivity
 LLM runs require this uncalibrated mode plus retained prompts and events.
@@ -404,6 +532,43 @@ paper evidence. Verify every successful run:
 ```bash
 PYTHONPATH=src python -m cape_loop verify runs/<printed-run-id>
 ```
+
+For Experiment B, `experiment.bootstrap_replicates = 0` is point-estimate-only:
+clustered intervals and one-sided directional decisions are marked
+`not_computed`, so Gates 2 and 3 cannot pass. A positive value enables both the
+bootstrap intervals and paired complete-user sign-flip decisions. It sets the
+bootstrap resample count, not the sign-pattern count; sign patterns are derived
+separately from the number of complete user clusters.
+
+The B presets freeze `selection_noninferiority_margin = 0.02` and
+`net_harm_margin = 0.02` on the marginal-Brier terminal-error scale. Gate 3 is a
+policy-conditioned legibility gate evaluated in the incorrect-initial-profile
+stratum: positive soft same-history attribution gap, positive
+soft-minus-balanced attribution-gap contrast, and a one-sided SelectionCost
+noninferiority decision below `0.02`. The nested net-profile-harm gate uses the
+same incorrect-seed contrast and additionally requires a one-sided
+soft-minus-balanced updater terminal-error decision above `0.02`. Neither gate
+is decided from a point-estimate sign alone. `decomposition_tolerance = 1e-12`
+only verifies the algebraic error decomposition and is not an effect-size
+threshold.
+
+The public A presets run the primary `controlled_anchor` track over balanced,
+restricted, ranking, default, and suggested contexts. They hold the user
+response fixed, require the same-response audit to pass, and use the exact
+action-aware oracle as the primary reference. The oracle uses a uniform prior
+over the susceptibility support prospectively assigned to the test split and
+does not receive an individual's latent susceptibility. Read
+`metrics/experiment-a-exact-calibration.json`,
+`metrics/experiment-a-same-response-audit.json`, and
+`models/exact-action-aware-reference.json` before the fitted-reference
+robustness artifacts. The earlier directional H1/H2 outputs are diagnostic,
+not the primary decision rule.
+
+For live sensitivity, `profile_conditioning_strength = 0` is a no-treatment
+negative control. Every positive dose must produce both nonzero treatment
+exposure and nonzero visible-action divergence; otherwise the point is marked
+as a failed manipulation. Strict self-confirmation remains a secondary
+endpoint.
 
 The OpenAI primary/replication pair can be planned together without a key:
 
@@ -597,9 +762,9 @@ PYTHONPATH=src python -m cape_loop gate6-review verify \
   artifacts/GATE6-REVIEW --reverify-sources
 ```
 
-The reviewer recomputes the six tri-state clauses and held-out paraphrase
-transfer. It does not infer family identity, statistical independence, or a
-paper claim from model labels.
+The reviewer recomputes the six tri-state clauses and the outcome-neutral
+held-out paraphrase coverage/invariance check. It does not infer family
+identity, statistical independence, or a paper claim from model labels.
 
 ## Human and confirmatory evidence
 

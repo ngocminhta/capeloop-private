@@ -1,9 +1,9 @@
-"""Frozen, proposal-aligned estimands for H1, H2, and H7.
+"""Version-1 diagnostics retained beside the exact-oracle primary analysis.
 
-The ordinary Experiment A confirmatory bundle contains useful ACUE contrasts,
-but ACUE alone does not encode H1's directional over-update claim or H2's
-relative proximity claim.  This module keeps those estimands explicit and
-keeps missing external positive controls incomplete rather than imputing them.
+The directional over-update and action-unaware-proximity criteria are no longer
+the paper's primary hypotheses. They remain explicit, versioned diagnostics so
+older pilot results stay interpretable. H7's update-error component uses the
+exact generating-model reference.
 """
 
 from __future__ import annotations
@@ -160,6 +160,7 @@ class H1Analysis:
     def to_dict(self) -> dict[str, Any]:
         return {
             "hypothesis_id": "H1",
+            "analysis_role": "secondary_diagnostic",
             "name": "Directional causal-provenance over-update",
             "target_updater_id": self.target_updater_id,
             "reference_updater_id": self.reference_updater_id,
@@ -372,6 +373,7 @@ class H2Analysis:
     def to_dict(self) -> dict[str, Any]:
         return {
             "hypothesis_id": "H2",
+            "analysis_role": "secondary_diagnostic",
             "name": "Context visibility is insufficient",
             "target_updater_id": self.target_updater_id,
             "aware_updater_id": self.aware_updater_id,
@@ -715,6 +717,7 @@ class H7MechanismSuperiority:
     def to_dict(self) -> dict[str, Any]:
         return {
             "mechanism": self.mechanism,
+            "reference_basis": "exact_action_aware",
             "acue_reduction": self.acue_reduction.to_dict(),
             "minimum_cluster_count": self.minimum_cluster_count,
             "criterion": (
@@ -999,10 +1002,10 @@ def analyze_h7_experiment_a(
             missing.append(mechanism)
             continue
         reduction = paired_cluster_contrast(
-            [baseline.acue for baseline, _ in pairs],
-            [mitigation.acue for _, mitigation in pairs],
+            [baseline.exact_acue for baseline, _ in pairs],
+            [mitigation.exact_acue for _, mitigation in pairs],
             [baseline.user_id for baseline, _ in pairs],
-            contrast_id=f"H7:{mechanism}:acue-reduction",
+            contrast_id=f"H7:{mechanism}:exact-acue-reduction",
             first_label=baseline_updater_id,
             second_label=mitigation_updater_id,
             replicates=replicates,
@@ -1127,6 +1130,12 @@ class ExperimentAHypothesisEstimands:
         return {
             "schema_version": HYPOTHESIS_ESTIMAND_SCHEMA_VERSION,
             "analysis": "experiment_a_hypothesis_estimands",
+            "analysis_role": (
+                "secondary_directional_diagnostics_plus_mitigation_checks"
+            ),
+            "primary_analysis_artifact": (
+                "metrics/experiment-a-exact-calibration.json"
+            ),
             "independent_unit": "complete latent user",
             "bootstrap_replicates": self.bootstrap_replicates,
             "confidence_level": self.confidence_level,
@@ -1150,10 +1159,12 @@ class ExperimentAHypothesisEstimands:
             },
             "claim_status": "not_claimed",
             "interpretation": (
-                "A computed criterion is an auditable descriptive/inferential "
-                "output, not an empirical paper claim. Preregistration, paper "
-                "sample adequacy, multiplicity review, and the other declared "
-                "H7 component remain required."
+                "H1/H2 here are retained version-1 directional diagnostics, "
+                "not the primary provenance claim. The primary Experiment A "
+                "estimand is exact-oracle mechanism-specific calibration. A "
+                "computed criterion is not an empirical paper claim; "
+                "preregistration, sample adequacy, multiplicity review, and "
+                "the other H7 component remain required."
             ),
         }
 

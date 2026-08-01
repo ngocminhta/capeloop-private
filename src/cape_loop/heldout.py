@@ -25,7 +25,7 @@ from .schemas import NUM_ATTRIBUTES, Theta, validate_theta
 
 
 SPLITS = ("train", "development", "test")
-MECHANISMS = ("balanced", "restricted", "default", "suggested")
+MECHANISMS = ("balanced", "restricted", "ranking", "default", "suggested")
 _SURFACE_FIELDS = frozenset(
     {"selected_label", "selected_ordinal", "selected_option_id", "domain"}
 )
@@ -519,10 +519,18 @@ class ParaphraseEvaluationRecord:
 
 @dataclass(frozen=True, slots=True)
 class ParaphraseTransferCriterion:
-    """Gate-1-compatible held-out criterion; ``verified`` may be incomplete."""
+    """Held-out surface readiness plus noncontrolling score diagnostics.
+
+    ``verified`` is outcome neutral: it reflects complete updater/case
+    coverage and structural preservation of the selected option and visible
+    context.  The historical fitted-aware Brier gaps remain available in
+    ``mean_gaps`` but do not determine Gate 1.
+    """
 
     verified: bool | None
     complete: bool
+    response_invariant: bool
+    invariance_failures: tuple[str, ...]
     material_gap: float
     required_mechanisms: int
     covered_domains: tuple[str, ...]
@@ -531,13 +539,16 @@ class ParaphraseTransferCriterion:
     qualifying_mechanisms: tuple[str, ...]
     mean_gaps: tuple[tuple[str, str, str, float], ...]
     missing_pairs: tuple[str, ...]
+    secondary_missing_pairs: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "criterion_id": "held-out-paraphrase-transfer",
             "verified": self.verified,
             "complete": self.complete,
+            "response_invariant": self.response_invariant,
+            "invariance_failures": list(self.invariance_failures),
             "material_gap": self.material_gap,
             "required_mechanisms": self.required_mechanisms,
             "covered_domains": list(self.covered_domains),
@@ -554,6 +565,7 @@ class ParaphraseTransferCriterion:
                 for family, domain, mechanism, gap in self.mean_gaps
             ],
             "missing_pairs": list(self.missing_pairs),
+            "secondary_missing_pairs": list(self.secondary_missing_pairs),
             "gate_1_argument": self.verified,
         }
 
@@ -568,8 +580,9 @@ def evaluate_gate1_paraphrase_transfer(
     material_gap: float = 0.01,
     required_mechanisms: int = 2,
     required_domains: Sequence[str] = ("travel", "writing"),
+    required_mechanism_ids: Sequence[str] | None = None,
 ) -> ParaphraseTransferCriterion:
-    """Evaluate transfer without silently treating missing provider rows as failure."""
+    """Check held-out coverage/invariance and retain score gaps descriptively."""
 
     gap = _finite(material_gap, "material_gap")
     if gap < 0.0:
@@ -585,6 +598,18 @@ def evaluate_gate1_paraphrase_transfer(
         raise ValueError("required_domains must be unique")
     if not expected_domains:
         raise ValueError("required_domains cannot be empty")
+    if required_mechanism_ids is None:
+        expected_mechanisms = None
+    else:
+        expected_mechanisms = tuple(sorted(set(required_mechanism_ids)))
+        if len(expected_mechanisms) != len(tuple(required_mechanism_ids)):
+            raise ValueError("required_mechanism_ids must be unique")
+        if not expected_mechanisms:
+            raise ValueError("required_mechanism_ids cannot be empty")
+        if not set(expected_mechanisms) <= set(MECHANISMS):
+            raise ValueError(
+                f"required_mechanism_ids must be selected from {MECHANISMS}"
+            )
 
     test_cases = tuple(case for case in cases if case.split == "test")
     if len({case.case_id for case in test_cases}) != len(test_cases):
@@ -636,6 +661,7 @@ def evaluate_gate1_paraphrase_transfer(
 
     lookup = {(row.case_id, row.updater_id): row for row in rows}
     missing: list[str] = []
+    secondary_missing: list[str] = []
     paired: list[
         tuple[HeldOutParaphraseCase, ParaphraseEvaluationRecord, ParaphraseEvaluationRecord]
     ] = []
@@ -643,7 +669,9 @@ def evaluate_gate1_paraphrase_transfer(
         aware = lookup.get((case.case_id, aware_updater_id))
         full = lookup.get((case.case_id, full_context_updater_id))
         if aware is None:
-            missing.append(f"{case.case_id}:{aware_updater_id}")
+            secondary_missing.append(
+                f"{case.case_id}:{aware_updater_id}"
+            )
         if full is None:
             missing.append(f"{case.case_id}:{full_context_updater_id}")
         if aware is not None and full is not None:
@@ -669,13 +697,30 @@ def evaluate_gate1_paraphrase_transfer(
     families = tuple(
         sorted({item.family_id for item in suite.for_split("test")})
     )
-    mechanisms = tuple(
+    all_observed_mechanisms = tuple(
+        sorted({case.mechanism for case in test_cases})
+    )
+    observed_mechanisms = tuple(
         sorted(
             {
                 case.mechanism
                 for case in test_cases
                 if case.mechanism != "balanced"
             }
+        )
+    )
+    coverage_mechanisms = (
+        all_observed_mechanisms
+        if expected_mechanisms is None
+        else expected_mechanisms
+    )
+    mechanisms = (
+        observed_mechanisms
+        if expected_mechanisms is None
+        else tuple(
+            mechanism
+            for mechanism in expected_mechanisms
+            if mechanism != "balanced"
         )
     )
     mean_lookup = {
@@ -692,9 +737,36 @@ def evaluate_gate1_paraphrase_transfer(
         )
     )
 
+    by_source: dict[str, list[HeldOutParaphraseCase]] = {}
+    for case in test_cases:
+        by_source.setdefault(case.source_trial_id, []).append(case)
+    invariance_failures: list[str] = []
+    for source_trial_id, source_cases in sorted(by_source.items()):
+        invariants = {
+            "selected_option_id": {
+                case.selected_option_id for case in source_cases
+            },
+            "context_sha256": {
+                case.context_sha256 for case in source_cases
+            },
+            "domain_id": {case.domain_id for case in source_cases},
+            "mechanism": {case.mechanism for case in source_cases},
+        }
+        for field, values in invariants.items():
+            if len(values) != 1:
+                invariance_failures.append(
+                    f"{source_trial_id}:{field}"
+                )
+    response_invariant = not invariance_failures
     design_complete = (
         set(covered_domains) == set(expected_domains)
         and set(covered_templates) == set(expected_templates)
+        and (
+            expected_mechanisms is None
+            or {
+                case.mechanism for case in test_cases
+            } == set(expected_mechanisms)
+        )
         and all(
             any(
                 case.template_id == template_id
@@ -704,18 +776,20 @@ def evaluate_gate1_paraphrase_transfer(
             )
             for template_id in expected_templates
             for domain in expected_domains
-            for mechanism in mechanisms
+            for mechanism in coverage_mechanisms
         )
     )
     complete = design_complete and not missing
     verified = (
         None
         if not complete
-        else len(qualifying) >= required_mechanisms
+        else response_invariant
     )
     return ParaphraseTransferCriterion(
         verified=verified,
         complete=complete,
+        response_invariant=response_invariant,
+        invariance_failures=tuple(invariance_failures),
         material_gap=gap,
         required_mechanisms=required_mechanisms,
         covered_domains=covered_domains,
@@ -724,6 +798,7 @@ def evaluate_gate1_paraphrase_transfer(
         qualifying_mechanisms=qualifying,
         mean_gaps=mean_gaps,
         missing_pairs=tuple(sorted(missing)),
+        secondary_missing_pairs=tuple(sorted(secondary_missing)),
     )
 
 

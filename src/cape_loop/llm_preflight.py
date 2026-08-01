@@ -12,7 +12,7 @@ from .sensitivity import sensitivity_grid
 
 _ATTRIBUTE_COUNT = 3
 _ANCHOR_DIRECTIONS = 2
-_CALIBRATION_MECHANISMS = 4
+_CALIBRATION_MECHANISMS = 5
 
 
 def _llm_updater_ids(config: AppConfig) -> tuple[str, ...]:
@@ -56,7 +56,7 @@ def _provenance_audit_requests(
     paraphrase_requests = 0
     if (
         "llm_full_context" in llm_updater_ids
-        and "naturally_sampled" in config.experiment.response_modes
+        and "controlled_anchor" in config.experiment.response_modes
     ):
         paraphrase_requests = (
             len(config.experiment.domains)

@@ -402,15 +402,17 @@ def classify_phase_point(
         for criterion in material
     }
     complete = all(value is not None for value in evaluations.values())
+    if any(value is False for value in evaluations.values()):
+        joint_region: bool | None = False
+    elif complete:
+        joint_region = True
+    else:
+        joint_region = None
     return {
         "point_id": row.get("point_id"),
         "criteria": evaluations,
         "criteria_complete": complete,
-        "joint_region": (
-            all(bool(value) for value in evaluations.values())
-            if complete
-            else None
-        ),
+        "joint_region": joint_region,
     }
 
 
@@ -474,7 +476,7 @@ def infer_axis_boundaries(
         )
         output.append(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "axis": axis,
                 "slice": dict(zip(slice_fields, slice_key)),
                 "evaluated_coordinates": sorted(

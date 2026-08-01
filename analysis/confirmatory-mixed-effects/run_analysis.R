@@ -219,8 +219,8 @@ args <- parse_arguments(commandArgs(trailingOnly = TRUE))
 spec_path <- file.path(project_dir, "analysis-spec.json")
 spec <- read_json_object(spec_path, "analysis specification")
 if (
-  !identical(spec$schema_version, 1L) &&
-  !identical(spec$schema_version, 1)
+  !identical(spec$schema_version, 3L) &&
+  !identical(spec$schema_version, 3)
 ) {
   abort_analysis("unsupported analysis specification version")
 }
@@ -228,6 +228,15 @@ experiment_spec <- spec$experiments[[args$experiment]]
 if (is.null(experiment_spec)) {
   abort_analysis("analysis specification has no requested experiment")
 }
+reference_updater <- if (identical(args$experiment, "A")) {
+  spec$factor_coding$experiment_a_oracle_reference
+} else {
+  spec$factor_coding$experiment_b_updater_reference
+}
+reference_updater <- require_scalar_character(
+  reference_updater,
+  "experiment-specific updater reference"
+)
 
 uses_historical_bundles <- length(args$compact_bundles) > 0L
 source_runs <- lapply(args$runs, function(path) {
@@ -241,6 +250,23 @@ if (anyDuplicated(vapply(source_runs, `[[`, character(1), "run_id"))) {
   abort_analysis("source run IDs must be unique")
 }
 assert_same_design(source_runs, args$experiment)
+pooled_analysis <- length(source_runs) > 1L
+experiment_spec$formula <- require_scalar_character(
+  if (pooled_analysis) {
+    experiment_spec$pooled_formula
+  } else {
+    experiment_spec$formula
+  },
+  "selected experiment formula"
+)
+experiment_spec$proposal_formula <- require_scalar_character(
+  if (pooled_analysis) {
+    experiment_spec$pooled_proposal_formula
+  } else {
+    experiment_spec$proposal_formula
+  },
+  "selected proposal formula"
+)
 if (uses_historical_bundles) {
   for (index in seq_along(source_runs)) {
     bundle <- verify_compact_bundle(
@@ -317,7 +343,7 @@ model <- fit_confirmatory_model(
   experiment_spec,
   spec$estimation,
   args$target_updater,
-  spec$factor_coding$updater_reference
+  reference_updater
 )
 
 dir.create(output_dir, recursive = FALSE, showWarnings = FALSE)
@@ -346,6 +372,7 @@ write_csv(
 source_records <- lapply(source_runs, function(source) {
   list(
     run_id = source$run_id,
+    population_seed = source$population_seed,
     config_sha256 = source$manifest$config_sha256,
     config_digest_verification = (
       "recomputed_from_retained_python_canonical_payload"
@@ -395,11 +422,17 @@ source_file_digests <- list(
   lock_sha256 = sha256_file(lock_path)
 )
 input_manifest <- list(
-  schema_version = 1,
+  schema_version = 3,
   analysis_id = spec$analysis_id,
   experiment = args$experiment,
   source_runs = source_records,
   source_run_count = length(source_runs),
+  population_seed = source_runs[[1L]]$population_seed,
+  pooled_run_random_intercept = pooled_analysis,
+  user_mapping = experiment_spec$user_mapping,
+  scenario_mapping = experiment_spec$scenario_mapping,
+  replicate_mapping = experiment_spec$replicate_mapping,
+  pooling_policy = experiment_spec$pooling_policy,
   pooled_source_sha256 = source_runs[[1L]]$manifest$source_sha256,
   compact_input_row_count = sum(vapply(source_runs, function(source) {
     length(readLines(source$analysis_input_path, warn = FALSE))
@@ -414,9 +447,28 @@ input_manifest <- list(
   analysis_unit = if (identical(args$experiment, "B")) {
     experiment_spec$analysis_unit
   } else {
-    "naturally_sampled_event"
+    "target_updater_controlled_anchor_event"
   },
   outcome_source = experiment_spec$outcome_source,
+  primary_reference_updater = reference_updater,
+  primary_reference_role = if (identical(args$experiment, "A")) {
+    "oracle_embedded_in_outcome_not_stochastic_model_group"
+  } else {
+    "updater_factor_reference"
+  },
+  retained_secondary_outcomes = if (identical(args$experiment, "A")) {
+    list("exact_update_error", "fitted_update_error")
+  } else {
+    list()
+  },
+  retained_calibration_fields = if (identical(args$experiment, "A")) {
+    as.list(unlist(
+      experiment_spec$retained_calibration_fields,
+      use.names = FALSE
+    ))
+  } else {
+    list()
+  },
   turn_source = experiment_spec$turn_source %||% NULL,
   terminal_consistency_check = (
     experiment_spec$terminal_consistency_check %||% NULL
@@ -434,14 +486,18 @@ input_manifest <- list(
   } else {
     NULL
   },
-  score_layer = "checksum_bound_compact_active_state_calibrated_when_configured",
+  score_layer = if (identical(args$experiment, "A")) {
+    "checksum_bound_anchor_directional_exact_oracle_calibration_residual"
+  } else {
+    "checksum_bound_compact_active_state_calibrated_when_configured"
+  },
   source_file_digests = source_file_digests
 )
 write_json(file.path(output_dir, "input-manifest.json"), input_manifest)
 
 diagnostics <- c(
   list(
-    schema_version = 1,
+    schema_version = 3,
     analysis_id = spec$analysis_id,
     experiment = args$experiment,
     status = model$status,
@@ -486,7 +542,7 @@ contrast_families <- lapply(
   }
 )
 result <- list(
-  schema_version = 1,
+  schema_version = 3,
   analysis_id = spec$analysis_id,
   experiment = args$experiment,
   status = model$status,
@@ -498,7 +554,7 @@ result <- list(
     "run_id"
   )),
   target_updater = args$target_updater,
-  reference_updater = spec$factor_coding$updater_reference,
+  reference_updater = reference_updater,
   outcome = experiment_spec$outcome_name,
   formula = experiment_spec$formula,
   family = spec$family,
@@ -534,9 +590,34 @@ result <- list(
       )
     } else {
       paste(
-        "Experiment A uses naturally sampled ACUE rows; its contrast",
-        "tests error relative to the fitted-aware reference, not the",
-        "direction of the target updater's belief change."
+        "Experiment A fits only the predeclared target updater's controlled",
+        "identical-response rows. Its primary contrasts compare signed",
+        "anchor-directional system-minus-exact calibration residuals for",
+        "each treatment mechanism against balanced presentation."
+      )
+    },
+    if (identical(args$experiment, "A")) {
+      paste(
+        "Absolute exact_update_error is retained as a descriptive secondary",
+        "magnitude estimand, and fitted_update_error remains a learned-reference",
+        "diagnostic; neither is substituted for the signed primary outcome."
+      )
+    } else {
+      paste(
+        "Experiment B keeps its fitted-aware updater comparison and exact",
+        "same-history-shadow decomposition in the source run unchanged."
+      )
+    },
+    if (pooled_analysis) {
+      paste(
+        "Pooled inputs share one population seed, preserve raw user and",
+        "scenario clusters across reruns, and include a run-level random",
+        "intercept. Different seeds must be analyzed separately."
+      )
+    } else {
+      paste(
+        "This is a single-run fit; no run-level random intercept is included.",
+        "Different seeds remain separate robustness analyses."
       )
     },
     "Raw/calibrated diagnostic scores remain separate; no recursively raw closed-loop trajectory is imputed.",

@@ -10,12 +10,12 @@ from .response import RandomUtilityModel
 from .schemas import InteractionContext, LatentUser, Observation, Option
 
 
-MECHANISMS = ("balanced", "restricted", "default", "suggested")
+MECHANISMS = ("balanced", "restricted", "ranking", "default", "suggested")
 
 
 @dataclass(frozen=True, slots=True)
 class MatchedAnchorSet:
-    """Four contexts that preserve one anchor and isolate provenance mechanisms."""
+    """Matched contexts that preserve one anchor and isolate provenance mechanisms."""
 
     domain_id: str
     scenario_id: str
@@ -48,7 +48,7 @@ class MatchedAnchorSet:
         )
 
     def with_anchor_position(self, *, anchor_first: bool) -> "MatchedAnchorSet":
-        """Return the same matched quartet with one shared physical order."""
+        """Counterbalance the baseline order and reverse it for ranking treatment."""
 
         if not isinstance(anchor_first, bool):
             raise TypeError("anchor_first must be Boolean")
@@ -59,10 +59,15 @@ class MatchedAnchorSet:
                 for option_id in context.option_ids
                 if option_id != self.anchor_option_id
             )
-            ranking = (
+            baseline_ranking = (
                 (self.anchor_option_id, other)
                 if anchor_first
                 else (other, self.anchor_option_id)
+            )
+            ranking = (
+                tuple(reversed(baseline_ranking))
+                if mechanism == "ranking"
+                else baseline_ranking
             )
             reordered[mechanism] = replace(context, ranking=ranking)
         return replace(self, contexts=reordered)
@@ -114,6 +119,27 @@ class MatchedAnchorSet:
             raise ValueError("suggested context must suggest the anchor")
         if suggested.default_option_id is not None:
             raise ValueError("suggested context also contains a default")
+
+        ranking = contexts["ranking"]
+        ranking_invariant_fields = tuple(
+            field_name
+            for field_name in invariant_fields
+            if field_name != "ranking"
+        )
+        for field_name in ranking_invariant_fields:
+            if getattr(ranking, field_name) != getattr(balanced, field_name):
+                raise ValueError(
+                    f"ranking changes non-treatment field {field_name}"
+                )
+        if ranking.ranking != tuple(reversed(balanced.ranking)):
+            raise ValueError("ranking context must reverse the balanced rank order")
+        if (
+            ranking.default_option_id is not None
+            or ranking.suggested_option_id is not None
+        ):
+            raise ValueError(
+                "ranking context cannot also contain a default or suggestion"
+            )
 
         restricted = contexts["restricted"]
         restricted_other = next(
@@ -179,7 +205,7 @@ def build_matched_anchor_set(
     wording_template: str = "neutral_matched_choice",
     turn: int = 0,
 ) -> MatchedAnchorSet:
-    """Construct the paper's balanced/restricted/default/suggested quartet."""
+    """Construct the matched balanced/restricted/ranking/default/suggested set."""
 
     if anchor_direction not in (-1, 1):
         raise ValueError("anchor_direction must be -1 or +1")
@@ -215,6 +241,12 @@ def build_matched_anchor_set(
             context_id=f"{scenario_id}:restricted:{turn}",
             options=(anchor, restricted_peer),
             ranking=(anchor.option_id, restricted_peer.option_id),
+            **common,
+        ),
+        "ranking": InteractionContext(
+            context_id=f"{scenario_id}:ranking:{turn}",
+            options=balanced_options,
+            ranking=tuple(reversed(ranking)),
             **common,
         ),
         "default": InteractionContext(

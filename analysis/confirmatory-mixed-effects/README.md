@@ -1,9 +1,9 @@
 # Confirmatory mixed-effects analysis
 
-This optional R project implements the two mixed-effects formulas declared in
-the CAPE-Loop proposal. It consumes completed, checksum-verified CAPE-Loop
-runs and writes a separate checksum-bound analysis directory. It contains no
-study observations or results.
+This optional R project implements the version-3 mixed-effects contract for
+CAPE-Loop. It consumes completed, checksum-verified CAPE-Loop runs and writes
+a separate checksum-bound analysis directory. It contains no study observations
+or results.
 
 The core Python implementation remains dependency-free. This directory is the
 explicit boundary for paper-grade mixed-effects software:
@@ -21,11 +21,14 @@ result.
 
 ## Relationship to the core analyses
 
-The standard-library Python runner emits complete-user paired bootstraps and a
-user-clustered CR1 marginal OLS analysis. Those are transparent primary or
-robustness summaries for the corresponding artifacts, but they are not
-substitutes for the proposal's user-random-slope and
-scenario-random-intercept models.
+The standard-library Python runner emits complete-user paired inference and a
+user-clustered CR1 marginal OLS analysis. Experiment B's paper-primary
+directional decisions use the one-sided complete-user sign-flip procedure in
+`experiment-b-clustered-randomization-v5`; its user-cluster bootstrap intervals
+are sensitivity evidence. Other bootstrap and CR1 outputs remain transparent
+primary or robustness summaries for their declared artifacts, but none is a
+substitute for the proposal's user-random-slope and scenario-random-intercept
+models.
 
 This R project is the sole canonical mixed-effects harness. It verifies
 completed source runs and normalizes either their runner-native compact rows or
@@ -37,24 +40,38 @@ successful fit to a scientific claim.
 
 ## Models
 
-Experiment A uses naturally sampled rows and operationalizes proposal
-`UpdateError` as Action-Conditioned Update Error (`metrics.acue`). The runner
-writes the compact value as `update_error`:
+Experiment A uses only the predeclared target updater's `controlled_anchor`
+same-response rows. Its primary outcome is the signed, anchor-directional
+calibration residual:
 
 ```text
-update_error ~ updater * mechanism + domain + prior_strength
-             + (1 + mechanism | user) + (1 | scenario)
+calibration_residual =
+  system_log_odds_update - exact_log_odds_update
 ```
 
-`user` is `run_id + user_id`; `scenario` is
-`run_id + scenario_id`. Run prefixes prevent accidental cluster
-collisions when matched replications are combined. The source design pairs one
-actual scenario across the two anchor directions for each
-user–domain–target cell and reverses physical anchor position across that
-pair. Mechanism, response-mode, prior-strength, and updater rows retain the
-same scenario/order assignment, so `(1 | scenario)` models the catalog
-stimulus actually used rather than an anchor-direction or display-position
-proxy.
+Both updates are expressed toward the matched anchor direction. Positive
+values mean the target updated more strongly toward the observed anchor than
+the exact declared-model posterior warrants; negative values mean it updated
+less strongly. The single-run model is:
+
+```text
+calibration_residual ~ mechanism + domain + prior_strength
+                     + (1 + mechanism | user) + (1 | scenario)
+```
+
+The exact action-aware posterior is embedded in the outcome calculation, not
+included as a deterministic zero-error stochastic group. This oracle is exact
+only inside the declared synthetic response model. `exact_update_error`
+remains a required descriptive secondary measure of absolute full-belief
+update magnitude, and `fitted_update_error` remains a learned-reference
+diagnostic. Neither is substituted for the signed primary outcome or tested
+using the primary residual fit.
+
+`user` is raw `user_id`, and `scenario` is raw `scenario_id`. A same-seed
+rerun therefore cannot manufacture new user or scenario clusters by changing
+its run ID. The source design pairs one scenario across anchor directions and
+mechanisms while reversing physical anchor position, so `(1 | scenario)`
+models the shared stimulus rather than a display-order proxy.
 
 Experiment B contributes one analysis row for every retained turn:
 
@@ -69,20 +86,32 @@ trajectory's top-level latent `theta`. The compact file retains both the
 zero-based source index and its normalized `1, ..., T` value. R checks their
 relationship, complete turn coverage, invariant trajectory metadata, and that
 the final compact value equals the trajectory's retained top-level
-`terminal_error`; a mismatch aborts analysis. Here `user` is
-`run_id + user_id`, `scenario` is `run_id + turn.scenario_id`, and `crn_set`
-is `run_id + crn_key`. `scenario` therefore changes with the actual stimulus
+`terminal_error`; a mismatch aborts analysis. Here `user` is raw `user_id`,
+`scenario` is raw `turn.scenario_id`, and `crn_set` is `run_id + crn_key`.
+`scenario` therefore changes with the actual stimulus
 displayed on each retained turn. `crn_set` instead identifies the complete
 common-random-number twin set shared by counterfactual policy/updater branches.
 They are deliberately separate random effects: endogenous branches may remain
 in one CRN set after their target sequences diverge and cause different
 scenarios to be displayed.
 
+Version 3 does not otherwise change Experiment B. Its mixed-model reference remains the
+evaluated `fitted_action_aware` updater, while the source run's exact
+same-history shadows continue to define the separate selection/attribution
+decomposition. This harness does not replace, relabel, or approximate those
+shadow quantities.
+
 Both models use a Gaussian identity-link likelihood, maximum likelihood
 (`REML = FALSE`), treatment coding, `bobyqa`, and a 200,000-evaluation ceiling.
-The outcomes are continuous errors; this is why a linear mixed model is used
-rather than a binomial or count GLMM. No outcome transformation or automatic
-random-effect simplification is applied.
+The outcomes are continuous quantities; this is why a linear mixed model is
+used rather than a binomial or count GLMM. No outcome transformation or
+automatic random-effect simplification is applied.
+
+When more than one same-seed rerun is pooled, both formulas add
+`(1 | replicate)`, where `replicate` is the source `run_id`. Different
+`run.seed` values are rejected from a pooled fit and must be analyzed
+separately as robustness replicates; seeds never increase the independent-user
+count.
 
 ## Installation
 
@@ -101,7 +130,7 @@ Each output retains `sessionInfo()` and a digest of the lock file.
 
 The lock was resolved against CRAN package versions available on 2026-07-26.
 Refreshing it is a protocol change: update the lock, rerun static validation,
-and create a new analysis ID rather than silently reusing v1.
+and create a new analysis ID rather than silently reusing v3.
 
 ## Continuous integration and static validation
 
@@ -132,22 +161,36 @@ raw event retention:
 
 - Experiment A:
   `analysis/experiment-a-rows.jsonl`, filtered by R to
-  `response_mode = naturally_sampled`, plus
+  `response_mode = controlled_anchor`, `analysis_track =
+  same_response_provenance`, and `reference_basis = exact_action_aware`, plus
   `analysis/experiment-a-exclusions.jsonl`;
 - Experiment B:
   `analysis/experiment-b-turns.jsonl`.
 
 The runner checks the complete run inventory and every source checksum,
 manifest status/run ID, resolved experiment kind, summary label, compact-file
-declaration, exact field sets, finite outcomes, duplicate records, factor
-coverage, and complete user-level updater-by-treatment cells. It also requires
+declaration, registered required/optional field sets, finite outcomes,
+duplicate records, factor
+coverage, and complete user-level target-mechanism or updater-policy cells. It
+also requires
 the retained `config.resolved.json` to be the canonical one-line JSON payload
 and recomputes the manifest configuration digest from that payload. It requires
-at least eight user and eight scenario clusters. Experiment A requires and
-records the excluded-matched-set file and digest even when the file contains
-zero rows. Experiment B checks every source/turn key, requires contiguous
+at least eight user and eight scenario clusters. Experiment A requires compact
+row schema version 2, validates the response-mode/track mapping, exact reference
+basis, calibration-residual identity, and target-updater mechanism crossing.
+It also records the excluded-matched-set file and digest even
+when the file contains zero rows. Experiment B keeps compact row schema version
+1, checks every source/turn key, requires contiguous
 turns and invariant trajectory metadata, and compares each final compact
 marginal Brier score with the retained terminal score.
+
+New runner-native B rows also carry same-history, expected-information,
+action-characterization, choice-denominator, and DIR fields. The R harness
+accepts that registered optional set but deliberately fits only the core
+terminal-error columns. Historical compact sidecars contain the core columns
+only. Accordingly, this supporting R fit cannot reproduce or replace the
+paper-primary clustered inference in
+`metrics/experiment-b-inference.json`.
 
 Historical runs created before these compact files existed remain analyzable
 through a three-file bundle produced by `cape_loop artifact compact`. Such a
@@ -159,10 +202,12 @@ manifest, source checksum manifest, configuration, summary, legacy input,
 exclusion, row count, and row digest to that paired source. The large legacy
 event file is lineage evidence; R reads the compact sidecar for modeling.
 
-Source runs combined in one analysis must be independent repeats of the same
-scientific and model declaration, use an identical B horizon/design when
-applicable, and have the same `source_sha256`; run IDs are added to cluster
-keys. Different source builds or horizons require separate analyses.
+Source runs combined in one analysis must be same-seed reruns of the same
+scientific, population-policy, and model declaration, use an identical B
+horizon/design when applicable, and have the same `source_sha256`. Raw user and
+scenario IDs remain shared clusters, while run ID enters as a crossed replicate
+random intercept. Different seeds, source builds, or horizons require separate
+analyses.
 Primary and different-model replication roles must be fitted separately rather
 than pooled under one updater label.
 
@@ -184,10 +229,12 @@ Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
 ```
 
 Use `--target-updater ID` only when the target was fixed before examining test
-outcomes. The reference updater is fixed to `fitted_action_aware` and is not a
-command-line choice.
+outcomes. References are experiment-specific and are not command-line choices:
+Experiment A's outcome uses the `exact_action_aware` oracle; Experiment B retains
+`fitted_action_aware`. Experiment A rejects `exact_action_aware` as the target
+because its signed residual is deterministically zero by construction.
 
-Multiple independent repeats of the same target/model can be combined:
+Multiple same-seed reruns of the same target/model can be combined:
 
 ```bash
 Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
@@ -196,6 +243,10 @@ Rscript analysis/confirmatory-mixed-effects/run_analysis.R \
   --run runs/<repeat-2-a-run> \
   --output analyses/<combined-repeat-a-analysis>
 ```
+
+The command aborts if the run seeds differ. Run each seed separately and compare
+the estimates as robustness replications; do not pool seeds to inflate the user
+count.
 
 The exact Experiment A formula requires variation in `prior_strength`. A run
 or pooled set with fewer than two retained prior-strength values is reported as
@@ -238,27 +289,40 @@ horizons to manufacture fixed-effect variation is not permitted.
 
 ## Planned contrasts
 
-For Experiment A, the primary family compares the target updater with
-`fitted_action_aware` separately after restricted, defaulted, and suggested
-choices. Holm correction is applied across those three tests. The balanced
-contrast and each mechanism-versus-balanced updater difference-in-differences
-form a separate Holm-corrected secondary family.
+For Experiment A, the four primary contrasts compare the target updater's
+signed calibration residual after restricted, ranking, defaulted, and suggested
+presentation with its residual under balanced presentation:
 
-These Action-Conditioned Update Error contrasts test whether the target's error
-contrast is nonzero relative to the aware reference. They do not test the
-direction or magnitude of the target's belief update and therefore do not, by
-themselves, establish the proposal's directional H1 updating claim.
+```text
+[system - exact]mechanism - [system - exact]balanced
+```
 
-For Experiment B, the single primary contrast is the target-versus-aware
-updater by soft-versus-balanced policy interaction among incorrect initial
-profiles. Secondary contrasts cover the target's policy effect, target versus
-aware within both policies, and—when available—the incorrect-versus-correct
-three-way contrast. Holm correction is applied within the secondary family.
-The terminal-error interaction tests only that model-based error interaction;
-it does not alone establish all five self-confirmation clauses or the complete
-paper claim.
+Holm correction is applied across these four tests. Positive contrasts mean the
+treatment causes more over-updating toward the observed anchor, or less
+under-updating, than balanced presentation; negative contrasts mean the
+opposite. The exact oracle remains conditional on the declared simulator.
+Absolute `exact_update_error` is reported only as a descriptive secondary
+magnitude estimand; the primary residual model does not manufacture an
+inferential magnitude contrast from a different outcome.
 
-All contrasts report raw error units and estimates standardized by the
+For Experiment B, this supporting terminal-error model has one predeclared
+focal contrast: the target-versus-aware updater by soft-versus-balanced policy
+interaction among incorrect initial profiles. The `primary` role in its CSV
+output means primary *within this supporting R model*; it is not the
+paper-level primary Experiment B estimand. The paper-primary Gate 3 conjunction
+of the soft-policy exact same-history gap, its soft-minus-balanced contrast,
+and paired exact-shadow SelectionCost is analyzed by
+`experiment-b-clustered-randomization-v5`. Secondary R contrasts cover
+the target's policy effect, target versus aware within both policies, and—when
+available—the incorrect-versus-correct three-way contrast. Holm correction is
+applied within the secondary family. The terminal-error interaction does not
+alone establish all five self-confirmation clauses. It also does not establish
+same-history attribution, evidential noninferiority, or the complete paper
+claim by itself.
+The adaptive soft-minus-exploratory contrast remains a supporting whole-policy
+comparison rather than a primary turn-matched claim.
+
+All contrasts report native outcome units and estimates standardized by the
 model's conditional residual standard deviation. Their
 `pointwise_unadjusted_confidence_lower` and
 `pointwise_unadjusted_confidence_upper` fields, including the
@@ -278,13 +342,13 @@ non-intercept families are also Holm corrected.
 - Hessian eigenvalues and positive-definiteness;
 - maximal-model singularity;
 - post-fit table/contrast warnings or errors;
-- user/scenario cluster counts and factor levels, including the retained
-  Experiment B CRN-set levels; and
+- user/scenario cluster counts and factor levels, including pooled replicate
+  and retained Experiment B CRN-set levels; and
 - residual/fitted summaries.
 
 The result status is:
 
-- `complete` only when the exact model is full rank, converged, has an
+- `complete` only when the declared model is full rank, converged, has an
   acceptable Hessian/gradient and residual scale, is nonsingular, and its
   predeclared post-fit inference completes without warnings;
 - `not_confirmatory` when the maximal fit fails convergence or singularity
@@ -319,7 +383,8 @@ SHA256SUMS
 resolved-config payload digest, complete source checksum-manifest digests,
 exact compact-input/exclusion digests, normalized row digest, cluster counts, factor
 levels, sidecar manifest/checksum digests when applicable, analysis source
-digests, and the dependency lock. For Experiment B,
+digests, the oracle-versus-factor reference role, pooling rule, population seed,
+and the dependency lock. For Experiment B,
 `analysis-rows.csv` contains one validated compact row per retained turn.
 `analysis-result.json` follows
 [`analysis-result.schema.json`](analysis-result.schema.json).
@@ -330,9 +395,13 @@ the portable analysis artifact; refitting must reproduce them before release.
 
 ## Calibration scope
 
-Event rows contain the active updater state, calibrated when calibration was
-configured. Raw and calibrated forecast diagnostics remain in their existing
-run artifacts. Experiment B's raw terminal record is a same-realized-history
-diagnostic, not a recursively raw trajectory, so this pipeline does not invent
-a raw closed-loop mixed model. Any fully raw confirmatory analysis requires a
-separate, preregistered, end-to-end raw run.
+Experiment A's primary outcome subtracts the exact declared-model log-odds
+update and is therefore unaffected by fitted-response-model misspecification.
+Its sign directly distinguishes over- from under-updating toward the anchor.
+The required absolute and fitted-reference errors remain secondary diagnostics.
+Evaluated LLM rows still contain the active updater state, calibrated when
+calibration was configured. Raw and calibrated forecast diagnostics remain in
+their existing run artifacts. Experiment B's raw terminal record is a
+same-realized-history diagnostic, not a recursively raw trajectory, so this
+pipeline does not invent a raw closed-loop mixed model. Any fully raw
+confirmatory analysis requires a separate, preregistered, end-to-end raw run.

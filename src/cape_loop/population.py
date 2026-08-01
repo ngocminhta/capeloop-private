@@ -43,6 +43,31 @@ def susceptibility_grid(
     )
 
 
+def susceptibility_support_for_split(
+    manifest: SplitManifest,
+    *,
+    split: str,
+    levels: Sequence[float] = (0.15, 0.45, 0.85),
+) -> tuple[Susceptibility, ...]:
+    """Return the prospective susceptibility support assigned to one split."""
+
+    if split not in {"train", "development", "test"}:
+        raise ValueError("split must be train, development, or test")
+    support = tuple(
+        susceptibility
+        for susceptibility in susceptibility_grid(levels)
+        if manifest.susceptibility_groups.get(
+            susceptibility_group_id(susceptibility)
+        )
+        == split
+    )
+    if not support:
+        raise ValueError(
+            f"manifest contains no susceptibility support for {split}"
+        )
+    return support
+
+
 def theta_group_id(theta: Theta) -> str:
     return theta_group_key(theta)
 
@@ -409,11 +434,13 @@ def generate_users(
         for theta in THETA_STATES
         if manifest.theta_groups.get(theta_group_id(theta)) == split
     ]
-    psi_candidates = [
-        psi
-        for psi in susceptibility_grid(susceptibility_levels)
-        if manifest.susceptibility_groups.get(susceptibility_group_id(psi)) == split
-    ]
+    psi_candidates = list(
+        susceptibility_support_for_split(
+            manifest,
+            split=split,
+            levels=susceptibility_levels,
+        )
+    )
     if not theta_candidates or not psi_candidates:
         raise ValueError(f"manifest contains no complete latent support for {split}")
     balanced_theta = manifest.theta_policy == BALANCED_THETA_POLICY

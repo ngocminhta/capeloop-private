@@ -30,12 +30,13 @@ from .scenarios import (
 )
 from .schemas import InteractionContext, PolicyProvenance, Susceptibility
 
-AUDIT_SCHEMA_VERSION = 2
-AUDIT_POLICY = "prospective-scenario-calibration-v2"
+AUDIT_SCHEMA_VERSION = 3
+AUDIT_POLICY = "prospective-scenario-calibration-v3"
 REFERENCE_TURNS = 16
 BALANCED_PROBABILITY_RANGE = (0.10, 0.90)
 RESTRICTED_PROBABILITY_RANGE = (0.20, 0.80)
 MEAN_EFFECT_RANGE = (0.02, 0.20)
+DECISIVE_CONTROL_HALF_SPAN = 0.56
 RAW_LABEL_WORD_COUNT_DIFFERENCE_WARNING = 2
 RAW_LABEL_WORD_COUNT_RATIO_RANGE = (0.85, 1.15)
 CROSS_SPLIT_LEXICAL_JACCARD_WARNING = 0.60
@@ -54,7 +55,7 @@ MACHINE_RENDERING_MECHANISMS = (
     ("restricted", "restriction"),
     ("default", "default"),
     ("suggested", "suggestion"),
-    ("balanced", "ranking"),
+    ("ranking", "ranking"),
 )
 MACHINE_SURFACES_PER_SCENARIO = (
     2  # anchor directions
@@ -231,7 +232,9 @@ def _lexical_overlap_warnings(
         )
     )
     for first, second in combinations(ordered, 2):
-        within_selected_split = first.split == second.split == split
+        within_selected_split = first.split == second.split and (
+            split == "all" or first.split == split
+        )
         cross_split = first.split != second.split
         if not within_selected_split and not cross_split:
             continue
@@ -302,9 +305,7 @@ def _cross_split_task_family_reuse_warnings(
                 "domain": domain,
                 "task_family": task_family,
                 "splits": splits,
-                "scenario_ids": sorted(
-                    scenario.scenario_id for scenario in scenarios
-                ),
+                "scenario_ids": sorted(scenario.scenario_id for scenario in scenarios),
                 "semantic_similarity_claimed": False,
                 "blocks_machine_readiness": False,
                 "blocks_recorded_scientific_readiness": True,
@@ -331,11 +332,7 @@ def _raw_label_word_count_warnings(
     warnings = []
     for presentation, first, second in displayed_pairs:
         difference = abs(counts[first] - counts[second])
-        ratio = (
-            counts[first] / counts[second]
-            if counts[second] > 0
-            else None
-        )
+        ratio = counts[first] / counts[second] if counts[second] > 0 else None
         common = {
             "scenario_id": scenario.scenario_id,
             "presentation": presentation,
@@ -367,9 +364,7 @@ def _raw_label_word_count_warnings(
                 {
                     "kind": "option_label_raw_word_count_ratio_outside_range",
                     **common,
-                    "first_to_second_ratio": (
-                        None if ratio is None else _round(ratio)
-                    ),
+                    "first_to_second_ratio": (None if ratio is None else _round(ratio)),
                     "warning_range_inclusive": {
                         "lower": RAW_LABEL_WORD_COUNT_RATIO_RANGE[0],
                         "upper": RAW_LABEL_WORD_COUNT_RATIO_RANGE[1],
@@ -444,15 +439,11 @@ def _binary_response_probability_guardrail(
     at_or_above = sum(value >= complementary_ceiling for value in values)
     return {
         "minimum_matched_probability_exclusive": minimum,
-        "complementary_maximum_probability_exclusive": (
-            complementary_ceiling
-        ),
+        "complementary_maximum_probability_exclusive": (complementary_ceiling),
         "evaluated_physical_probability_count": len(values),
         "anchor_at_or_below_minimum_count": at_or_below,
         "anchor_at_or_above_complementary_ceiling_count": at_or_above,
-        "either_binary_response_at_or_below_minimum_count": (
-            at_or_below + at_or_above
-        ),
+        "either_binary_response_at_or_below_minimum_count": (at_or_below + at_or_above),
         "passed": at_or_below == 0 and at_or_above == 0,
     }
 
@@ -509,7 +500,13 @@ def _numeric_signature(
 
     anchor = matched.anchor_option_id
     contexts = []
-    for mechanism in ("balanced", "restricted", "default", "suggested"):
+    for mechanism in (
+        "balanced",
+        "restricted",
+        "ranking",
+        "default",
+        "suggested",
+    ):
         context = matched.context(mechanism)
         contexts.append(
             (
@@ -542,16 +539,43 @@ def _probability_calibration(
 ) -> dict[str, Any]:
     global_metrics = _empty_metrics()
     global_physical = _empty_physical_probabilities()
+    global_guardrail_metrics = _empty_metrics()
+    global_guardrail_physical = _empty_physical_probabilities()
     cell_metrics: dict[tuple[str, int], dict[str, list[float]]] = {}
     cell_physical: dict[tuple[str, int], dict[str, list[float]]] = {}
+    cell_guardrail_metrics: dict[tuple[str, int], dict[str, list[float]]] = {}
+    cell_guardrail_physical: dict[tuple[str, int], dict[str, list[float]]] = {}
     global_signatures: set[tuple[Any, ...]] = set()
     cell_signatures: dict[tuple[str, int], set[tuple[Any, ...]]] = {}
     cell_anchor_instances: dict[tuple[str, int], int] = {}
+    cell_scenario_counts: dict[tuple[str, int], int] = {}
+    cell_decisive_control_counts: dict[tuple[str, int], int] = {}
+    cell_target_half_spans: dict[tuple[str, int], set[float]] = {}
     for scenario in scenarios:
         cell = (scenario.domain, scenario.target_attribute)
         metrics = cell_metrics.setdefault(cell, _empty_metrics())
         physical = cell_physical.setdefault(cell, _empty_physical_probabilities())
+        guardrail_metrics = cell_guardrail_metrics.setdefault(
+            cell,
+            _empty_metrics(),
+        )
+        guardrail_physical = cell_guardrail_physical.setdefault(
+            cell,
+            _empty_physical_probabilities(),
+        )
         signatures = cell_signatures.setdefault(cell, set())
+        cell_scenario_counts[cell] = cell_scenario_counts.get(cell, 0) + 1
+        cell_target_half_spans.setdefault(cell, set()).add(scenario.target_half_span)
+        is_decisive_control = math.isclose(
+            scenario.target_half_span,
+            DECISIVE_CONTROL_HALF_SPAN,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        if is_decisive_control:
+            cell_decisive_control_counts[cell] = (
+                cell_decisive_control_counts.get(cell, 0) + 1
+            )
         for anchor_direction in (-1, 1):
             generic = build_matched_anchor_set(
                 get_domain(scenario.domain),
@@ -672,6 +696,9 @@ def _probability_calibration(
                     for name, value in values.items():
                         metrics[name].append(value)
                         global_metrics[name].append(value)
+                        if not is_decisive_control:
+                            guardrail_metrics[name].append(value)
+                            global_guardrail_metrics[name].append(value)
                     physical_values = {
                         "balanced": (
                             probabilities["balanced_first"],
@@ -693,17 +720,33 @@ def _probability_calibration(
                     for mechanism, mechanism_values in physical_values.items():
                         physical[mechanism].extend(mechanism_values)
                         global_physical[mechanism].extend(mechanism_values)
+                        if not is_decisive_control:
+                            guardrail_physical[mechanism].extend(mechanism_values)
+                            global_guardrail_physical[mechanism].extend(
+                                mechanism_values
+                            )
 
     cells = []
     for (domain, target), metrics in sorted(cell_metrics.items()):
         physical = cell_physical[(domain, target)]
+        guardrail_metrics = cell_guardrail_metrics[(domain, target)]
+        guardrail_physical = cell_guardrail_physical[(domain, target)]
+        if not guardrail_metrics["balanced_order_averaged_probability"]:
+            raise ValueError(
+                "scenario calibration requires at least one nondecisive "
+                f"scenario in cell {(domain, target)}"
+            )
         guardrails = _metric_guardrails(
-            metrics,
-            physical,
+            guardrail_metrics,
+            guardrail_physical,
             minimum_matched_probability=minimum_matched_probability,
         )
         anchor_instances = cell_anchor_instances[(domain, target)]
         unique_signatures = len(cell_signatures[(domain, target)])
+        decisive_control_count = cell_decisive_control_counts.get(
+            (domain, target),
+            0,
+        )
         cells.append(
             {
                 "domain": domain,
@@ -712,6 +755,20 @@ def _probability_calibration(
                 "summary": _metric_report(metrics),
                 "physical_probability_summary": _metric_report(physical),
                 "guardrails": guardrails,
+                "guardrail_scope": {
+                    "policy": (
+                        "nondecisive scenarios only; the predeclared 0.56 "
+                        "half-span is retained as a decisive-control stratum"
+                    ),
+                    "included_scenario_count": (
+                        cell_scenario_counts[(domain, target)] - decisive_control_count
+                    ),
+                    "excluded_decisive_control_scenario_count": (
+                        decisive_control_count
+                    ),
+                    "decisive_control_target_half_span": (DECISIVE_CONTROL_HALF_SPAN),
+                },
+                "target_half_spans": sorted(cell_target_half_spans[(domain, target)]),
                 "scenario_anchor_instance_count": anchor_instances,
                 "unique_numeric_signature_count": unique_signatures,
                 "numeric_signature_repetition_factor": _round(
@@ -720,12 +777,13 @@ def _probability_calibration(
             }
         )
     global_guardrails = _metric_guardrails(
-        global_metrics,
-        global_physical,
+        global_guardrail_metrics,
+        global_guardrail_physical,
         minimum_matched_probability=minimum_matched_probability,
     )
     anchor_instances = len(scenarios) * 2
     unique_signatures = len(global_signatures)
+    decisive_control_scenario_count = sum(cell_decisive_control_counts.values())
     return {
         "scope": (
             "all THETA_STATES x declared susceptibility grid x both anchor "
@@ -749,6 +807,22 @@ def _probability_calibration(
         "summary": _metric_report(global_metrics),
         "physical_probability_summary": _metric_report(global_physical),
         "guardrails": global_guardrails,
+        "guardrail_scope": {
+            "policy": (
+                "nondecisive scenarios only; the predeclared 0.56 half-span "
+                "is retained as a decisive-control stratum"
+            ),
+            "included_scenario_count": (
+                len(scenarios) - decisive_control_scenario_count
+            ),
+            "excluded_decisive_control_scenario_count": (
+                decisive_control_scenario_count
+            ),
+            "decisive_control_target_half_span": (DECISIVE_CONTROL_HALF_SPAN),
+        },
+        "target_half_spans": sorted(
+            {scenario.target_half_span for scenario in scenarios}
+        ),
         "cells": cells,
         "all_cells_passed": (
             global_guardrails["passed"]
@@ -803,83 +877,87 @@ def _nuisance_design_report(
     """Report prospective restricted-peer orthogonality by target cell."""
 
     cells = []
-    for domain in domains:
-        for target in range(3):
-            rows = tuple(
-                scenario
-                for scenario in scenarios
-                if scenario.domain == domain
-                and scenario.target_attribute == target
-            )
-            attribute_counts = {
-                get_domain(domain).attributes[index].key: sum(
-                    scenario.nuisance_attribute == index for scenario in rows
+    selected_splits = tuple(sorted({scenario.split for scenario in scenarios}))
+    for selected_split in selected_splits:
+        for domain in domains:
+            for target in range(3):
+                rows = tuple(
+                    scenario
+                    for scenario in scenarios
+                    if scenario.split == selected_split
+                    and scenario.domain == domain
+                    and scenario.target_attribute == target
                 )
-                for index in range(3)
-                if index != target
-            }
-            direction_counts = {
-                "-1": sum(scenario.nuisance_direction == -1 for scenario in rows),
-                "+1": sum(scenario.nuisance_direction == 1 for scenario in rows),
-            }
-            attribute_values = tuple(attribute_counts.values())
-            direction_values = tuple(direction_counts.values())
-            attributes_balanced = bool(attribute_values) and (
-                max(attribute_values) - min(attribute_values) <= 1
-            )
-            directions_balanced = bool(direction_values) and (
-                max(direction_values) - min(direction_values) <= 1
-            )
-            if len(rows) >= 2:
-                attributes_balanced = attributes_balanced and all(
-                    value > 0 for value in attribute_values
-                )
-                directions_balanced = directions_balanced and all(
-                    value > 0 for value in direction_values
-                )
-            joint_counts = {
-                f"{get_domain(domain).attributes[index].key}:{direction:+d}": sum(
-                    scenario.nuisance_attribute == index
-                    and scenario.nuisance_direction == direction
-                    for scenario in rows
-                )
-                for index in range(3)
-                if index != target
-                for direction in (-1, 1)
-            }
-            joint_values = tuple(joint_counts.values())
-            joint_balanced = bool(joint_values) and (
-                max(joint_values) - min(joint_values) <= 1
-            )
-            if len(rows) >= 4:
-                joint_balanced = joint_balanced and all(
-                    value > 0 for value in joint_values
-                )
-            cells.append(
-                {
-                    "domain": domain,
-                    "target_attribute": target,
-                    "target_key": get_domain(domain).attributes[target].key,
-                    "scenario_count": len(rows),
-                    "attribute_counts": attribute_counts,
-                    "direction_counts": direction_counts,
-                    "joint_counts": joint_counts,
-                    "nuisance_attributes_balanced_within_one": (
-                        attributes_balanced
-                    ),
-                    "nuisance_directions_balanced_within_one": (
-                        directions_balanced
-                    ),
-                    "nuisance_joint_combinations_balanced_within_one": (
-                        joint_balanced
-                    ),
-                    "passed": (
-                        attributes_balanced
-                        and directions_balanced
-                        and joint_balanced
-                    ),
+                attribute_counts = {
+                    get_domain(domain).attributes[index].key: sum(
+                        scenario.nuisance_attribute == index for scenario in rows
+                    )
+                    for index in range(3)
+                    if index != target
                 }
-            )
+                direction_counts = {
+                    "-1": sum(scenario.nuisance_direction == -1 for scenario in rows),
+                    "+1": sum(scenario.nuisance_direction == 1 for scenario in rows),
+                }
+                attribute_values = tuple(attribute_counts.values())
+                direction_values = tuple(direction_counts.values())
+                attributes_balanced = bool(attribute_values) and (
+                    max(attribute_values) - min(attribute_values) <= 1
+                )
+                directions_balanced = bool(direction_values) and (
+                    max(direction_values) - min(direction_values) <= 1
+                )
+                if len(rows) >= 2:
+                    attributes_balanced = attributes_balanced and all(
+                        value > 0 for value in attribute_values
+                    )
+                    directions_balanced = directions_balanced and all(
+                        value > 0 for value in direction_values
+                    )
+                joint_counts = {
+                    f"{get_domain(domain).attributes[index].key}:{direction:+d}": sum(
+                        scenario.nuisance_attribute == index
+                        and scenario.nuisance_direction == direction
+                        for scenario in rows
+                    )
+                    for index in range(3)
+                    if index != target
+                    for direction in (-1, 1)
+                }
+                joint_values = tuple(joint_counts.values())
+                joint_balanced = bool(joint_values) and (
+                    max(joint_values) - min(joint_values) <= 1
+                )
+                if len(rows) >= 4:
+                    joint_balanced = joint_balanced and all(
+                        value > 0 for value in joint_values
+                    )
+                cells.append(
+                    {
+                        "split": selected_split,
+                        "domain": domain,
+                        "target_attribute": target,
+                        "target_key": get_domain(domain).attributes[target].key,
+                        "scenario_count": len(rows),
+                        "attribute_counts": attribute_counts,
+                        "direction_counts": direction_counts,
+                        "joint_counts": joint_counts,
+                        "nuisance_attributes_balanced_within_one": (
+                            attributes_balanced
+                        ),
+                        "nuisance_directions_balanced_within_one": (
+                            directions_balanced
+                        ),
+                        "nuisance_joint_combinations_balanced_within_one": (
+                            joint_balanced
+                        ),
+                        "passed": (
+                            attributes_balanced
+                            and directions_balanced
+                            and joint_balanced
+                        ),
+                    }
+                )
     return {
         "design": (
             "both non-target attributes and both peer-minus-anchor "
@@ -908,12 +986,10 @@ def _conversation_frame_design_report(
     }
     unique_bases = tuple(sorted(set(bases.values())))
     frame_ids = {
-        base: f"frame_{index:02d}"
-        for index, base in enumerate(unique_bases, start=1)
+        base: f"frame_{index:02d}" for index, base in enumerate(unique_bases, start=1)
     }
     source_counts = Counter(
-        bank.template(scenario.scenario_id).source
-        for scenario in scenarios
+        bank.template(scenario.scenario_id).source for scenario in scenarios
     )
     agency_candidates = sorted(
         scenario_id
@@ -921,35 +997,38 @@ def _conversation_frame_design_report(
         if _ASSISTANT_AGENCY.search(base)
     )
     cells = []
-    for domain in domains:
-        for target in range(3):
-            rows = tuple(
-                scenario
-                for scenario in scenarios
-                if scenario.domain == domain
-                and scenario.target_attribute == target
-            )
-            counts = {
-                frame_ids[base]: sum(
-                    bases[scenario.scenario_id] == base
-                    for scenario in rows
+    selected_splits = tuple(sorted({scenario.split for scenario in scenarios}))
+    for selected_split in selected_splits:
+        for domain in domains:
+            for target in range(3):
+                rows = tuple(
+                    scenario
+                    for scenario in scenarios
+                    if scenario.split == selected_split
+                    and scenario.domain == domain
+                    and scenario.target_attribute == target
                 )
-                for base in unique_bases
-            }
-            values = tuple(counts.values())
-            balanced = bool(values) and max(values) - min(values) <= 1
-            if len(rows) >= len(unique_bases):
-                balanced = balanced and all(value > 0 for value in values)
-            cells.append(
-                {
-                    "domain": domain,
-                    "target_attribute": target,
-                    "target_key": get_domain(domain).attributes[target].key,
-                    "scenario_count": len(rows),
-                    "frame_counts": counts,
-                    "balanced_within_one": balanced,
+                counts = {
+                    frame_ids[base]: sum(
+                        bases[scenario.scenario_id] == base for scenario in rows
+                    )
+                    for base in unique_bases
                 }
-            )
+                values = tuple(counts.values())
+                balanced = bool(values) and max(values) - min(values) <= 1
+                if len(rows) >= len(unique_bases):
+                    balanced = balanced and all(value > 0 for value in values)
+                cells.append(
+                    {
+                        "split": selected_split,
+                        "domain": domain,
+                        "target_attribute": target,
+                        "target_key": get_domain(domain).attributes[target].key,
+                        "scenario_count": len(rows),
+                        "frame_counts": counts,
+                        "balanced_within_one": balanced,
+                    }
+                )
     return {
         "design": (
             "source-neutral base families counterbalanced within one per "
@@ -957,9 +1036,7 @@ def _conversation_frame_design_report(
         ),
         "frame_family_count": len(unique_bases),
         "frame_counts": dict(
-            sorted(
-                Counter(frame_ids[base] for base in bases.values()).items()
-            )
+            sorted(Counter(frame_ids[base] for base in bases.values()).items())
         ),
         "source_counts": dict(sorted(source_counts.items())),
         "assistant_agency_heuristic": (
@@ -1039,9 +1116,7 @@ def _capacity_report(
         "cyclic_reference_capacity_basis": (
             "turn_modulo_3_reference_only_not_adaptive_policy_capacity"
         ),
-        "cyclic_reference_per_cell_no_repeat_required": (
-            cyclic_reference_required
-        ),
+        "cyclic_reference_per_cell_no_repeat_required": (cyclic_reference_required),
         "cyclic_reference_all_cells_sufficient": all(
             cell["cyclic_reference_16_turn_no_repeat_sufficient"] for cell in cells
         ),
@@ -1167,16 +1242,13 @@ def _machine_rendered_surfaces(
                 target_attribute=scenario.target_attribute,
                 anchor_direction=anchor_direction,
                 scenario_id=(
-                    f"machine-audit:{scenario.scenario_id}:"
-                    f"{anchor_direction:+d}"
+                    f"machine-audit:{scenario.scenario_id}:{anchor_direction:+d}"
                 ),
             ),
             scenario,
         )
         anchor = matched.anchor_option_id
-        for context_mechanism, presentation_mechanism in (
-            MACHINE_RENDERING_MECHANISMS
-        ):
+        for context_mechanism, presentation_mechanism in MACHINE_RENDERING_MECHANISMS:
             base = matched.context(context_mechanism)
             for anchor_first in (True, False):
                 order_label = "anchor_first" if anchor_first else "anchor_second"
@@ -1265,9 +1337,7 @@ def _scenario_review_rows(
                         "scenario_id": scenario.scenario_id,
                         "anchor_direction": surface["anchor_direction"],
                         "context_mechanism": surface["context_mechanism"],
-                        "presentation_mechanism": surface[
-                            "presentation_mechanism"
-                        ],
+                        "presentation_mechanism": surface["presentation_mechanism"],
                         "display_order": surface["display_order"],
                         "selected_role": surface["selected_role"],
                         "message_role": message_role,
@@ -1317,9 +1387,7 @@ def _scenario_review_rows(
                 ),
                 "rendered_examples": rendered_examples,
                 "machine_surface_count": len(machine_surfaces),
-                "expected_machine_surface_count": (
-                    MACHINE_SURFACES_PER_SCENARIO
-                ),
+                "expected_machine_surface_count": (MACHINE_SURFACES_PER_SCENARIO),
             }
         )
     expected_total = len(scenarios) * MACHINE_SURFACES_PER_SCENARIO
@@ -1363,8 +1431,9 @@ def build_scenario_calibration_audit(
     The function consumes no experimental outcomes or evaluated-model outputs,
     performs no I/O, and never mutates ``catalog`` or ``conversation_bank``.
     Invalid structural inputs raise. Machine warnings do not block structural
-    engineering use, but they remain unresolved and block recorded scientific
-    readiness because this audit has no adjudication-record contract.
+    engineering use, but they remain unresolved in this standalone audit.
+    Only the separately verified, version-bound review evidence workflow may
+    adjudicate them for a derived scientific-readiness/promotion report.
     """
 
     if not isinstance(catalog, ScenarioCatalog):
@@ -1373,8 +1442,8 @@ def build_scenario_calibration_audit(
         raise TypeError("conversation_bank must be a parsed ConversationTemplateBank")
     if not isinstance(response_model, RandomUtilityModel):
         raise TypeError("response_model must be a RandomUtilityModel")
-    if split not in DATA_SPLITS:
-        raise ValueError(f"split must be one of {DATA_SPLITS}")
+    if split not in (*DATA_SPLITS, "all"):
+        raise ValueError(f"split must be one of {(*DATA_SPLITS, 'all')}")
     if (
         isinstance(planned_turns, bool)
         or not isinstance(planned_turns, int)
@@ -1397,9 +1466,7 @@ def build_scenario_calibration_audit(
         name="policies",
         default=("balanced",),
     )
-    minimum_probability = _validated_minimum_probability(
-        minimum_matched_probability
-    )
+    minimum_probability = _validated_minimum_probability(minimum_matched_probability)
     susceptibilities = susceptibility_grid(levels)
 
     # Exact bank coverage is a structural prerequisite, not a review judgment.
@@ -1409,7 +1476,8 @@ def build_scenario_calibration_audit(
             (
                 scenario
                 for scenario in catalog.scenarios
-                if scenario.split == split and scenario.domain in domain_scope
+                if (split == "all" or scenario.split == split)
+                and scenario.domain in domain_scope
             ),
             key=lambda item: item.scenario_id,
         )
@@ -1468,9 +1536,7 @@ def build_scenario_calibration_audit(
         for warning in scenario_warnings
         if warning["kind"] == "rendered_surface_hygiene"
     ]
-    machine_rendering["hygiene_warning_count"] = len(
-        rendered_hygiene_warnings
-    )
+    machine_rendering["hygiene_warning_count"] = len(rendered_hygiene_warnings)
     machine_rendering["hygiene_clean"] = not rendered_hygiene_warnings
 
     engineering = _tier(
@@ -1507,15 +1573,6 @@ def build_scenario_calibration_audit(
             ),
             "neutral_conversation_frame_families_are_counterbalanced": bool(
                 conversation_frame_design["passed"]
-            ),
-            "automated_validation_recorded_as_passed": bool(
-                selected_reviews["all_automated_validation_passed"]
-            ),
-            "independent_surface_human_review_passed": bool(
-                selected_reviews["all_surface_human_review_passed"]
-            ),
-            "independent_scientific_human_review_passed": bool(
-                selected_reviews["all_scientific_human_review_passed"]
             ),
             "exhaustive_machine_surface_hygiene_is_clean": bool(
                 machine_rendering["hygiene_clean"]
@@ -1589,7 +1646,7 @@ def build_scenario_calibration_audit(
         "warnings": {
             "blocks_machine_readiness": False,
             "blocks_recorded_scientific_readiness": bool(warnings),
-            "version_bound_adjudication_mechanism_available": False,
+            "version_bound_adjudication_mechanism_available": True,
             "raw_option_label_word_count_difference_threshold_exclusive": (
                 RAW_LABEL_WORD_COUNT_DIFFERENCE_WARNING
             ),
@@ -1623,12 +1680,13 @@ def build_scenario_calibration_audit(
                 "recorded_scientific_pilot_readiness"
             ),
             "human_review_evidence": {
-                "verification_supported": False,
+                "verification_supported": True,
                 "verified": False,
                 "reason": (
-                    "No version-bound human-review and neutral-choice pretest "
-                    "evidence import contract exists yet. Catalog review status "
-                    "strings are declarations and cannot satisfy this criterion."
+                    "No completed version-bound review bundle was supplied to "
+                    "this outcome-free audit. Catalog review status strings are "
+                    "declarations and cannot satisfy this criterion. Use the "
+                    "separate scenarios review-promote command."
                 ),
             },
         },
@@ -1646,10 +1704,9 @@ def build_scenario_calibration_audit(
                 ),
                 (
                     "Machine warnings are review candidates rather than proof "
-                    "of invalidity, but any unresolved warning blocks recorded "
-                    "scientific readiness. This audit defines no version-bound "
-                    "warning-adjudication record, so publish a new source "
-                    "revision in which the warning is absent."
+                    "of invalidity. The version-bound scientific response records "
+                    "an independent disposition for every warning; unresolved or "
+                    "disagreed warnings block promotion."
                 ),
                 (
                     "Record naturalness and neutrality separately from "
@@ -1872,16 +1929,13 @@ def render_scenario_calibration_markdown(
     )
     for cell in nuisance["cells"]:
         attribute_counts = ", ".join(
-            f"{key}={value}"
-            for key, value in cell["attribute_counts"].items()
+            f"{key}={value}" for key, value in cell["attribute_counts"].items()
         )
         direction_counts = ", ".join(
-            f"{key}={value}"
-            for key, value in cell["direction_counts"].items()
+            f"{key}={value}" for key, value in cell["direction_counts"].items()
         )
         joint_counts = ", ".join(
-            f"{key}={value}"
-            for key, value in cell["joint_counts"].items()
+            f"{key}={value}" for key, value in cell["joint_counts"].items()
         )
         lines.append(
             f"| {_markdown_cell(cell['domain'])} | "
@@ -2008,7 +2062,8 @@ def render_scenario_calibration_markdown(
             f"**{reviews['scientific_human_review'].get('passed', 0)} / "
             f"{reviews['scenario_count']}**",
             "- Version-bound human-review and pretest evidence verified: "
-            "**no** (an evidence import contract is not implemented yet)",
+            "**no** (no completed bundle was supplied; use the separate "
+            "`scenarios review-promote` verifier)",
             f"- Paper eligible: **{reviews['paper_eligible_count']} / "
             f"{reviews['scenario_count']}**",
             f"- Unresolved machine warnings: **{warnings['warning_count']}** "
@@ -2030,9 +2085,7 @@ def render_scenario_calibration_markdown(
                     f"`{warning['presentation']}` differs by "
                     f"{warning['absolute_difference']} words."
                 )
-            elif warning["kind"] == (
-                "option_label_raw_word_count_ratio_outside_range"
-            ):
+            elif warning["kind"] == ("option_label_raw_word_count_ratio_outside_range"):
                 lines.append(
                     "- Raw label word-count ratio outside 0.85–1.15: "
                     f"`{warning['scenario_id']}` / "
@@ -2055,8 +2108,7 @@ def render_scenario_calibration_markdown(
             }:
                 label = (
                     "Within-split lexical redundancy candidate"
-                    if warning["kind"]
-                    == "within_split_lexical_redundancy_candidate"
+                    if warning["kind"] == "within_split_lexical_redundancy_candidate"
                     else "Cross-split lexical overlap candidate"
                 )
                 lines.append(
@@ -2065,9 +2117,7 @@ def render_scenario_calibration_markdown(
                     f"`{warning['scenario_b']}` "
                     f"(token Jaccard {warning['token_jaccard']:.3f})."
                 )
-            elif warning["kind"] == (
-                "cross_split_exact_task_family_reuse_review_flag"
-            ):
+            elif warning["kind"] == ("cross_split_exact_task_family_reuse_review_flag"):
                 lines.append(
                     "- Exact task-family reuse across splits: "
                     f"`{warning['domain']}` / `{warning['task_family']}` / "

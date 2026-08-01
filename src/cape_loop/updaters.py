@@ -937,8 +937,23 @@ class LLMReplayUpdater:
             tuple(float(response.beliefs[attribute][value]) for value in VALUES)
             for attribute in ATTRIBUTES
         )
-        belief = PreferenceBelief.from_marginals(
-            MarginalPreferenceBelief(rows)  # type: ignore[arg-type]
+        prior_rows = state.belief.marginals().probabilities
+        raw_equals_prior = all(
+            math.isclose(
+                returned,
+                prior,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+            for returned_row, prior_row in zip(rows, prior_rows)
+            for returned, prior in zip(returned_row, prior_row)
+        )
+        belief = (
+            state.belief
+            if raw_equals_prior
+            else PreferenceBelief.from_marginals(
+                MarginalPreferenceBelief(rows)  # type: ignore[arg-type]
+            )
         )
         self._requests[request.request_id] = request
         self._responses[request.request_id] = response
@@ -956,6 +971,7 @@ class LLMReplayUpdater:
                 ("model_id", response.model_id),
                 ("prompt_sha256", request.prompt_sha256),
                 ("external_model", True),
+                ("returned_prior_unchanged", raw_equals_prior),
                 (
                     "execution_mode",
                     "replay" if isinstance(self.provider, ReplayProvider) else "live",

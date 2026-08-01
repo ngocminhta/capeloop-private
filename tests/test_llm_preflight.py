@@ -123,7 +123,7 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
             self._config(
                 "provenance_audit",
                 max_retries=2,
-                max_requests=744,
+                max_requests=780,
             )
         )
         assert preflight is not None
@@ -131,19 +131,19 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
         # 2 priors × 2 mechanisms × 2 modes × 2 LLM updaters.
         self.assertEqual(preflight["experiment_request_upper_bound"], 192)
         # Development calibration: 1 user × 1 domain × 3 attributes ×
-        # 2 directions × 4 mechanisms × 2 LLM updaters.
-        self.assertEqual(preflight["calibration_request_count"], 48)
+        # 2 directions × 5 mechanisms × 2 LLM updaters.
+        self.assertEqual(preflight["calibration_request_count"], 60)
         # Two source trials per domain/mechanism × two test templates. Only
         # llm_full_context participates in this held-out surface check.
         self.assertEqual(
             preflight["heldout_paraphrase_request_upper_bound"],
             8,
         )
-        self.assertEqual(preflight["logical_completion_upper_bound"], 248)
+        self.assertEqual(preflight["logical_completion_upper_bound"], 260)
         self.assertEqual(preflight["retry_expansion_factor"], 3)
         self.assertEqual(
             preflight["physical_http_attempt_upper_bound"],
-            744,
+            780,
         )
 
     def test_experiment_b_counts_all_four_initial_profile_conditions(
@@ -153,18 +153,18 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
             self._config(
                 "closed_loop",
                 max_retries=1,
-                max_requests=480,
+                max_requests=504,
             )
         )
         assert preflight is not None
         # Main: 2 users × 1 domain × 4 initial profiles × 2 replicates ×
         # 2 policies × 3 turns × 2 LLM updaters.
         self.assertEqual(preflight["experiment_request_upper_bound"], 192)
-        self.assertEqual(preflight["calibration_request_count"], 48)
-        self.assertEqual(preflight["logical_completion_upper_bound"], 240)
+        self.assertEqual(preflight["calibration_request_count"], 60)
+        self.assertEqual(preflight["logical_completion_upper_bound"], 252)
         self.assertEqual(
             preflight["physical_http_attempt_upper_bound"],
-            480,
+            504,
         )
 
     def test_experiment_c_counts_both_splits_and_all_three_regimes(
@@ -174,7 +174,7 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
             self._config(
                 "evaluation_validity",
                 max_retries=2,
-                max_requests=1_224,
+                max_requests=1_260,
                 max_total_tokens=200_000,
             )
         )
@@ -182,11 +182,11 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
         # Main: (8 development + 2 test users) × 1 domain × 2 replicates ×
         # 3 regimes × 3 turns × 2 LLM updaters.
         self.assertEqual(preflight["experiment_request_upper_bound"], 360)
-        self.assertEqual(preflight["calibration_request_count"], 48)
-        self.assertEqual(preflight["logical_completion_upper_bound"], 408)
+        self.assertEqual(preflight["calibration_request_count"], 60)
+        self.assertEqual(preflight["logical_completion_upper_bound"], 420)
         self.assertEqual(
             preflight["physical_http_attempt_upper_bound"],
-            1_224,
+            1_260,
         )
 
     def test_experiment_c_small_test_population_counts_all_development_users(
@@ -197,18 +197,18 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
                 "evaluation_validity",
                 users=1,
                 max_retries=0,
-                max_requests=372,
+                max_requests=384,
             )
         )
         assert preflight is not None
         # Main: (8 development + 1 test user) × 1 domain × 2 replicates ×
         # 3 regimes × 3 turns × 2 LLM updaters.
         self.assertEqual(preflight["experiment_request_upper_bound"], 324)
-        self.assertEqual(preflight["calibration_request_count"], 48)
-        self.assertEqual(preflight["logical_completion_upper_bound"], 372)
+        self.assertEqual(preflight["calibration_request_count"], 60)
+        self.assertEqual(preflight["logical_completion_upper_bound"], 384)
         self.assertEqual(
             preflight["physical_http_attempt_upper_bound"],
-            372,
+            384,
         )
 
     def test_over_ceiling_b_fails_before_provider_or_artifact(self) -> None:
@@ -217,7 +217,7 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
                 "closed_loop",
                 output_root=directory,
                 max_retries=0,
-                max_requests=239,
+                max_requests=251,
             )
             with patch(
                 "cape_loop.runner._live_completion_provider",
@@ -227,7 +227,7 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     ValueError,
-                    "240 physical HTTP attempts",
+                    "252 physical HTTP attempts",
                 ):
                     run_experiment(config, execute_live=True)
             self.assertEqual(tuple(Path(directory).iterdir()), ())
@@ -236,20 +236,20 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
         config = self._config(
             "closed_loop",
             max_retries=0,
-            max_requests=240,
+            max_requests=252,
             max_output_tokens=100,
-            max_total_tokens=23_999,
+            max_total_tokens=25_199,
         )
         preflight = build_llm_request_preflight(config)
         assert preflight is not None
         self.assertEqual(
             preflight["maximum_output_token_allocation"],
-            24_000,
+            25_200,
         )
         self.assertFalse(preflight["within_output_token_ceiling"])
         with self.assertRaisesRegex(
             ValueError,
-            "allocate up to 24000 output tokens",
+            "allocate up to 25200 output tokens",
         ):
             require_live_llm_budget(config)
 
@@ -259,7 +259,7 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
                 "closed_loop",
                 output_root=directory,
                 max_retries=0,
-                max_requests=240,
+                max_requests=252,
                 max_output_tokens=100,
                 max_total_tokens=1_000_000,
             )
@@ -302,11 +302,11 @@ class AdaptiveLLMRequestPreflightTests(unittest.TestCase):
             self.assertEqual(retained["experiment_kind"], "closed_loop")
             self.assertEqual(
                 retained["logical_completion_upper_bound"],
-                240,
+                252,
             )
             self.assertEqual(
                 retained["physical_http_attempt_upper_bound"],
-                240,
+                252,
             )
             self.assertTrue(retained["within_declared_retry_expanded_bounds"])
             valid, errors = verify_run(run_dir)

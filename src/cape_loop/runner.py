@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from statistics import mean
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 import json
 import math
 import tomllib
@@ -64,12 +64,18 @@ from .experiments import (
     analyze_experiment_a_hypotheses,
     analyze_experiment_b_inference,
     analyze_h7_closed_loop,
+    build_experiment_b_manipulation_plan,
     build_terminal_battery,
     evaluate_native_decoders,
     evaluate_terminal_battery,
+    ExperimentBManipulationPlan,
+    ManipulationPlanError,
     run_experiment_b,
     run_experiment_c,
     run_provenance_audit,
+    render_manipulation_plan_markdown,
+    run_offline_manipulation_audit,
+    summarize_prospective_strata_occupancy,
     summarize_terminal_calibration,
 )
 from .experiments.provenance import (
@@ -77,14 +83,13 @@ from .experiments.provenance import (
     build_experiment_a_control_battery,
     compare_experiment_a_raw_calibrated,
     experiment_a_mechanism_contrasts,
-    experiment_a_updater_mechanism_interaction,
     fit_experiment_a_marginal_ols,
 )
 from .gates import (
     GateCriterion,
     GateReport,
     gate_1_from_rows,
-    gate_2_and_3_from_trajectories,
+    gate_2_and_3_hierarchy_from_trajectories,
     incomplete_gate,
 )
 from .heldout import (
@@ -126,10 +131,10 @@ from .openrouter_provider import (
     OpenRouterProviderConfig,
     ResumableOpenRouterCompletionProvider,
 )
-from .policies import SoftProfileConditionedPolicy, build_policy
+from .policies import BalancedPolicy, SoftProfileConditionedPolicy, build_policy
 from .population import (
     generate_users,
-    susceptibility_grid,
+    susceptibility_support_for_split,
     user_state_record,
 )
 from .power import (
@@ -172,6 +177,17 @@ from .updaters import (
     make_update_view,
     updater_views,
 )
+
+
+def _mean_or_none(values: Iterable[float | None]) -> float | None:
+    """Return a finite mean, or ``None`` when an estimand has no support."""
+
+    material = tuple(
+        float(value)
+        for value in values
+        if value is not None and math.isfinite(float(value))
+    )
+    return mean(material) if material else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -525,7 +541,9 @@ def _split_leakage_audit(
                         raise ValueError(
                             "catalog-backed fitted record has no target attribute"
                         )
-                    if context.default_option_id is not None:
+                    if ":ranking:" in context.context_id:
+                        mechanism = "ranking"
+                    elif context.default_option_id is not None:
                         mechanism = "default"
                     elif context.suggested_option_id is not None:
                         mechanism = "suggested"
@@ -776,7 +794,9 @@ def _prepare_study(
     )
     held_out = []
     held_out_count = max(
-        24 * len(domains) if scenario_catalog is not None else 16,
+        len(MECHANISMS) * 3 * 2 * len(domains)
+        if scenario_catalog is not None
+        else 16,
         min(128, config.inference.training_interactions // 4),
     )
     for domain, count in zip(
@@ -859,8 +879,13 @@ def _registry(
     prepared: PreparedStudy,
     *,
     completion_provider: CompletionProvider | None = None,
+    data_split: str = "test",
 ) -> dict[str, ProfileUpdater]:
-    support = susceptibility_grid(config.response_model.susceptibility_levels)
+    support = susceptibility_support_for_split(
+        prepared.manifest,
+        split=data_split,
+        levels=config.response_model.susceptibility_levels,
+    )
     uses_llm = any(
         updater_id.startswith("llm_")
         for updater_id in config.experiment.updaters
@@ -1164,8 +1189,10 @@ def _prepare_llm_execution(
         response_model=prepared.response_model,
         aware_model=prepared.fitted_models.aware,
         unaware_model=prepared.fitted_models.unaware,
-        susceptibilities=susceptibility_grid(
-            config.response_model.susceptibility_levels
+        susceptibilities=susceptibility_support_for_split(
+            prepared.manifest,
+            split="development",
+            levels=config.response_model.susceptibility_levels,
         ),
         replay_provider=raw_provider,
     )
@@ -1182,7 +1209,18 @@ def _prepare_llm_execution(
         updaters=development_registry,
         response_model=prepared.response_model,
         fitted_aware_model=prepared.fitted_models.aware,
-        mechanisms=("balanced", "restricted", "default", "suggested"),
+        exact_susceptibilities=susceptibility_support_for_split(
+            prepared.manifest,
+            split="development",
+            levels=config.response_model.susceptibility_levels,
+        ),
+        mechanisms=(
+            "balanced",
+            "restricted",
+            "ranking",
+            "default",
+            "suggested",
+        ),
         response_modes=("naturally_sampled",),
         minimum_probability=config.response_model.minimum_matched_probability,
         direction_tolerance=config.thresholds.direction_tolerance,
@@ -1312,6 +1350,54 @@ def _write_prepared(run: RunArtifacts, prepared: PreparedStudy) -> None:
         "models/held-out-response-diagnostics.json",
         dict(prepared.held_out_diagnostics),
     )
+    exact_support = susceptibility_support_for_split(
+        prepared.manifest,
+        split="test",
+        levels=run.config.response_model.susceptibility_levels,
+    )
+    run.write_json(
+        "models/exact-action-aware-reference.json",
+        {
+            "schema_version": 1,
+            "reference_id": "exact_action_aware",
+            "role": "primary_controlled_simulation_reference",
+            "response_model_family": "multinomial_random_utility",
+            "response_model": {
+                "beta": prepared.response_model.beta,
+                "ranking_scale": prepared.response_model.ranking_scale,
+                "default_scale": prepared.response_model.default_scale,
+                "suggestion_scale": (
+                    prepared.response_model.suggestion_scale
+                ),
+            },
+            "susceptibility_prior": {
+                "kind": "uniform_prospective_evaluation_split_support",
+                "split": "test",
+                "support_count": len(exact_support),
+                "weight_per_state": 1.0 / len(exact_support),
+                "weights": [
+                    1.0 / len(exact_support)
+                    for _ in exact_support
+                ],
+                "support": [
+                    susceptibility.to_dict()
+                    for susceptibility in exact_support
+                ],
+            },
+            "preference_prior": (
+                "supplied experiment belief; Experiment A crosses declared "
+                "prior-strength strata and Experiment B conditions on the "
+                "declared initial profile"
+            ),
+            "population_split_note": (
+                "The prospective test-support assignment is part of the "
+                "declared generator and therefore defines the oracle's "
+                "uniform nuisance prior. Individual user susceptibility, "
+                "realized finite-sample frequencies, and outcomes are not "
+                "used to set these weights."
+            ),
+        },
+    )
     population_rows = []
     for split, users in (
         ("train", prepared.training_users),
@@ -1410,6 +1496,7 @@ def _write_llm_exchange(
     additional_registries: Sequence[Mapping[str, ProfileUpdater]] = (),
     live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
+    primary_probability_variant: str = "active_configured_variant",
 ) -> None:
     adapters = tuple(
         updater
@@ -1471,6 +1558,8 @@ def _write_llm_exchange(
             ),
             "execution_mode": run.config.llm.mode,
             "probability_calibration": run.config.llm.calibration,
+            "configured_probability_calibration": run.config.llm.calibration,
+            "primary_probability_variant": primary_probability_variant,
         },
     )
     if calibrated_provider is not None:
@@ -1479,6 +1568,13 @@ def _write_llm_exchange(
             (
                 response.to_dict()
                 for response in calibrated_provider.raw_responses
+            ),
+        )
+        run.write_jsonl(
+            "llm/test-calibrated-responses.jsonl",
+            (
+                response.to_dict()
+                for response in calibrated_provider.calibrated_responses
             ),
         )
     if live_provider is not None:
@@ -1517,9 +1613,9 @@ def _write_llm_exchange(
 def _all_gates(primary: GateReport, *additional: GateReport) -> dict[str, Any]:
     reports = {report.gate_id: report for report in (primary,) + additional}
     titles = {
-        1: "Learnable provenance gap",
-        2: "Nontrivial soft self-confirmation",
-        3: "Attribution beyond evidence selection",
+        1: "Exact causal-provenance calibration",
+        2: "Conditional behavioral feedback amplification",
+        3: "Policy-conditioned evidential legibility",
         4: "Native-system validity",
         5: "Evaluation implication",
         6: "Robustness",
@@ -1534,13 +1630,22 @@ def _all_gates(primary: GateReport, *additional: GateReport) -> dict[str, Any]:
                 "This experiment configuration does not evaluate the gate.",
             ),
         )
+    canonical_ids = {f"gate-{gate_id}" for gate_id in range(1, 7)}
+    nested = tuple(
+        reports[gate_id]
+        for gate_id in sorted(set(reports) - canonical_ids)
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "claim_status": "not_claimed",
         "gates": [
             reports[f"gate-{gate_id}"].to_dict()
             for gate_id in range(1, 7)
         ],
+        # Nested decisions refine a numbered gate without renumbering the
+        # preregistered Gate 1--6 sequence.  Keeping them explicit prevents a
+        # computed legibility-versus-harm distinction from being discarded.
+        "nested_gates": [report.to_dict() for report in nested],
     }
 
 
@@ -1548,9 +1653,8 @@ def _experiment_a_power_differences(
     rows: Sequence[Any],
     *,
     target_updater_id: str,
-    reference_updater_id: str = "fitted_action_aware",
 ) -> tuple[float, ...]:
-    """Reduce the primary updater×mechanism interaction to complete users."""
+    """Reduce signed mechanism-vs-balanced calibration residuals to users."""
 
     selected = tuple(
         row for row in rows if row.response_mode == "controlled_anchor"
@@ -1561,6 +1665,7 @@ def _experiment_a_power_differences(
             row.domain_id,
             row.target_attribute,
             row.anchor_direction,
+            row.prior_stratum,
             row.updater_id,
             row.mechanism,
         ): row
@@ -1581,29 +1686,23 @@ def _experiment_a_power_differences(
                 row.domain_id,
                 row.target_attribute,
                 row.anchor_direction,
+                row.prior_stratum,
             )
             for row in selected
         }
     )
-    for user_id, domain_id, attribute, direction in base_cells:
-        prefix = (user_id, domain_id, attribute, direction)
+    for user_id, domain_id, attribute, direction, prior_stratum in base_cells:
+        prefix = (user_id, domain_id, attribute, direction, prior_stratum)
         for mechanism in mechanisms:
             required = (
                 (*prefix, target_updater_id, mechanism),
                 (*prefix, target_updater_id, "balanced"),
-                (*prefix, reference_updater_id, mechanism),
-                (*prefix, reference_updater_id, "balanced"),
             )
             if not all(key in cells for key in required):
                 continue
-            target_difference = (
-                cells[required[0]].acue - cells[required[1]].acue
-            )
-            reference_difference = (
-                cells[required[2]].acue - cells[required[3]].acue
-            )
             by_user.setdefault(user_id, []).append(
-                target_difference - reference_difference
+                cells[required[0]].calibration_residual
+                - cells[required[1]].calibration_residual
             )
     return tuple(
         mean(by_user[user_id])
@@ -1666,7 +1765,7 @@ def _heldout_paraphrase_evaluation(
             item.updater_id,
         ),
     ):
-        if row.response_mode != "naturally_sampled":
+        if row.response_mode != "controlled_anchor":
             continue
         unique_trials.setdefault(row.trial_id, row)
 
@@ -1761,6 +1860,7 @@ def _heldout_paraphrase_evaluation(
         suite=suite,
         required_mechanisms=max(1, min(2, len(nonbalanced))),
         required_domains=config.experiment.domains,
+        required_mechanism_ids=config.experiment.mechanisms,
     )
     return suite, tuple(cases), tuple(records), criterion
 
@@ -1775,10 +1875,22 @@ def _run_a(
     live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
 ) -> dict[str, Any]:
+    # Experiment A measures the updater's own evidential update. Development
+    # temperature scaling is retained as a secondary forecast-calibration
+    # diagnostic, but it must not manufacture a primary update when the model
+    # returns its prior unchanged.
+    primary_completion_provider = (
+        raw_completion_provider or completion_provider
+    )
     registry = _registry(
         config,
         prepared,
-        completion_provider=completion_provider,
+        completion_provider=primary_completion_provider,
+    )
+    exact_support = susceptibility_support_for_split(
+        prepared.manifest,
+        split="test",
+        levels=config.response_model.susceptibility_levels,
     )
     result = run_provenance_audit(
         users=prepared.test_users,
@@ -1786,6 +1898,7 @@ def _run_a(
         updaters=registry,
         response_model=prepared.response_model,
         fitted_aware_model=prepared.fitted_models.aware,
+        exact_susceptibilities=exact_support,
         prior_strengths=config.experiment.prior_strengths,
         mechanisms=config.experiment.mechanisms,
         response_modes=config.experiment.response_modes,
@@ -1794,6 +1907,53 @@ def _run_a(
         seed=config.run.seed,
         scenario_catalog=prepared.scenario_catalog,
         conversation_bank=prepared.conversation_bank,
+    )
+    if result.controlled_rows:
+        same_response_audit = result.same_response_audit(
+            required_mechanisms=config.experiment.mechanisms,
+        )
+        same_response_audit_payload = same_response_audit.to_dict()
+        surface_reply_coverage = all(
+            cell.local_user_reply_present
+            for cell in same_response_audit.cells
+        )
+        same_response_audit_payload["surface_reply_coverage_required"] = (
+            prepared.conversation_bank is not None
+        )
+        same_response_audit_payload["surface_reply_coverage_complete"] = (
+            surface_reply_coverage
+        )
+        if (
+            not same_response_audit.passed
+            or (
+                prepared.conversation_bank is not None
+                and not surface_reply_coverage
+            )
+        ):
+            raise ValueError(
+                "Experiment A controlled-anchor rows failed the "
+                "same-response provenance audit"
+            )
+    else:
+        same_response_audit_payload = {
+            "schema_version": 1,
+            "analysis": "experiment_a_same_response_audit",
+            "response_mode": "controlled_anchor",
+            "required_mechanisms": list(config.experiment.mechanisms),
+            "source_row_count": 0,
+            "matched_cell_count": 0,
+            "failed_cell_count": 0,
+            "passed": None,
+            "status": "not_evaluated_no_controlled_anchor_rows",
+            "surface_reply_coverage_required": (
+                prepared.conversation_bank is not None
+            ),
+            "surface_reply_coverage_complete": None,
+            "cells": [],
+        }
+    run.write_json(
+        "metrics/experiment-a-same-response-audit.json",
+        same_response_audit_payload,
     )
     _write_scenario_consumption(
         run,
@@ -1802,57 +1962,44 @@ def _run_a(
             "test": tuple(row.context for row in result.rows),
         },
     )
-    raw_prepared = PreparedStudy(
-        domains=prepared.domains,
-        development_domains=prepared.development_domains,
-        manifest=prepared.manifest,
-        response_model=prepared.response_model,
-        raw_fitted_models=prepared.raw_fitted_models,
-        fitted_models=prepared.raw_fitted_models,
-        calibration={
-            "schema_version": 1,
-            "kind": "none",
-            "fitted_splits": [],
-            "example_count": 0,
-        },
-        training_users=prepared.training_users,
-        development_users=prepared.development_users,
-        test_users=prepared.test_users,
-        training_records=prepared.training_records,
-        development_records=prepared.development_records,
-        held_out_diagnostics=prepared.held_out_diagnostics,
-        split_leakage_audit=prepared.split_leakage_audit,
-        scenario_catalog=prepared.scenario_catalog,
-        conversation_bank=prepared.conversation_bank,
-    )
-    raw_registry = _registry(
-        config,
-        raw_prepared,
-        completion_provider=(
-            raw_completion_provider or completion_provider
-        ),
-    )
-    raw_result = run_provenance_audit(
-        users=prepared.test_users,
-        domains=prepared.domains,
-        updaters=raw_registry,
-        response_model=prepared.response_model,
-        fitted_aware_model=prepared.raw_fitted_models.aware,
-        prior_strengths=config.experiment.prior_strengths,
-        mechanisms=config.experiment.mechanisms,
-        response_modes=config.experiment.response_modes,
-        minimum_probability=config.response_model.minimum_matched_probability,
-        direction_tolerance=config.thresholds.direction_tolerance,
-        seed=config.run.seed,
-        scenario_catalog=prepared.scenario_catalog,
-        conversation_bank=prepared.conversation_bank,
-    )
+    if calibrated_provider is None:
+        calibrated_registry = registry
+        calibrated_result = result
+    else:
+        calibrated_registry = _registry(
+            config,
+            prepared,
+            completion_provider=completion_provider,
+        )
+        calibrated_result = run_provenance_audit(
+            users=prepared.test_users,
+            domains=prepared.domains,
+            updaters=calibrated_registry,
+            response_model=prepared.response_model,
+            fitted_aware_model=prepared.fitted_models.aware,
+            exact_susceptibilities=exact_support,
+            prior_strengths=config.experiment.prior_strengths,
+            mechanisms=config.experiment.mechanisms,
+            response_modes=config.experiment.response_modes,
+            minimum_probability=(
+                config.response_model.minimum_matched_probability
+            ),
+            direction_tolerance=config.thresholds.direction_tolerance,
+            seed=config.run.seed,
+            scenario_catalog=prepared.scenario_catalog,
+            conversation_bank=prepared.conversation_bank,
+        )
     if config.artifacts.retain_events:
         run.write_jsonl(
             "events/experiment-a.jsonl",
             (
                 {
                     "schema_version": 1,
+                    "system_probability_variant": (
+                        "raw"
+                        if row.updater_id.startswith("llm_")
+                        else "not_applicable"
+                    ),
                     **row.to_dict(include_joint_states=False),
                 }
                 for row in result.rows
@@ -1864,6 +2011,9 @@ def _run_a(
                 exact_references[row.trial_id] = {
                     "schema_version": 1,
                     "exact_reference_id": row.trial_id,
+                    "reference_definition_artifact": (
+                        "models/exact-action-aware-reference.json"
+                    ),
                     "exact_posterior": row.exact_posterior.to_dict(),
                     "exact_theta_psi": (
                         None
@@ -1898,8 +2048,8 @@ def _run_a(
         else 200
     )
     raw_calibrated = compare_experiment_a_raw_calibrated(
-        raw_result.rows,
         result.rows,
+        calibrated_result.rows,
         true_theta_by_user={
             user.user_id: user.theta for user in prepared.test_users
         },
@@ -1953,19 +2103,6 @@ def _run_a(
             for request in control_exchange.llm_requests
         ),
     )
-    mechanism_contrasts = tuple(
-        contrast
-        for mechanism in config.experiment.mechanisms
-        if mechanism != "balanced"
-        for contrast in experiment_a_mechanism_contrasts(
-            result.rows,
-            first_mechanism=mechanism,
-            second_mechanism="balanced",
-            metric="acue",
-            replicates=analysis_replicates,
-            seed=config.run.seed,
-        )
-    ) if "balanced" in config.experiment.mechanisms else ()
     primary_profile_writer = next(
         (
             updater_id
@@ -1977,30 +2114,48 @@ def _run_a(
         ),
         None,
     )
-    interaction_rows = []
-    if (
-        primary_profile_writer is not None
-        and "fitted_action_aware" in registry
+    mechanism_contrasts = (
+        tuple(
+            contrast
+            for mechanism in config.experiment.mechanisms
+            if mechanism != "balanced"
+            for contrast in experiment_a_mechanism_contrasts(
+                result.rows,
+                first_mechanism=mechanism,
+                second_mechanism="balanced",
+                metric="calibration_residual",
+                replicates=analysis_replicates,
+                seed=config.run.seed,
+                updater_id=primary_profile_writer,
+            )
+        )
+        if primary_profile_writer is not None
         and "balanced" in config.experiment.mechanisms
-    ):
-        for mechanism in config.experiment.mechanisms:
-            if mechanism == "balanced":
-                continue
-            try:
-                interaction_rows.append(
-                    experiment_a_updater_mechanism_interaction(
-                        result.rows,
-                        first_updater=primary_profile_writer,
-                        second_updater="fitted_action_aware",
-                        treated_mechanism=mechanism,
-                        reference_mechanism="balanced",
-                        metric="acue",
-                        replicates=analysis_replicates,
-                        seed=config.run.seed,
-                    )
-                )
-            except ValueError:
-                continue
+        else ()
+    )
+    secondary_exact_update_error_contrasts = (
+        tuple(
+            contrast
+            for mechanism in config.experiment.mechanisms
+            if mechanism != "balanced"
+            for contrast in experiment_a_mechanism_contrasts(
+                result.rows,
+                first_mechanism=mechanism,
+                second_mechanism="balanced",
+                metric="exact_acue",
+                replicates=analysis_replicates,
+                seed=config.run.seed,
+                updater_id=primary_profile_writer,
+            )
+        )
+        if primary_profile_writer is not None
+        and "balanced" in config.experiment.mechanisms
+        else ()
+    )
+    # The old target-minus-exact updater interaction is algebraically
+    # redundant once the target row is expressed as a calibration residual:
+    # the exact updater's residual is zero by construction.
+    interaction_rows: tuple[Any, ...] = ()
     analysis_notes = [
         (
             "The dependency-free regression is a marginal OLS robustness "
@@ -2014,9 +2169,18 @@ def _run_a(
             "anchor rows or presented as external evidence."
         ),
         (
-            "The retained version-1 slope uses the fitted action-aware "
-            "reference. The parallel exact-oracle slope is a separately "
-            "labeled controlled diagnostic and does not replace H1/H2."
+            "The primary controlled analysis uses the exact action-aware "
+            "posterior under the declared generating response model. Its "
+            "signed target-minus-exact log-odds residual is contrasted with "
+            "the same target writer under balanced presentation. Unsigned "
+            "exact update error and the fitted action-aware comparison are "
+            "secondary magnitude and learnability diagnostics."
+        ),
+        (
+            "Experiment A scores raw profile-writer probability vectors. "
+            "Development-fitted temperature-scaled vectors are retained only "
+            "as secondary forecast-calibration diagnostics and never replace "
+            "the primary updater outputs."
         ),
         (
             f"Bootstrap analyses used {analysis_replicates} replicates; a "
@@ -2025,9 +2189,14 @@ def _run_a(
     ]
     try:
         marginal_regression = fit_experiment_a_marginal_ols(
-            result.rows,
-            outcome="acue",
-            response_mode="naturally_sampled",
+            tuple(
+                row
+                for row in result.rows
+                if row.updater_id == primary_profile_writer
+            ),
+            outcome="calibration_residual",
+            response_mode="controlled_anchor",
+            updater_reference=primary_profile_writer,
         )
     except ValueError as exc:
         marginal_regression = None
@@ -2039,7 +2208,10 @@ def _run_a(
         evidence_strength=evidence_strength,
         exact_oracle_update_slopes=exact_oracle_slopes,
         mechanism_contrasts=mechanism_contrasts,
-        updater_mechanism_interactions=tuple(interaction_rows),
+        exact_update_error_contrasts=(
+            secondary_exact_update_error_contrasts
+        ),
+        updater_mechanism_interactions=interaction_rows,
         marginal_regression=marginal_regression,
         raw_calibrated_comparison=raw_calibrated,
         bootstrap_replicates=analysis_replicates,
@@ -2048,6 +2220,47 @@ def _run_a(
     run.write_json(
         "metrics/experiment-a-confirmatory.json",
         confirmatory.to_dict(),
+    )
+    run.write_json(
+        "metrics/experiment-a-exact-calibration.json",
+        {
+            "schema_version": 2,
+            "analysis": "experiment_a_exact_oracle_calibration",
+            "analysis_track": "same_response_provenance",
+            "reference_basis": "exact_action_aware",
+            "llm_probability_variant": "raw",
+            "temperature_calibration_role": "secondary_diagnostic_only",
+            "primary_estimand": (
+                "target-writer calibration_residual for each non-balanced "
+                "mechanism minus the target-writer calibration_residual for "
+                "the balanced presentation of the identical response"
+            ),
+            "ideal_calibration": {
+                "intercept": 0.0,
+                "slope": 1.0,
+                "root_mean_squared_residual": 0.0,
+            },
+            "residual_definition": (
+                "system_log_odds_update - exact_log_odds_update"
+            ),
+            "same_response_audit_artifact": (
+                "metrics/experiment-a-same-response-audit.json"
+            ),
+            "same_response_audit_passed": (
+                same_response_audit_payload["passed"]
+            ),
+            "calibration_curves": [
+                row.to_dict() for row in exact_oracle_slopes
+            ],
+            "primary_mechanism_vs_balanced_calibration_residual_contrasts": [
+                row.to_dict() for row in mechanism_contrasts
+            ],
+            "secondary_mechanism_vs_balanced_exact_update_error_contrasts": [
+                row.to_dict()
+                for row in secondary_exact_update_error_contrasts
+            ],
+            "claim_status": "not_claimed",
+        },
     )
     hypothesis_estimands = analyze_experiment_a_hypotheses(
         result.rows,
@@ -2117,7 +2330,6 @@ def _run_a(
             target_updater_id=primary_profile_writer,
         )
         if primary_profile_writer is not None
-        and "fitted_action_aware" in registry
         else ()
     )
     if len(power_differences) >= 2:
@@ -2128,8 +2340,8 @@ def _run_a(
                 power_differences,
                 (16, 32, 64, 128),
                 estimand=(
-                    "Experiment A profile-writer versus fitted-aware "
-                    "updater-by-mechanism ACUE interaction"
+                    "Experiment A target-writer signed calibration-residual "
+                    "contrast: non-balanced mechanism minus balanced"
                 ),
                 simulations=max(200, analysis_replicates),
                 seed=config.run.seed,
@@ -2158,9 +2370,23 @@ def _run_a(
             "mechanism": row.mechanism,
             "response_mode": row.response_mode,
             "updater_id": row.updater_id,
+            "system_probability_variant": (
+                "raw"
+                if row.updater_id.startswith("llm_")
+                else "not_applicable"
+            ),
             "brier": row.brier,
             "fitted_aware_brier": row.fitted_aware_brier,
             "excess_brier": row.excess_brier,
+            "primary_reference_basis": "exact_action_aware",
+            "analysis_track": (
+                "same_response_provenance"
+                if row.response_mode == "controlled_anchor"
+                else "natural_response_secondary"
+            ),
+            "primary_calibration_residual": row.calibration_residual,
+            "secondary_exact_update_error": row.exact_acue,
+            "secondary_fitted_update_error": row.acue,
             "acue": row.acue,
             "exact_acue": row.exact_acue,
             "marginal_kl": row.fitted_aware_kl,
@@ -2179,6 +2405,16 @@ def _run_a(
                 row.fitted_aware_log_odds_update
             ),
             "exact_log_odds_update": row.exact_log_odds_update,
+            "anchor_directional_log_odds_update": (
+                row.anchor_directional_log_odds_update
+            ),
+            "fitted_aware_anchor_directional_log_odds_update": (
+                row.fitted_aware_anchor_directional_log_odds_update
+            ),
+            "exact_anchor_directional_log_odds_update": (
+                row.exact_anchor_directional_log_odds_update
+            ),
+            "calibration_residual": row.calibration_residual,
             "fitted_evidence_strength": row.fitted_evidence_strength,
         }
         for row in result.rows
@@ -2188,7 +2424,7 @@ def _run_a(
         analysis_artifact,
         (
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "source_record_index": source_record_index,
                 "trial_id": row.trial_id,
                 "user_id": row.user_id,
@@ -2198,7 +2434,24 @@ def _run_a(
                 "mechanism": row.mechanism,
                 "prior_strength": row.prior_strength,
                 "response_mode": row.response_mode,
-                "update_error": row.acue,
+                "analysis_track": (
+                    "same_response_provenance"
+                    if row.response_mode == "controlled_anchor"
+                    else "natural_response_secondary"
+                ),
+                "reference_basis": "exact_action_aware",
+                "exact_update_error": row.exact_acue,
+                "fitted_update_error": row.acue,
+                "system_log_odds_update": (
+                    row.anchor_directional_log_odds_update
+                ),
+                "exact_log_odds_update": (
+                    row.exact_anchor_directional_log_odds_update
+                ),
+                "fitted_log_odds_update": (
+                    row.fitted_aware_anchor_directional_log_odds_update
+                ),
+                "calibration_residual": row.calibration_residual,
             }
             for source_record_index, row in enumerate(
                 result.rows,
@@ -2278,14 +2531,17 @@ def _run_a(
     )
     gate_1 = gate_1_from_rows(
         metric_rows,
-        full_context_updater_id="llm_full_context",
-        held_out_paraphrase_verified=paraphrase_criterion.verified,
+        required_mechanism_ids=config.experiment.mechanisms,
+        required_domains=config.experiment.domains,
+        same_response_audit_passed=same_response_audit_payload["passed"],
+        held_out_paraphrase_ready=paraphrase_criterion.verified,
     )
     _write_llm_exchange(
         run,
         registry,
         live_provider=live_provider,
         calibrated_provider=calibrated_provider,
+        primary_probability_variant="raw",
     )
     gate_report = _all_gates(gate_1)
     run.write_json("metrics/gate-report.json", gate_report)
@@ -2309,6 +2565,18 @@ def _run_a(
         "held_out_response_diagnostics": dict(prepared.held_out_diagnostics),
         "oracle_update_slope_rows": len(oracle_slopes),
         "exact_oracle_update_slope_rows": len(exact_oracle_slopes),
+        "primary_analysis_track": "same_response_provenance",
+        "primary_reference_basis": "exact_action_aware",
+        "primary_llm_probability_variant": "raw",
+        "temperature_calibration_role": "secondary_diagnostic_only",
+        "secondary_reference_basis": "fitted_action_aware",
+        "same_response_audit_artifact": (
+            "metrics/experiment-a-same-response-audit.json"
+        ),
+        "same_response_audit_passed": same_response_audit_payload["passed"],
+        "exact_calibration_artifact": (
+            "metrics/experiment-a-exact-calibration.json"
+        ),
         "evidence_strength_volunteered_control_status": (
             evidence_strength.volunteered_control_status
         ),
@@ -2334,6 +2602,9 @@ def _run_a(
                 hypothesis_estimands.to_dict()["hypotheses"].items()
             )
         },
+        "hypothesis_estimand_role": (
+            "secondary_directional_diagnostics_plus_mitigation_checks"
+        ),
         "power_analysis_status": power_payload["status"],
         "held_out_paraphrase_cases": len(paraphrase_cases),
         "held_out_paraphrase_complete": paraphrase_criterion.complete,
@@ -2769,6 +3040,7 @@ def _run_b(
     completion_provider: CompletionProvider | None = None,
     live_provider: ResumableCompletionProvider | None = None,
     calibrated_provider: TemperatureCalibratedProvider | None = None,
+    manipulation_plan: ExperimentBManipulationPlan | None = None,
 ) -> dict[str, Any]:
     registry = _registry(
         config,
@@ -2776,12 +3048,27 @@ def _run_b(
         completion_provider=completion_provider,
     )
     policies = {
-        policy_id: build_policy(policy_id)
+        policy_id: (
+            BalancedPolicy(prospective_plan=manipulation_plan)
+            if policy_id == "balanced" and manipulation_plan is not None
+            else SoftProfileConditionedPolicy(
+                prospective_plan=manipulation_plan
+            )
+            if (
+                policy_id == "soft_profile_conditioned"
+                and manipulation_plan is not None
+            )
+            else build_policy(policy_id)
+        )
         for policy_id in config.experiment.policies
     }
     shadow = ExactActionAwareUpdater(
         prepared.response_model,
-        susceptibility_grid(config.response_model.susceptibility_levels),
+        susceptibility_support_for_split(
+            prepared.manifest,
+            split="test",
+            levels=config.response_model.susceptibility_levels,
+        ),
     )
     result = run_experiment_b(
         users=prepared.test_users,
@@ -2805,9 +3092,20 @@ def _run_b(
             config.thresholds.false_stability_tolerance
         ),
         direction_tolerance=config.thresholds.direction_tolerance,
+        decomposition_tolerance=(config.thresholds.decomposition_tolerance),
         scenario_catalog=prepared.scenario_catalog,
         conversation_bank=prepared.conversation_bank,
         data_split="test",
+    )
+    prospective_strata_occupancy = summarize_prospective_strata_occupancy(
+        result.trajectories
+    )
+    prospective_strata_artifact = (
+        "metrics/experiment-b-prospective-strata-occupancy.json"
+    )
+    run.write_json(
+        prospective_strata_artifact,
+        prospective_strata_occupancy,
     )
     _write_scenario_consumption(
         run,
@@ -2824,6 +3122,10 @@ def _run_b(
         result,
         bootstrap_replicates=config.experiment.bootstrap_replicates,
         seed=config.run.seed,
+        selection_noninferiority_margin=(
+            config.thresholds.selection_noninferiority_margin
+        ),
+        net_harm_margin=config.thresholds.net_harm_margin,
     )
     h7_closed_loop = analyze_h7_closed_loop(
         result,
@@ -2874,24 +3176,35 @@ def _run_b(
     )
     development_native_trajectories: tuple[Any, ...] = ()
     if native_updater_ids:
+        development_exact_support = susceptibility_support_for_split(
+            prepared.manifest,
+            split="development",
+            levels=config.response_model.susceptibility_levels,
+        )
         development_registry = build_updater_registry(
             list(native_updater_ids),
             response_model=prepared.response_model,
             aware_model=prepared.fitted_models.aware,
             unaware_model=prepared.fitted_models.unaware,
-            susceptibilities=susceptibility_grid(
-                config.response_model.susceptibility_levels
-            ),
+            susceptibilities=development_exact_support,
         )
+        development_shadow = ExactActionAwareUpdater(
+            prepared.response_model,
+            development_exact_support,
+        )
+        development_policies = {
+            policy_id: build_policy(policy_id)
+            for policy_id in config.experiment.policies
+        }
         development_result = run_experiment_b(
             users=prepared.development_users,
             domains=prepared.domains,
             updaters=development_registry,
-            policies=policies,
+            policies=development_policies,
             turns=config.experiment.turns,
             trajectories_per_cell=config.experiment.trajectories_per_cell,
             response_model=prepared.response_model,
-            shadow_updater=shadow,
+            shadow_updater=development_shadow,
             seed=config.run.seed,
             materially_wrong_mass=config.thresholds.materially_wrong_mass,
             lcg_threshold=config.thresholds.laundered_confidence_gain,
@@ -2902,6 +3215,7 @@ def _run_b(
                 config.thresholds.false_stability_tolerance
             ),
             direction_tolerance=config.thresholds.direction_tolerance,
+            decomposition_tolerance=(config.thresholds.decomposition_tolerance),
             scenario_catalog=prepared.scenario_catalog,
             data_split="development",
         )
@@ -3058,6 +3372,13 @@ def _run_b(
                 "battery_digest": battery.battery_digest,
                 "initial_error": trajectory.initial_error,
                 "terminal_error": trajectory.terminal_error,
+                "terminal_shadow_error": trajectory.terminal_shadow_error,
+                "same_history_attribution_gap": (
+                    trajectory.same_history_attribution_gap
+                ),
+                "exact_shadow_error_improvement": (
+                    trajectory.exact_shadow_error_improvement
+                ),
                 "error_amplification_ratio": (
                     trajectory.error_amplification_ratio
                 ),
@@ -3077,6 +3398,21 @@ def _run_b(
                 "profile_conditioned_exposure_rate": (
                     trajectory.profile_conditioned_exposure_rate
                 ),
+                "ex_ante_preference_strengths_by_attribute": list(
+                    trajectory.ex_ante_preference_strengths_by_attribute
+                ),
+                "ex_ante_preference_strength_strata_by_attribute": list(
+                    trajectory.ex_ante_preference_strength_strata_by_attribute
+                ),
+                "ex_ante_user_preference_strength_stratum": (
+                    trajectory.ex_ante_user_preference_strength_stratum
+                ),
+                "ex_ante_balanced_choice_mean_probability_margin": (
+                    trajectory.ex_ante_balanced_choice_mean_probability_margin
+                ),
+                "ex_ante_balanced_choice_margin_stratum_counts": dict(
+                    trajectory.ex_ante_balanced_choice_margin_stratum_counts
+                ),
                 "presentation_mechanism_count": (
                     trajectory.presentation_mechanism_count
                 ),
@@ -3085,6 +3421,31 @@ def _run_b(
                 ),
                 "cumulative_action_aware_information_gain": (
                     trajectory.cumulative_information_gain
+                ),
+                "cumulative_expected_action_aware_information_gain": (
+                    trajectory.cumulative_expected_information_gain
+                ),
+                "mean_profile_consistency_score": (
+                    trajectory.mean_profile_consistency_score
+                ),
+                "mean_profile_consistency_advantage_over_balanced": (
+                    trajectory.mean_profile_consistency_advantage_over_balanced
+                ),
+                "mean_ex_ante_balanced_choice_divergence_probability": (
+                    trajectory
+                    .mean_ex_ante_balanced_choice_divergence_probability
+                ),
+                "ex_ante_balanced_choice_comparable_turn_count": (
+                    trajectory.ex_ante_balanced_choice_comparable_turn_count
+                ),
+                "ex_ante_balanced_choice_comparable_turn_rate": (
+                    trajectory.ex_ante_balanced_choice_comparable_turn_rate
+                ),
+                "balanced_choice_set_divergence_count": (
+                    trajectory.balanced_choice_set_divergence_count
+                ),
+                "balanced_choice_set_divergence_rate": (
+                    trajectory.balanced_choice_set_divergence_rate
                 ),
                 "cumulative_lcg": list(trajectory.cumulative_lcg),
                 "mean_cumulative_excess_confidence_log_odds": (
@@ -3101,6 +3462,21 @@ def _run_b(
                 ),
                 "reinforcement_event_rate": (
                     trajectory.reinforcement_event_rate
+                ),
+                "disconfirmation_inversion_tolerance": (
+                    trajectory.direction_tolerance
+                ),
+                "disconfirmation_opportunity_count": (
+                    trajectory.disconfirmation_opportunity_count
+                ),
+                "disconfirmation_inversion_count": (
+                    trajectory.disconfirmation_inversion_count
+                ),
+                "disconfirmation_inversion_rate": (
+                    trajectory.disconfirmation_inversion_rate
+                ),
+                "disconfirmation_inversion_turn_rate": (
+                    trajectory.disconfirmation_inversion_turn_rate
                 ),
                 "total_intrinsic_regret": trajectory.total_regret,
                 "false_stable_attribute_rate": (
@@ -3301,15 +3677,109 @@ def _run_b(
                 "domain_id": trajectory.domain_id,
                 "scenario_id": turn.scenario_id,
                 "crn_key": trajectory.crn_key,
+                "schedule_group_key": trajectory.schedule_group_key,
                 "updater_id": trajectory.updater_id,
                 "policy_id": trajectory.policy_id,
                 "initial_profile_condition": (
                     trajectory.initial_profile_condition
                 ),
+                "ex_ante_preference_strengths_by_attribute": list(
+                    trajectory.ex_ante_preference_strengths_by_attribute
+                ),
+                "ex_ante_preference_strength_strata_by_attribute": list(
+                    trajectory.ex_ante_preference_strength_strata_by_attribute
+                ),
+                "ex_ante_user_preference_strength_stratum": (
+                    trajectory.ex_ante_user_preference_strength_stratum
+                ),
+                "ex_ante_target_preference_strength": (
+                    turn.ex_ante_target_preference_strength
+                ),
+                "ex_ante_target_preference_strength_stratum": (
+                    turn.ex_ante_target_preference_strength_stratum
+                ),
+                "ex_ante_balanced_target_attribute": (
+                    turn.ex_ante_balanced_target_attribute
+                ),
+                "ex_ante_balanced_choice_probability_margin": (
+                    turn.ex_ante_balanced_choice_probability_margin
+                ),
+                "ex_ante_balanced_choice_margin_stratum": (
+                    turn.ex_ante_balanced_choice_margin_stratum
+                ),
+                "prospective_manipulation_role": (
+                    turn.prospective_manipulation_role
+                ),
+                "prospective_presentation_mechanism": (
+                    turn.prospective_presentation_mechanism
+                ),
+                "prospective_predicted_choice_divergence_probability": (
+                    turn.prospective_predicted_choice_divergence_probability
+                ),
+                "prospective_execution_matched": (
+                    turn.prospective_execution_matched
+                ),
+                "prospective_effective_profile_direction": (
+                    turn.prospective_effective_profile_direction
+                ),
+                "prospective_direction_source": (
+                    turn.prospective_direction_source
+                ),
                 "turn": turn.turn + 1,
                 "terminal_error": marginal_brier(
                     turn.belief_after,
                     trajectory.theta,
+                ),
+                "shadow_error_after_turn": marginal_brier(
+                    turn.shadow_after,
+                    trajectory.theta,
+                ),
+                "same_history_attribution_gap_after_turn": (
+                    marginal_brier(turn.belief_after, trajectory.theta)
+                    - marginal_brier(turn.shadow_after, trajectory.theta)
+                ),
+                "expected_action_aware_information_gain": (
+                    turn.expected_action_aware_information_gain
+                ),
+                "realized_action_aware_information_gain": (
+                    turn.action_aware_information_gain
+                ),
+                "profile_consistency_score": (
+                    turn.profile_consistency_score
+                ),
+                "profile_consistency_advantage_over_balanced": (
+                    turn.profile_consistency_score
+                    - turn.balanced_profile_consistency_score
+                ),
+                "ex_ante_balanced_choice_divergence_probability": (
+                    turn.ex_ante_balanced_choice_divergence_probability
+                ),
+                "ex_ante_balanced_choice_probability_comparable": (
+                    turn.ex_ante_balanced_choice_divergence_probability
+                    is not None
+                ),
+                "balanced_choice_set_diverged": (
+                    set(turn.action_signature[0])
+                    != set(turn.balanced_action_signature[0])
+                ),
+                "disconfirmation_opportunity_count": sum(
+                    turn.shadow_false_confidence_gain[attribute]
+                    < -trajectory.direction_tolerance
+                    for attribute in trajectory.initially_false_attributes
+                ),
+                "disconfirmation_inversion_count": sum(
+                    turn.shadow_false_confidence_gain[attribute]
+                    < -trajectory.direction_tolerance
+                    and turn.system_false_confidence_gain[attribute]
+                    > trajectory.direction_tolerance
+                    for attribute in trajectory.initially_false_attributes
+                ),
+                "disconfirmation_inversion_turn": any(
+                    turn.shadow_false_confidence_gain[attribute]
+                    < -trajectory.direction_tolerance
+                    and turn.system_false_confidence_gain[attribute]
+                    > trajectory.direction_tolerance
+                    for attribute in trajectory.initially_false_attributes
                 ),
                 "retained_terminal_error": trajectory.terminal_error,
                 "same_history_shadow": trajectory.same_history_shadow,
@@ -3395,10 +3865,16 @@ def _run_b(
         if llm_targets
         else None
     )
-    gate_2, gate_3 = gate_2_and_3_from_trajectories(
-        gate_rows,
-        target_updater_ids=llm_targets,
-        inferential_evidence=gate_inference,
+    gate_2, gate_3, gate_3_net_harm = (
+        gate_2_and_3_hierarchy_from_trajectories(
+            gate_rows,
+            target_updater_ids=llm_targets,
+            inferential_evidence=gate_inference,
+            selection_noninferiority_margin=(
+                config.thresholds.selection_noninferiority_margin
+            ),
+            net_harm_margin=config.thresholds.net_harm_margin,
+        )
     )
     gate_4 = _gate_4_for_b(
         result,
@@ -3408,9 +3884,14 @@ def _run_b(
         events_retained=config.artifacts.retain_events,
     )
     gate_report = _all_gates(
-        incomplete_gate(1, "Learnable provenance gap", "Run Experiment A."),
+        incomplete_gate(
+            1,
+            "Exact causal-provenance calibration",
+            "Run Experiment A.",
+        ),
         gate_2,
         gate_3,
+        gate_3_net_harm,
         gate_4,
     )
     run.write_json("metrics/gate-report.json", gate_report)
@@ -3444,6 +3925,30 @@ def _run_b(
         "scientific_claim_status": "not_claimed",
         "trajectories": len(result.trajectories),
         "decomposition_rows": len(result.decompositions),
+        "decomposition_identity_all_passed": all(
+            row.decomposition_identity_passed for row in result.decompositions
+        ),
+        "prospective_manipulation_plan": (
+            None
+            if manipulation_plan is None
+            else {
+                "artifact": "design/experiment-b-manipulation-plan.json",
+                "ready": manipulation_plan.readiness.ready,
+                "outcome_blind": manipulation_plan.readiness.outcome_blind,
+                "trajectory_count": len(manipulation_plan.trajectories),
+                "minimum_trajectory_asm": (
+                    manipulation_plan.summary.minimum_trajectory_asm
+                ),
+                "offline_simulator_audit_artifact": (
+                    "design/experiment-b-offline-manipulation-audit.json"
+                    if any(
+                        updater_id.startswith("llm_")
+                        for updater_id in config.experiment.updaters
+                    )
+                    else None
+                ),
+            }
+        ),
         "bootstrap_replicates": config.experiment.bootstrap_replicates,
         "experiment_b_inference_status": (
             b_inference.to_dict()["analysis_status"]
@@ -3504,9 +4009,18 @@ def _run_b(
         "mean_shadow_error": mean_or_nan(
             trajectory.terminal_shadow_error for trajectory in result.trajectories
         ),
+        "prospective_strata_occupancy_artifact": (
+            prospective_strata_artifact
+        ),
+        "prospective_strata_coverage_flags": (
+            prospective_strata_occupancy["coverage_flags"]
+        ),
         "updater_views": updater_views(registry),
         "gate_2_computed_status": gate_2.computed_status,
         "gate_3_computed_status": gate_3.computed_status,
+        "gate_3_net_profile_harm_computed_status": (
+            gate_3_net_harm.computed_status
+        ),
         "gate_4_computed_status": gate_4.computed_status,
         "analysis_artifact": analysis_artifact,
         "analysis_row_count": analysis_row_count,
@@ -3916,9 +4430,21 @@ def _run_c(
     )
     gate_5 = _gate_5_for_c(result)
     gate_report = _all_gates(
-        incomplete_gate(1, "Learnable provenance gap", "Run Experiment A."),
-        incomplete_gate(2, "Nontrivial soft self-confirmation", "Run Experiment B."),
-        incomplete_gate(3, "Attribution beyond evidence selection", "Run Experiment B."),
+        incomplete_gate(
+            1,
+            "Exact causal-provenance calibration",
+            "Run Experiment A.",
+        ),
+        incomplete_gate(
+            2,
+            "Conditional behavioral feedback amplification",
+            "Run Experiment B.",
+        ),
+        incomplete_gate(
+            3,
+            "Policy-conditioned evidential legibility",
+            "Run Experiment B.",
+        ),
         incomplete_gate(4, "Native-system validity", "Review native Experiment B/C conditions."),
         gate_5,
     )
@@ -4023,6 +4549,119 @@ def _profile_consistent_suggestion_counts(
     }
 
 
+def _disconfirmation_support_counts(
+    trajectories: Sequence[Any],
+) -> dict[str, int | float | None]:
+    """Retain the numerator and denominator support behind aggregate DIR."""
+
+    material = tuple(trajectories)
+    opportunities_by_user: dict[str, int] = {}
+    for trajectory in material:
+        opportunities_by_user[trajectory.user_id] = (
+            opportunities_by_user.get(trajectory.user_id, 0)
+            + trajectory.disconfirmation_opportunity_count
+        )
+    opportunity_count = sum(
+        trajectory.disconfirmation_opportunity_count
+        for trajectory in material
+    )
+    inversion_count = sum(
+        trajectory.disconfirmation_inversion_count
+        for trajectory in material
+    )
+    return {
+        "disconfirmation_opportunity_count": opportunity_count,
+        "disconfirmation_inversion_count": inversion_count,
+        "pooled_disconfirmation_inversion_rate": (
+            inversion_count / opportunity_count
+            if opportunity_count
+            else None
+        ),
+        "disconfirmation_opportunity_trajectory_count": sum(
+            trajectory.disconfirmation_opportunity_count > 0
+            for trajectory in material
+        ),
+        "disconfirmation_zero_opportunity_trajectory_count": sum(
+            trajectory.disconfirmation_opportunity_count == 0
+            for trajectory in material
+        ),
+        "disconfirmation_opportunity_user_count": sum(
+            count > 0 for count in opportunities_by_user.values()
+        ),
+        "disconfirmation_zero_opportunity_user_count": sum(
+            count == 0 for count in opportunities_by_user.values()
+        ),
+    }
+
+
+def _profile_conditioning_manipulation(
+    *,
+    conditioning_strength: float,
+    visible_action_divergence_rate: float,
+    treatment_exposure_rate: float,
+    prospective_coverage_passed: bool = True,
+) -> dict[str, Any]:
+    """Classify whether the declared profile-conditioning dose was visible."""
+
+    values = {
+        "conditioning_strength": conditioning_strength,
+        "visible_action_divergence_rate": visible_action_divergence_rate,
+        "treatment_exposure_rate": treatment_exposure_rate,
+    }
+    for name, value in values.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 1.0
+        ):
+            raise ValueError(f"{name} must be a finite number in [0, 1]")
+    if not isinstance(prospective_coverage_passed, bool):
+        raise ValueError("prospective_coverage_passed must be boolean")
+
+    strength = float(conditioning_strength)
+    visible = float(visible_action_divergence_rate)
+    exposure = float(treatment_exposure_rate)
+    if strength == 0.0:
+        passed = visible == 0.0 and exposure == 0.0
+        return {
+            "profile_conditioning_manipulation_role": "negative_control",
+            "profile_conditioning_manipulation_status": (
+                "negative_control_passed"
+                if passed
+                else "negative_control_failed_nonzero_treatment"
+            ),
+            "profile_conditioning_manipulation_check_passed": passed,
+            # A valid no-treatment control is intentionally ineligible for
+            # the positive-dose operational region.
+            "phase_profile_conditioning_manipulation_gate": 0.0,
+        }
+
+    passed = (
+        exposure > 0.0
+        and visible > 0.0
+        and prospective_coverage_passed
+    )
+    if passed:
+        status = "active_dose_activated"
+    elif exposure == 0.0:
+        status = "active_dose_failed_zero_exposure"
+    elif visible == 0.0:
+        status = "active_dose_failed_zero_visible_divergence"
+    elif not prospective_coverage_passed:
+        status = "active_dose_failed_informative_strata_coverage"
+    else:
+        raise AssertionError("unreachable manipulation state")
+    return {
+        "profile_conditioning_manipulation_role": "active_dose",
+        "profile_conditioning_manipulation_status": status,
+        "profile_conditioning_manipulation_check_passed": passed,
+        "phase_profile_conditioning_manipulation_gate": (
+            1.0 if passed else 0.0
+        ),
+    }
+
+
 def _run_sensitivity(
     config: AppConfig,
     run: RunArtifacts,
@@ -4059,6 +4698,7 @@ def _run_sensitivity(
     decomposition_rows = []
     model_rows = []
     phase_domain_metric_rows = []
+    prospective_occupancy_rows = []
     retained_trajectories = []
     point_registries: list[Mapping[str, ProfileUpdater]] = []
     conversation_jsonl_artifact = "conversations/sensitivity.jsonl"
@@ -4116,7 +4756,11 @@ def _run_sensitivity(
         }
         shadow = ExactActionAwareUpdater(
             model,
-            susceptibility_grid(config.response_model.susceptibility_levels),
+            susceptibility_support_for_split(
+                prepared.manifest,
+                split="test",
+                levels=config.response_model.susceptibility_levels,
+            ),
         )
         result = run_experiment_b(
             users=prepared.test_users,
@@ -4138,6 +4782,7 @@ def _run_sensitivity(
                 config.thresholds.false_stability_tolerance
             ),
             direction_tolerance=config.thresholds.direction_tolerance,
+            decomposition_tolerance=(config.thresholds.decomposition_tolerance),
             profile_strength=point.profile_strength,
             prior_uncertainty=point.prior_uncertainty,
             scenario_catalog=scenario_catalog,
@@ -4235,10 +4880,14 @@ def _run_sensitivity(
             for trajectory in phase_target_trajectories
             if trajectory.policy_id == "soft_profile_conditioned"
         )
+        phase_target_soft_trajectory_ids = {
+            trajectory.trajectory_id
+            for trajectory in phase_target_soft_trajectories
+        }
         phase_target_assessments = tuple(
             assessment
             for assessment in result.self_confirmation_assessments
-            if assessment.trajectory_id in phase_target_trajectory_ids
+            if assessment.trajectory_id in phase_target_soft_trajectory_ids
         )
         phase_target_eligible_ids = {
             assessment.trajectory_id
@@ -4262,12 +4911,53 @@ def _run_sensitivity(
         suggestion_counts = _profile_consistent_suggestion_counts(
             result.trajectories
         )
+        disconfirmation_support = _disconfirmation_support_counts(
+            result.trajectories
+        )
         phase_suggestion_counts = {
             f"phase_{key}": value
             for key, value in _profile_consistent_suggestion_counts(
                 phase_target_trajectories
             ).items()
         }
+        phase_disconfirmation_support = {
+            f"phase_soft_{key}": value
+            for key, value in _disconfirmation_support_counts(
+                phase_target_soft_trajectories
+            ).items()
+        }
+        phase_visible_action_divergence_rate = mean_or_nan(
+            row.visible_action_divergence_rate
+            for row in phase_target_decompositions
+        )
+        phase_treatment_exposure_rate = mean_or_nan(
+            trajectory.profile_conditioned_exposure_rate
+            for trajectory in phase_target_soft_trajectories
+        )
+        point_occupancy = summarize_prospective_strata_occupancy(
+            phase_target_trajectories
+        )
+        prospective_coverage_passed = bool(
+            point_occupancy["coverage_flags"][
+                "several_informative_soft_users_in_every_domain"
+            ]
+        )
+        prospective_occupancy_rows.append(
+            {
+                "schema_version": 1,
+                **point.to_dict(),
+                "phase_target_updater_id": phase_target_id,
+                "occupancy": point_occupancy,
+            }
+        )
+        phase_manipulation = _profile_conditioning_manipulation(
+            conditioning_strength=point.profile_conditioning_strength,
+            visible_action_divergence_rate=(
+                phase_visible_action_divergence_rate
+            ),
+            treatment_exposure_rate=phase_treatment_exposure_rate,
+            prospective_coverage_passed=prospective_coverage_passed,
+        )
         model_rows.append(
             {
                 "schema_version": 1,
@@ -4284,6 +4974,10 @@ def _run_sensitivity(
             {
                 "schema_version": 1,
                 **point.to_dict(),
+                "mean_initial_error": mean_or_nan(
+                    trajectory.initial_error
+                    for trajectory in result.trajectories
+                ),
                 "mean_terminal_error": mean_or_nan(
                     trajectory.terminal_error for trajectory in result.trajectories
                 ),
@@ -4294,6 +4988,14 @@ def _run_sensitivity(
                 ),
                 "mean_shadow_error": mean_or_nan(
                     trajectory.terminal_shadow_error
+                    for trajectory in result.trajectories
+                ),
+                "mean_same_history_attribution_gap": mean_or_nan(
+                    trajectory.same_history_attribution_gap
+                    for trajectory in result.trajectories
+                ),
+                "mean_exact_shadow_error_improvement": mean_or_nan(
+                    trajectory.exact_shadow_error_improvement
                     for trajectory in result.trajectories
                 ),
                 "aware_option_ece": prepared.held_out_diagnostics[
@@ -4315,6 +5017,20 @@ def _run_sensitivity(
                 ),
                 **suggestion_counts,
                 **phase_suggestion_counts,
+                **disconfirmation_support,
+                **phase_disconfirmation_support,
+                **phase_manipulation,
+                "phase_informative_soft_turn_count": (
+                    point_occupancy["informative_soft_turn_count"]
+                ),
+                "phase_informative_soft_visible_divergence_count": (
+                    point_occupancy[
+                        "informative_soft_visible_divergence_count"
+                    ]
+                ),
+                "phase_informative_strata_coverage_passed": (
+                    prospective_coverage_passed
+                ),
                 "mean_information_gain": mean_or_nan(
                     trajectory.cumulative_information_gain
                     for trajectory in result.trajectories
@@ -4322,6 +5038,57 @@ def _run_sensitivity(
                 "mean_information_gain_per_turn": mean_or_nan(
                     trajectory.cumulative_information_gain
                     / len(trajectory.turns)
+                    for trajectory in result.trajectories
+                ),
+                "mean_expected_information_gain": mean_or_nan(
+                    trajectory.cumulative_expected_information_gain
+                    for trajectory in result.trajectories
+                ),
+                "mean_expected_information_gain_per_turn": mean_or_nan(
+                    trajectory.cumulative_expected_information_gain
+                    / len(trajectory.turns)
+                    for trajectory in result.trajectories
+                ),
+                "mean_profile_consistency_score": mean_or_nan(
+                    trajectory.mean_profile_consistency_score
+                    for trajectory in result.trajectories
+                ),
+                "mean_profile_consistency_advantage_over_balanced": (
+                    mean_or_nan(
+                        trajectory
+                        .mean_profile_consistency_advantage_over_balanced
+                        for trajectory in result.trajectories
+                    )
+                ),
+                "mean_ex_ante_balanced_choice_divergence_probability": (
+                    _mean_or_none(
+                        trajectory
+                        .mean_ex_ante_balanced_choice_divergence_probability
+                        for trajectory in result.trajectories
+                        if (
+                            trajectory
+                            .mean_ex_ante_balanced_choice_divergence_probability
+                            is not None
+                        )
+                    )
+                ),
+                "mean_ex_ante_balanced_choice_comparable_turn_rate": (
+                    mean_or_nan(
+                        trajectory
+                        .ex_ante_balanced_choice_comparable_turn_rate
+                        for trajectory in result.trajectories
+                    )
+                ),
+                "ex_ante_balanced_choice_comparable_turn_count": sum(
+                    trajectory.ex_ante_balanced_choice_comparable_turn_count
+                    for trajectory in result.trajectories
+                ),
+                "mean_balanced_choice_set_divergence_rate": mean_or_nan(
+                    trajectory.balanced_choice_set_divergence_rate
+                    for trajectory in result.trajectories
+                ),
+                "balanced_choice_set_divergence_turn_count": sum(
+                    trajectory.balanced_choice_set_divergence_count
                     for trajectory in result.trajectories
                 ),
                 "mean_regret": mean_or_nan(
@@ -4365,15 +5132,68 @@ def _run_sensitivity(
                 ),
                 "phase_selection_cost": mean_or_nan(
                     row.evidence_selection_cost
+                    for row in phase_target_decompositions
+                ),
+                "secondary_fitted_aware_selection_cost": _mean_or_none(
+                    row.evidence_selection_cost
                     for row in aware_decompositions
                 ),
                 "phase_attribution_cost": mean_or_nan(
                     row.profile_attribution_cost
                     for row in phase_target_decompositions
                 ),
-                "phase_soft_profile_conditioned_exposure_rate": mean_or_nan(
-                    trajectory.profile_conditioned_exposure_rate
-                    for trajectory in phase_target_soft_trajectories
+                "phase_soft_minus_balanced_attribution_gap": mean_or_nan(
+                    row.soft_minus_balanced_attribution_gap
+                    for row in phase_target_decompositions
+                ),
+                "phase_soft_minus_balanced_excess_confidence_log_odds": (
+                    mean_or_nan(
+                        row.soft_minus_balanced_excess_confidence_log_odds
+                        for row in phase_target_decompositions
+                    )
+                ),
+                (
+                    "phase_balanced_expected_preference_"
+                    "information_gain_deficit"
+                ): mean_or_nan(
+                    row.balanced_expected_preference_information_gain_deficit
+                    for row in phase_target_decompositions
+                    if (
+                        row
+                        .balanced_expected_preference_information_gain_deficit
+                        is not None
+                    )
+                ),
+                "phase_balanced_information_gain_deficit": mean_or_nan(
+                    row.balanced_action_aware_information_gain_deficit
+                    for row in phase_target_decompositions
+                    if (
+                        row.balanced_action_aware_information_gain_deficit
+                        is not None
+                    )
+                ),
+                "phase_balanced_disconfirmation_evidence_deficit_log_odds": (
+                    mean_or_nan(
+                        (
+                            row
+                            .balanced_disconfirmation_evidence_deficit_log_odds
+                        )
+                        for row in phase_target_decompositions
+                        if (
+                            row
+                            .balanced_disconfirmation_evidence_deficit_log_odds
+                            is not None
+                        )
+                    )
+                ),
+                "phase_visible_action_divergence_rate": (
+                    phase_visible_action_divergence_rate
+                ),
+                "phase_profile_conditioning_treatment_exposure_rate": (
+                    phase_treatment_exposure_rate
+                ),
+                "phase_soft_profile_conditioned_exposure_rate": (
+                    phase_treatment_exposure_rate
                 ),
                 "phase_soft_terminal_error": mean_or_nan(
                     trajectory.terminal_error
@@ -4381,6 +5201,61 @@ def _run_sensitivity(
                 ),
                 "phase_soft_information_gain": mean_or_nan(
                     trajectory.cumulative_information_gain
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_expected_information_gain": mean_or_nan(
+                    trajectory.cumulative_expected_information_gain
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_exact_shadow_error_improvement": mean_or_nan(
+                    trajectory.exact_shadow_error_improvement
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_profile_consistency_score": mean_or_nan(
+                    trajectory.mean_profile_consistency_score
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_profile_consistency_advantage_over_balanced": (
+                    mean_or_nan(
+                        trajectory
+                        .mean_profile_consistency_advantage_over_balanced
+                        for trajectory in phase_target_soft_trajectories
+                    )
+                ),
+                (
+                    "phase_soft_ex_ante_balanced_choice_"
+                    "divergence_probability"
+                ): _mean_or_none(
+                    trajectory
+                    .mean_ex_ante_balanced_choice_divergence_probability
+                    for trajectory in phase_target_soft_trajectories
+                    if (
+                        trajectory
+                        .mean_ex_ante_balanced_choice_divergence_probability
+                        is not None
+                    )
+                ),
+                (
+                    "phase_soft_ex_ante_balanced_choice_"
+                    "comparable_turn_rate"
+                ): mean_or_nan(
+                    trajectory
+                    .ex_ante_balanced_choice_comparable_turn_rate
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                (
+                    "phase_soft_ex_ante_balanced_choice_"
+                    "comparable_turn_count"
+                ): sum(
+                    trajectory.ex_ante_balanced_choice_comparable_turn_count
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_balanced_choice_set_divergence_rate": mean_or_nan(
+                    trajectory.balanced_choice_set_divergence_rate
+                    for trajectory in phase_target_soft_trajectories
+                ),
+                "phase_soft_balanced_choice_set_divergence_turn_count": sum(
+                    trajectory.balanced_choice_set_divergence_count
                     for trajectory in phase_target_soft_trajectories
                 ),
                 "phase_soft_cumulative_excess_confidence_log_odds": (
@@ -4427,7 +5302,7 @@ def _run_sensitivity(
             )
             domain_target_ids = {
                 trajectory.trajectory_id
-                for trajectory in domain_target_trajectories
+                for trajectory in domain_target_soft_trajectories
             }
             domain_target_assessments = tuple(
                 assessment
@@ -4459,9 +5334,38 @@ def _run_sensitivity(
                     domain_target_trajectories
                 ).items()
             }
+            domain_visible_action_divergence_rate = mean_or_nan(
+                row.visible_action_divergence_rate
+                for row in domain_target_decompositions
+            )
+            domain_treatment_exposure_rate = mean_or_nan(
+                trajectory.profile_conditioned_exposure_rate
+                for trajectory in domain_target_soft_trajectories
+            )
+            domain_qualifying_user_count = point_occupancy[
+                "qualifying_incorrect_profile_soft_users_by_domain"
+            ].get(domain.domain_id, 0)
+            minimum_qualifying_users = point_occupancy[
+                "paper_mechanism_coverage_rule"
+            ][
+                "minimum_qualifying_incorrect_profile_users_per_domain"
+            ]
+            domain_prospective_coverage_passed = (
+                domain_qualifying_user_count >= minimum_qualifying_users
+            )
+            domain_manipulation = _profile_conditioning_manipulation(
+                conditioning_strength=point.profile_conditioning_strength,
+                visible_action_divergence_rate=(
+                    domain_visible_action_divergence_rate
+                ),
+                treatment_exposure_rate=domain_treatment_exposure_rate,
+                prospective_coverage_passed=(
+                    domain_prospective_coverage_passed
+                ),
+            )
             phase_domain_metric_rows.append(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     **point.to_dict(),
                     "domain_id": domain.domain_id,
                     "phase_target_updater_id": phase_target_id,
@@ -4475,6 +5379,10 @@ def _run_sensitivity(
                     ),
                     "phase_selection_cost": mean_or_nan(
                         row.evidence_selection_cost
+                        for row in domain_target_decompositions
+                    ),
+                    "secondary_fitted_aware_selection_cost": _mean_or_none(
+                        row.evidence_selection_cost
                         for row in domain_aware_decompositions
                     ),
                     "aware_option_ece": (
@@ -4486,11 +5394,63 @@ def _run_sensitivity(
                         row.profile_attribution_cost
                         for row in domain_target_decompositions
                     ),
-                    "phase_soft_profile_conditioned_exposure_rate": (
-                        mean_or_nan(
-                            trajectory.profile_conditioned_exposure_rate
-                            for trajectory in domain_target_soft_trajectories
+                    "phase_soft_minus_balanced_attribution_gap": mean_or_nan(
+                        row.soft_minus_balanced_attribution_gap
+                        for row in domain_target_decompositions
+                    ),
+                    (
+                        "phase_soft_minus_balanced_"
+                        "excess_confidence_log_odds"
+                    ): mean_or_nan(
+                        row.soft_minus_balanced_excess_confidence_log_odds
+                        for row in domain_target_decompositions
+                    ),
+                    (
+                        "phase_balanced_expected_preference_"
+                        "information_gain_deficit"
+                    ): mean_or_nan(
+                        row
+                        .balanced_expected_preference_information_gain_deficit
+                        for row in domain_target_decompositions
+                        if (
+                            row
+                            .balanced_expected_preference_information_gain_deficit
+                            is not None
                         )
+                    ),
+                    "phase_balanced_information_gain_deficit": mean_or_nan(
+                        row.balanced_action_aware_information_gain_deficit
+                        for row in domain_target_decompositions
+                        if (
+                            row
+                            .balanced_action_aware_information_gain_deficit
+                            is not None
+                        )
+                    ),
+                    (
+                        "phase_balanced_disconfirmation_"
+                        "evidence_deficit_log_odds"
+                    ): mean_or_nan(
+                        (
+                            row
+                            .balanced_disconfirmation_evidence_deficit_log_odds
+                        )
+                        for row in domain_target_decompositions
+                        if (
+                            row
+                            .balanced_disconfirmation_evidence_deficit_log_odds
+                            is not None
+                        )
+                    ),
+                    "phase_visible_action_divergence_rate": (
+                        domain_visible_action_divergence_rate
+                    ),
+                    (
+                        "phase_profile_conditioning_"
+                        "treatment_exposure_rate"
+                    ): domain_treatment_exposure_rate,
+                    "phase_soft_profile_conditioned_exposure_rate": (
+                        domain_treatment_exposure_rate
                     ),
                     "phase_self_confirming_profile_rate": (
                         len(domain_reportable_ids)
@@ -4498,6 +5458,13 @@ def _run_sensitivity(
                         if domain_eligible_ids
                         else None
                     ),
+                    "phase_qualifying_informative_soft_user_count": (
+                        domain_qualifying_user_count
+                    ),
+                    "phase_informative_strata_coverage_passed": (
+                        domain_prospective_coverage_passed
+                    ),
+                    **domain_manipulation,
                     **domain_suggestion_counts,
                 }
             )
@@ -4547,6 +5514,11 @@ def _run_sensitivity(
                             "updater_id": updater_id,
                             "trajectories": len(group),
                             **group_suggestion_counts,
+                            **_disconfirmation_support_counts(group),
+                            "mean_initial_error": mean_or_nan(
+                                trajectory.initial_error
+                                for trajectory in group
+                            ),
                             "mean_terminal_error": mean_or_nan(
                                 trajectory.terminal_error
                                 for trajectory in group
@@ -4563,6 +5535,14 @@ def _run_sensitivity(
                                 trajectory.terminal_shadow_error
                                 for trajectory in group
                             ),
+                            "mean_same_history_attribution_gap": mean_or_nan(
+                                trajectory.same_history_attribution_gap
+                                for trajectory in group
+                            ),
+                            "mean_exact_shadow_error_improvement": mean_or_nan(
+                                trajectory.exact_shadow_error_improvement
+                                for trajectory in group
+                            ),
                             "mean_information_gain": mean_or_nan(
                                 trajectory.cumulative_information_gain
                                 for trajectory in group
@@ -4570,6 +5550,70 @@ def _run_sensitivity(
                             "mean_information_gain_per_turn": mean_or_nan(
                                 trajectory.cumulative_information_gain
                                 / len(trajectory.turns)
+                                for trajectory in group
+                            ),
+                            "mean_expected_information_gain": mean_or_nan(
+                                trajectory.cumulative_expected_information_gain
+                                for trajectory in group
+                            ),
+                            "mean_expected_information_gain_per_turn": (
+                                mean_or_nan(
+                                    trajectory
+                                    .cumulative_expected_information_gain
+                                    / len(trajectory.turns)
+                                    for trajectory in group
+                                )
+                            ),
+                            "mean_profile_consistency_score": mean_or_nan(
+                                trajectory.mean_profile_consistency_score
+                                for trajectory in group
+                            ),
+                            (
+                                "mean_profile_consistency_advantage_"
+                                "over_balanced"
+                            ): mean_or_nan(
+                                trajectory
+                                .mean_profile_consistency_advantage_over_balanced
+                                for trajectory in group
+                            ),
+                            (
+                                "mean_ex_ante_balanced_choice_"
+                                "divergence_probability"
+                            ): _mean_or_none(
+                                trajectory
+                                .mean_ex_ante_balanced_choice_divergence_probability
+                                for trajectory in group
+                                if (
+                                    trajectory
+                                    .mean_ex_ante_balanced_choice_divergence_probability
+                                    is not None
+                                )
+                            ),
+                            (
+                                "mean_ex_ante_balanced_choice_"
+                                "comparable_turn_rate"
+                            ): mean_or_nan(
+                                trajectory
+                                .ex_ante_balanced_choice_comparable_turn_rate
+                                for trajectory in group
+                            ),
+                            (
+                                "ex_ante_balanced_choice_"
+                                "comparable_turn_count"
+                            ): sum(
+                                trajectory
+                                .ex_ante_balanced_choice_comparable_turn_count
+                                for trajectory in group
+                            ),
+                            "mean_balanced_choice_set_divergence_rate": (
+                                mean_or_nan(
+                                    trajectory
+                                    .balanced_choice_set_divergence_rate
+                                    for trajectory in group
+                                )
+                            ),
+                            "balanced_choice_set_divergence_turn_count": sum(
+                                trajectory.balanced_choice_set_divergence_count
                                 for trajectory in group
                             ),
                             "mean_regret": mean_or_nan(
@@ -4661,6 +5705,31 @@ def _run_sensitivity(
                         "mean_balanced_attribution_cost": mean_or_nan(
                             row.balanced_attribution_cost for row in paired
                         ),
+                        "mean_soft_minus_balanced_attribution_gap": mean_or_nan(
+                            row.soft_minus_balanced_attribution_gap
+                            for row in paired
+                        ),
+                        (
+                            "mean_soft_minus_balanced_"
+                            "excess_confidence_log_odds"
+                        ): mean_or_nan(
+                            row
+                            .soft_minus_balanced_excess_confidence_log_odds
+                            for row in paired
+                        ),
+                        (
+                            "mean_balanced_expected_preference_"
+                            "information_gain_deficit"
+                        ): mean_or_nan(
+                            row
+                            .balanced_expected_preference_information_gain_deficit
+                            for row in paired
+                            if (
+                                row
+                                .balanced_expected_preference_information_gain_deficit
+                                is not None
+                            )
+                        ),
                         "mean_self_confirmation_interaction": mean_or_nan(
                             row.self_confirmation_interaction for row in paired
                         ),
@@ -4671,6 +5740,30 @@ def _run_sensitivity(
                         "mean_observed_choice_divergence_rate": mean_or_nan(
                             row.observed_choice_divergence_rate
                             for row in paired
+                        ),
+                        "mean_balanced_information_gain_deficit": mean_or_nan(
+                            row.balanced_action_aware_information_gain_deficit
+                            for row in paired
+                            if (
+                                row
+                                .balanced_action_aware_information_gain_deficit
+                                is not None
+                            )
+                        ),
+                        (
+                            "mean_balanced_disconfirmation_"
+                            "evidence_deficit_log_odds"
+                        ): mean_or_nan(
+                            (
+                                row
+                                .balanced_disconfirmation_evidence_deficit_log_odds
+                            )
+                            for row in paired
+                            if (
+                                row
+                                .balanced_disconfirmation_evidence_deficit_log_odds
+                                is not None
+                            )
                         ),
                     }
                 )
@@ -4685,7 +5778,13 @@ def _run_sensitivity(
             )
     phase_criteria = (
         PhaseCriterion(
-            "profile-conditioned-actions-reduce-information",
+            "visible-profile-conditioning-activated",
+            "phase_profile_conditioning_manipulation_gate",
+            "ge",
+            1.0,
+        ),
+        PhaseCriterion(
+            "profile-conditioned-evidence-selection-cost",
             "phase_selection_cost",
             "gt",
             config.sensitivity.phase_min_selection_cost,
@@ -4697,16 +5796,10 @@ def _run_sensitivity(
             config.sensitivity.phase_max_aware_ece,
         ),
         PhaseCriterion(
-            "profile-writer-over-update",
-            "phase_attribution_cost",
+            "profile-conditioning-attribution-gap",
+            "phase_soft_minus_balanced_attribution_gap",
             "gt",
-            config.sensitivity.phase_min_attribution_cost,
-        ),
-        PhaseCriterion(
-            "wrong-profile-self-confirmation",
-            "phase_self_confirming_profile_rate",
-            "gt",
-            config.sensitivity.phase_min_self_confirming_rate,
+            config.sensitivity.phase_min_attribution_gap,
         ),
         PhaseCriterion(
             "profile-consistent-suggestions-often-rejected",
@@ -4724,7 +5817,7 @@ def _run_sensitivity(
         operational = classified["joint_region"]
         phase_rows.append(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 **{
                     key: row[key]
                     for key in (
@@ -4744,15 +5837,105 @@ def _run_sensitivity(
                         "phase_target_is_llm",
                         "phase_target_is_live_llm",
                         "llm_execution_mode",
+                        "phase_visible_action_divergence_rate",
+                        (
+                            "phase_profile_conditioning_"
+                            "treatment_exposure_rate"
+                        ),
                         "phase_soft_profile_conditioned_exposure_rate",
+                        "phase_informative_soft_turn_count",
+                        (
+                            "phase_informative_soft_visible_"
+                            "divergence_count"
+                        ),
+                        "phase_informative_strata_coverage_passed",
+                        "profile_conditioning_manipulation_role",
+                        "profile_conditioning_manipulation_status",
+                        (
+                            "profile_conditioning_manipulation_"
+                            "check_passed"
+                        ),
+                        (
+                            "phase_profile_conditioning_"
+                            "manipulation_gate"
+                        ),
                         "phase_soft_terminal_error",
                         "phase_soft_information_gain",
+                        "phase_soft_expected_information_gain",
+                        "phase_soft_exact_shadow_error_improvement",
+                        "phase_soft_profile_consistency_score",
+                        (
+                            "phase_soft_profile_consistency_"
+                            "advantage_over_balanced"
+                        ),
+                        (
+                            "phase_soft_ex_ante_balanced_choice_"
+                            "divergence_probability"
+                        ),
+                        (
+                            "phase_soft_ex_ante_balanced_choice_"
+                            "comparable_turn_rate"
+                        ),
+                        (
+                            "phase_soft_ex_ante_balanced_choice_"
+                            "comparable_turn_count"
+                        ),
+                        "phase_soft_balanced_choice_set_divergence_rate",
+                        (
+                            "phase_soft_balanced_choice_set_"
+                            "divergence_turn_count"
+                        ),
+                        "phase_selection_cost",
+                        "secondary_fitted_aware_selection_cost",
+                        "phase_attribution_cost",
+                        "phase_soft_minus_balanced_attribution_gap",
+                        (
+                            "phase_soft_minus_balanced_"
+                            "excess_confidence_log_odds"
+                        ),
+                        (
+                            "phase_balanced_expected_preference_"
+                            "information_gain_deficit"
+                        ),
+                        "phase_balanced_information_gain_deficit",
+                        (
+                            "phase_balanced_disconfirmation_"
+                            "evidence_deficit_log_odds"
+                        ),
                         (
                             "phase_soft_cumulative_excess_"
                             "confidence_log_odds"
                         ),
                         "phase_soft_regret",
                         "phase_soft_reinforcement_event_rate",
+                        (
+                            "phase_soft_disconfirmation_"
+                            "opportunity_count"
+                        ),
+                        (
+                            "phase_soft_disconfirmation_"
+                            "inversion_count"
+                        ),
+                        (
+                            "phase_soft_pooled_disconfirmation_"
+                            "inversion_rate"
+                        ),
+                        (
+                            "phase_soft_disconfirmation_"
+                            "opportunity_trajectory_count"
+                        ),
+                        (
+                            "phase_soft_disconfirmation_zero_"
+                            "opportunity_trajectory_count"
+                        ),
+                        (
+                            "phase_soft_disconfirmation_"
+                            "opportunity_user_count"
+                        ),
+                        (
+                            "phase_soft_disconfirmation_zero_"
+                            "opportunity_user_count"
+                        ),
                         (
                             "phase_profile_consistent_"
                             "suggestion_opportunities"
@@ -4765,6 +5948,7 @@ def _run_sensitivity(
                             "phase_profile_consistent_"
                             "suggestion_rejection_rate"
                         ),
+                        "phase_self_confirming_profile_rate",
                     )
                 },
                 "criteria": classified["criteria"],
@@ -4772,13 +5956,25 @@ def _run_sensitivity(
                 "operational_joint_region": operational,
                 "confirmatory_llm_joint_region": (
                     operational
-                    if row["phase_target_is_llm"]
+                    if (
+                        row["phase_target_is_live_llm"]
+                        and row["phase_target_updater_id"]
+                        == "llm_full_context"
+                    )
                     else None
                 ),
                 "interpretation": (
-                    "confirmatory_llm"
-                    if row["phase_target_is_llm"]
-                    else "deterministic_profile_writer_proxy"
+                    "confirmatory_live_full_context"
+                    if (
+                        row["phase_target_is_live_llm"]
+                        and row["phase_target_updater_id"]
+                        == "llm_full_context"
+                    )
+                    else (
+                        "diagnostic_llm"
+                        if row["phase_target_is_llm"]
+                        else "deterministic_profile_writer_proxy"
+                    )
                 ),
             }
         )
@@ -4820,6 +6016,10 @@ def _run_sensitivity(
     run.write_jsonl("models/sensitivity-fits.jsonl", model_rows)
     run.write_jsonl("metrics/sensitivity.jsonl", stratified_rows)
     run.write_jsonl("metrics/sensitivity-grand.jsonl", grand_rows)
+    run.write_jsonl(
+        "metrics/sensitivity-prospective-strata-occupancy.jsonl",
+        prospective_occupancy_rows,
+    )
     run.write_jsonl("metrics/sensitivity-phase-points.jsonl", phase_rows)
     run.write_jsonl(
         "metrics/sensitivity-phase-domains.jsonl",
@@ -4832,7 +6032,10 @@ def _run_sensitivity(
     run.write_json(
         "metrics/sensitivity-phase-specification.json",
         {
-            "schema_version": 1,
+            "schema_version": 2,
+            "phase_definition_id": (
+                "visible-conditioning-continuous-outcomes-v2"
+            ),
             "design": config.sensitivity.design,
             "design_interpretation": (
                 "full-factorial parameter and response-family crossing"
@@ -4850,11 +6053,56 @@ def _run_sensitivity(
             "criteria": [
                 criterion.to_dict() for criterion in phase_criteria
             ],
+            "profile_conditioning_manipulation": {
+                "dose_metric": "profile_conditioning_strength",
+                "treatment_exposure_metric": (
+                    "phase_profile_conditioning_treatment_exposure_rate"
+                ),
+                "visible_divergence_metric": (
+                    "phase_visible_action_divergence_rate"
+                ),
+                "active_dose_requirement": (
+                    "positive exposure, positive visible action divergence, "
+                    "and the frozen informative-strata coverage rule"
+                ),
+                "prospective_coverage_artifact": (
+                    "metrics/sensitivity-prospective-strata-occupancy.jsonl"
+                ),
+                "negative_control": {
+                    "dose": 0.0,
+                    "control_scope": (
+                        "visible profile-conditioning action only; it does "
+                        "not remove provenance-aware metadata or updater "
+                        "instructions"
+                    ),
+                    "expected_treatment_exposure_rate": 0.0,
+                    "expected_visible_action_divergence_rate": 0.0,
+                    "eligible_for_operational_joint_region": False,
+                },
+            },
+            "secondary_endpoints": [
+                {
+                    "endpoint_id": (
+                        "strict-wrong-profile-self-confirmation"
+                    ),
+                    "metric": "phase_self_confirming_profile_rate",
+                    "relation": "gt",
+                    "reference_threshold": (
+                        config.sensitivity
+                        .phase_min_self_confirming_rate
+                    ),
+                    "controls_operational_joint_region": False,
+                }
+            ],
             "boundary_kind": "observed_grid_interval",
             "boundary_axes": list(boundary_axes),
-            "confirmatory_requires_external_llm_target": True,
-            "accepted_llm_execution_modes": [
+            "confirmatory_requires_live_full_context_target": True,
+            "supported_runner_modes": [
                 "replay",
+                "openai",
+                "openrouter",
+            ],
+            "confirmatory_execution_modes": [
                 "openai",
                 "openrouter",
             ],
@@ -5075,9 +6323,21 @@ def _run_sensitivity(
     run.write_json(
         "metrics/gate-report.json",
         _all_gates(
-            incomplete_gate(1, "Learnable provenance gap", "Run Experiment A by grid point."),
-            incomplete_gate(2, "Nontrivial soft self-confirmation", "Inspect sensitivity contrasts."),
-            incomplete_gate(3, "Attribution beyond evidence selection", "Inspect sensitivity contrasts."),
+            incomplete_gate(
+                1,
+                "Exact causal-provenance calibration",
+                "Run Experiment A by grid point.",
+            ),
+            incomplete_gate(
+                2,
+                "Conditional behavioral feedback amplification",
+                "Inspect sensitivity contrasts.",
+            ),
+            incomplete_gate(
+                3,
+                "Policy-conditioned evidential legibility",
+                "Inspect sensitivity contrasts.",
+            ),
             incomplete_gate(4, "Native-system validity", "Requires native conditions."),
             incomplete_gate(5, "Evaluation implication", "Run Experiment C."),
             robustness_gate,
@@ -5097,6 +6357,12 @@ def _run_sensitivity(
         "phase_rows": len(phase_rows),
         "phase_domain_rows": len(phase_domain_rows),
         "phase_boundary_rows": len(phase_boundaries),
+        "prospective_strata_occupancy_rows": len(
+            prospective_occupancy_rows
+        ),
+        "prospective_strata_occupancy_artifact": (
+            "metrics/sensitivity-prospective-strata-occupancy.jsonl"
+        ),
         "retained_trajectories": len(retained_trajectories),
         "llm_model_ids": llm_model_ids,
         "llm_request_preflight": (
@@ -5506,6 +6772,71 @@ def run_experiment(
                 conversation_bank=conversation_bank,
             )
             _write_prepared(run, prepared)
+            manipulation_plan: ExperimentBManipulationPlan | None = None
+            if (
+                config.experiment.kind == "closed_loop"
+                and config.manipulation.planning_mode == "required"
+            ):
+                if prepared.scenario_catalog is None:
+                    raise RuntimeError(
+                        "required manipulation planning has no scenario catalog"
+                    )
+                manipulation_plan = build_experiment_b_manipulation_plan(
+                    users=prepared.test_users,
+                    domains=prepared.domains,
+                    scenario_catalog=prepared.scenario_catalog,
+                    response_model=prepared.response_model,
+                    initial_profile_conditions=(
+                        config.experiment.initial_profile_conditions
+                    ),
+                    turns=config.experiment.turns,
+                    trajectories_per_cell=(
+                        config.experiment.trajectories_per_cell
+                    ),
+                    requirements=config.manipulation,
+                    seed=config.run.seed,
+                    data_split="test",
+                    fail_closed=False,
+                )
+                run.write_json(
+                    "design/experiment-b-manipulation-plan.json",
+                    manipulation_plan.to_dict(),
+                )
+                run.write_text(
+                    "design/experiment-b-manipulation-plan.md",
+                    render_manipulation_plan_markdown(manipulation_plan),
+                )
+                if not manipulation_plan.readiness.ready:
+                    raise ManipulationPlanError(manipulation_plan)
+                if uses_llm:
+                    manipulation_audit_shadow = ExactActionAwareUpdater(
+                        prepared.response_model,
+                        susceptibility_support_for_split(
+                            prepared.manifest,
+                            split="test",
+                            levels=(
+                                config.response_model.susceptibility_levels
+                            ),
+                        ),
+                    )
+                    manipulation_audit = run_offline_manipulation_audit(
+                        plan=manipulation_plan,
+                        users=prepared.test_users,
+                        domains=prepared.domains,
+                        scenario_catalog=prepared.scenario_catalog,
+                        response_model=prepared.response_model,
+                        response_seed_count=(
+                            config.manipulation.offline_response_seeds
+                        ),
+                        shadow_updater=manipulation_audit_shadow,
+                        selection_noninferiority_margin=(
+                            config.thresholds.selection_noninferiority_margin
+                        ),
+                    )
+                    run.write_json(
+                        "design/experiment-b-offline-manipulation-audit.json",
+                        manipulation_audit,
+                    )
             llm_execution = _prepare_llm_execution(
                 config,
                 prepared,
@@ -5541,6 +6872,7 @@ def run_experiment(
                     completion_provider=completion_provider,
                     live_provider=live_provider,
                     calibrated_provider=calibrated_provider,
+                    manipulation_plan=manipulation_plan,
                 )
             elif config.experiment.kind == "evaluation_validity":
                 summary = _run_c(

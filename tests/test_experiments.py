@@ -5,7 +5,13 @@ from hashlib import sha256
 from pathlib import Path
 import unittest
 
-from cape_loop.beliefs import MarginalPreferenceBelief, PreferenceBelief
+from cape_loop.beliefs import (
+    MarginalPreferenceBelief,
+    PreferenceBelief,
+    THETA_STATES,
+    THETA_VALUES,
+)
+from cape_loop.conversation_surfaces import load_conversation_bank
 from cape_loop.domains import TRAVEL
 from cape_loop.elicitation import MECHANISMS, build_matched_anchor_set
 from cape_loop.experiments import (
@@ -17,8 +23,11 @@ from cape_loop.experiments import (
     run_experiment_c,
     run_provenance_audit,
     run_trajectory,
+    summarize_prospective_strata_occupancy,
 )
+from cape_loop.experiments.closed_loop import DecompositionRow
 from cape_loop.experiments.provenance import (
+    audit_same_response_provenance,
     build_experiment_a_control_battery,
 )
 from cape_loop.metrics import marginal_brier, marginal_l1
@@ -34,9 +43,11 @@ from cape_loop.response import RandomUtilityModel
 from cape_loop.scenarios import load_scenario_catalog
 from cape_loop.schemas import LatentUser, ProfileUpdate, Susceptibility
 from cape_loop.updaters import (
+    ExactActionAwareUpdater,
     FittedActionAwareUpdater,
     FittedActionUnawareUpdater,
     FullContextBlindUpdater,
+    LLMReplayUpdater,
     NoUpdateUpdater,
     ProvenanceAwareUpdater,
     ProvenanceDiscountUpdater,
@@ -124,7 +135,35 @@ def user_fixture(user_id: str = "experiment-user") -> LatentUser:
         user_id,
         (2, -1, 1),
         Susceptibility(ranking=0.35, default=0.80, suggestion=0.65),
-    )
+        )
+
+
+class WrongEventHistoryUpdater:
+    """Fixture that returns a valid-length but incorrect consumed-event history."""
+
+    updater_id = "wrong_event_history"
+    view_kind = UpdateViewKind.FULL_CONTEXT
+
+    def initial_state(self, prior: PreferenceBelief) -> UpdaterState:
+        return UpdaterState(self.updater_id, prior)
+
+    def update(self, state: UpdaterState, view: object) -> UpdateResult:
+        event_id = str(getattr(view, "event_id"))
+        next_state = UpdaterState(
+            self.updater_id,
+            state.belief,
+            turn=state.turn + 1,
+            event_ids=state.event_ids + (f"wrong:{event_id}",),
+        )
+        return UpdateResult(
+            state=next_state,
+            profile_update=ProfileUpdate(
+                updater_id=self.updater_id,
+                belief_before=state.belief.probabilities,
+                belief_after=state.belief.probabilities,
+                written_delta=("malformed event history",),
+            ),
+        )
 
 
 class MatchedProvenanceTests(unittest.TestCase):
@@ -152,7 +191,9 @@ class MatchedProvenanceTests(unittest.TestCase):
             matched.eligible(user, response, minimum_probability=0.05)
         )
 
-    def test_matched_anchor_position_is_shared_across_mechanisms(self) -> None:
+    def test_matched_anchor_position_is_counterbalanced_with_ranking_reversed(
+        self,
+    ) -> None:
         matched = build_matched_anchor_set(
             TRAVEL,
             scenario_id="counterbalanced-anchor",
@@ -163,11 +204,19 @@ class MatchedProvenanceTests(unittest.TestCase):
                     anchor_first=anchor_first
                 )
                 expected_position = 0 if anchor_first else 1
-                for context in reordered.contexts.values():
+                for mechanism, context in reordered.contexts.items():
                     self.assertEqual(
                         context.ranking.index(reordered.anchor_option_id),
-                        expected_position,
+                        (
+                            1 - expected_position
+                            if mechanism == "ranking"
+                            else expected_position
+                        ),
                     )
+                self.assertEqual(
+                    reordered.context("ranking").ranking,
+                    tuple(reversed(reordered.context("balanced").ranking)),
+                )
                 reordered.validate_invariants()
 
     def test_update_views_enforce_context_and_provenance_boundaries(self) -> None:
@@ -341,6 +390,118 @@ class ExperimentATests(unittest.TestCase):
                 self.assertGreater(min(counts), 0)
                 self.assertLessEqual(max(counts) - min(counts), 1)
 
+    def test_same_response_audit_covers_ranking_and_natural_language_reply(
+        self,
+    ) -> None:
+        catalog_path = Path("data/scenarios/scenario-catalog-v1.json")
+        catalog = load_scenario_catalog(
+            catalog_path,
+            expected_sha256=sha256(catalog_path.read_bytes()).hexdigest(),
+        ).catalog
+        bank = load_conversation_bank(
+            Path("data/scenarios/conversation-templates-v1.json")
+        )
+        result = run_provenance_audit(
+            users=(user_fixture("same-response-user"),),
+            domains=(TRAVEL,),
+            updaters={"no_update": NoUpdateUpdater()},
+            mechanisms=MECHANISMS,
+            response_modes=("controlled_anchor",),
+            minimum_probability=0.001,
+            seed=23,
+            scenario_catalog=catalog,
+            conversation_bank=bank,
+        )
+
+        audit = result.same_response_audit()
+        self.assertTrue(audit.passed)
+        self.assertEqual(audit.failed_cell_count, 0)
+        self.assertEqual(audit.required_mechanisms, MECHANISMS)
+        self.assertEqual(len(audit.cells), 6)
+        for cell in audit.cells:
+            self.assertEqual(set(cell.observed_mechanisms), set(MECHANISMS))
+            self.assertEqual(cell.selected_option_id, cell.anchor_option_id)
+            self.assertRegex(cell.local_user_reply or "", r"^I choose .+\.$")
+            self.assertTrue(all(cell.checks.values()))
+
+        by_matched_set: dict[str, dict[str, object]] = {}
+        for row in result.controlled_rows:
+            key = (
+                f"{row.user_id}:{row.target_attribute}:"
+                f"{row.anchor_direction}:{row.prior_stratum}"
+            )
+            by_matched_set.setdefault(key, {})[row.mechanism] = row
+        for mechanism_rows in by_matched_set.values():
+            balanced = mechanism_rows["balanced"]
+            ranking = mechanism_rows["ranking"]
+            self.assertEqual(
+                ranking.context.ranking,
+                tuple(reversed(balanced.context.ranking)),
+            )
+            self.assertEqual(
+                ranking.selected_option_id,
+                balanced.selected_option_id,
+            )
+            self.assertEqual(
+                ranking.observation.surface_response,
+                balanced.observation.surface_response,
+            )
+
+        missing_ranking = audit_same_response_provenance(
+            tuple(row for row in result.rows if row.mechanism != "ranking")
+        )
+        self.assertFalse(missing_ranking.passed)
+        self.assertTrue(
+            all(
+                "mechanism_coverage" in cell.failed_checks
+                for cell in missing_ranking.cells
+            )
+        )
+
+        source = result.rows[0]
+        other_option_id = next(
+            option_id
+            for option_id in source.context.option_ids
+            if option_id != source.anchor_option_id
+        )
+        corrupted = replace(
+            source,
+            anchor_option_id=other_option_id,
+            observation=replace(
+                source.observation,
+                surface_response="I choose an inconsistent local reply.",
+            ),
+            prior=PreferenceBelief.point_mass(user_fixture().theta),
+        )
+        corrupted_rows = (corrupted,) + result.rows[1:]
+        corrupted_audit = audit_same_response_provenance(corrupted_rows)
+        failed = next(
+            cell
+            for cell in corrupted_audit.cells
+            if cell.matched_set_id
+            == (
+                f"{source.user_id}|{source.domain_id}|"
+                f"attribute-{source.target_attribute}|"
+                f"direction-{source.anchor_direction:+d}|"
+                f"prior-{source.prior_stratum}|controlled_anchor"
+            )
+        )
+        self.assertTrue(
+            {
+                "selected_anchor_identical",
+                "local_user_reply_identical",
+                "prior_invariant",
+                "anchor_invariant",
+            }
+            <= set(failed.failed_checks)
+        )
+        serialized = audit.to_dict()
+        self.assertEqual(
+            serialized["analysis"],
+            "experiment_a_same_response_audit",
+        )
+        self.assertTrue(serialized["passed"])
+
     def test_scenario_is_shared_across_users_but_trial_ids_are_unique(
         self,
     ) -> None:
@@ -407,6 +568,83 @@ class ExperimentATests(unittest.TestCase):
             [item["prior_strength"] for item in result.summary()["prior_strata"]],
             [0.0, 0.7],
         )
+
+    def test_truth_aligned_prior_contains_no_hidden_joint_information(self) -> None:
+        result = run_provenance_audit(
+            users=(user_fixture(),),
+            domains=(TRAVEL,),
+            updaters={"no_update": NoUpdateUpdater()},
+            prior_strengths=(0.7,),
+            mechanisms=("balanced",),
+            response_modes=("controlled_anchor",),
+            seed=17,
+        )
+        row = result.rows[0]
+        marginals = row.prior.marginals()
+        reconstructed = marginals.independent_joint()
+        for observed, expected in zip(
+            row.prior.probabilities,
+            reconstructed.probabilities,
+        ):
+            self.assertAlmostEqual(observed, expected, places=12)
+        for theta, probability in zip(
+            THETA_STATES,
+            row.prior.probabilities,
+        ):
+            expected = 1.0
+            for attribute, value in enumerate(theta):
+                expected *= marginals.marginal(attribute)[
+                    THETA_VALUES.index(value)
+                ]
+            self.assertAlmostEqual(probability, expected)
+
+        llm = LLMReplayUpdater(
+            "llm_full_context",
+            UpdateViewKind.FULL_CONTEXT,
+            object(),  # type: ignore[arg-type]
+        )
+        llm_state = llm.initial_state(row.prior)
+        request = llm.build_request(
+            llm_state,
+            make_update_view(
+                llm.view_kind,
+                row.context,
+                row.observation,
+                row.provenance,
+                event_id="prior-information-audit",
+            ),
+        )
+        visible = request.payload["prior"]
+        visible_rows = tuple(
+            tuple(
+                float(visible[f"attribute_{attribute + 1}"][label])
+                for label in ("-2", "-1", "+1", "+2")
+            )
+            for attribute in range(3)
+        )
+        prompt_reconstruction = PreferenceBelief.from_marginals(
+            MarginalPreferenceBelief(visible_rows)  # type: ignore[arg-type]
+        )
+        exact_state = ExactActionAwareUpdater().initial_state(row.prior)
+        for observed, expected in zip(
+            prompt_reconstruction.probabilities,
+            row.prior.probabilities,
+        ):
+            self.assertAlmostEqual(observed, expected, places=12)
+        self.assertEqual(llm_state.belief, row.prior)
+        for observed, expected in zip(
+            exact_state.belief.probabilities,
+            prompt_reconstruction.probabilities,
+        ):
+            self.assertAlmostEqual(observed, expected, places=12)
+        exact_theta_prior = (
+            exact_state.joint_belief.theta_belief()  # type: ignore[union-attr]
+        )
+        for observed, expected in zip(
+            exact_theta_prior.probabilities,
+            prompt_reconstruction.probabilities,
+        ):
+            self.assertAlmostEqual(observed, expected, places=12)
 
     def test_fixed_control_battery_covers_all_proposal_controls(self) -> None:
         first = build_experiment_a_control_battery()
@@ -547,6 +785,39 @@ class ExperimentATests(unittest.TestCase):
 
 
 class ClosedLoopTests(unittest.TestCase):
+    def test_decomposition_rejects_inconsistent_raw_operands(self) -> None:
+        with self.assertRaisesRegex(ValueError, "decomposition identity failed"):
+            DecompositionRow(
+                domain_id="travel",
+                user_id="user-1",
+                initial_profile_condition="incorrect",
+                updater_id="llm_full_context",
+                replicate=0,
+                profile_trajectory_id="soft",
+                balanced_trajectory_id="balanced",
+                evidence_selection_cost=0.1,
+                profile_attribution_cost=0.2,
+                balanced_attribution_cost=0.1,
+                self_confirmation_interaction=0.1,
+                soft_terminal_error=0.5,
+                balanced_terminal_error=0.1,
+                soft_terminal_shadow_error=0.1,
+                balanced_terminal_shadow_error=0.0,
+            )
+
+    def test_trajectory_fails_closed_when_updater_history_differs_from_shadow(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "consume the same event"):
+            run_trajectory(
+                user=user_fixture(),
+                domain=TRAVEL,
+                policy=BalancedPolicy(),
+                updater=WrongEventHistoryUpdater(),
+                turns=1,
+                seed=19,
+            )
+
     def test_same_sign_strengthening_is_not_action_influence(self) -> None:
         user = user_fixture("same-sign-user")
         initial = initial_profile_belief(
@@ -683,6 +954,74 @@ class ClosedLoopTests(unittest.TestCase):
             first_turn.shadow_joint_before.entropy()
             - first_turn.shadow_joint_after.entropy(),
         )
+        self.assertEqual(
+            first.ex_ante_preference_strengths_by_attribute,
+            (2, 1, 1),
+        )
+        self.assertEqual(
+            first.ex_ante_preference_strength_strata_by_attribute,
+            ("strong", "weak", "weak"),
+        )
+        self.assertEqual(
+            first.ex_ante_user_preference_strength_stratum,
+            "mixed",
+        )
+        occupancy = summarize_prospective_strata_occupancy((first,))
+        self.assertEqual(occupancy["strata_assignment_timing"], "before_natural_response")
+        self.assertEqual(occupancy["unique_user_count"], 1)
+        self.assertEqual(occupancy["trajectory_count"], 1)
+        self.assertEqual(occupancy["turn_count"], 5)
+        self.assertTrue(occupancy["coverage_flags"]["weak_attribute_present"])
+        self.assertTrue(occupancy["coverage_flags"]["strong_attribute_present"])
+        self.assertEqual(
+            sum(occupancy["balanced_choice_margin_stratum_counts"].values()),
+            5,
+        )
+        self.assertEqual(len(occupancy["cells"]), 1)
+        self.assertEqual(
+            occupancy["paper_mechanism_coverage_rule"][
+                "minimum_informative_visible_divergences_per_soft_trajectory"
+            ],
+            2,
+        )
+        response = RandomUtilityModel()
+        for turn in first.turns:
+            with self.subTest(turn=turn.turn):
+                self.assertEqual(
+                    turn.ex_ante_target_preference_strength,
+                    abs(user.theta[turn.target_attribute]),
+                )
+                self.assertEqual(
+                    turn.ex_ante_target_preference_strength_stratum,
+                    (
+                        "strong"
+                        if abs(user.theta[turn.target_attribute]) == 2
+                        else "weak"
+                    ),
+                )
+                balanced = BalancedPolicy().action(
+                    TRAVEL,
+                    turn.belief_before,
+                    turn=turn.turn,
+                    master_seed=23,
+                    trajectory_id="paired-user-twin",
+                )
+                probabilities = sorted(
+                    response.probabilities(
+                        user.theta,
+                        user.susceptibility,
+                        balanced.context,
+                    ),
+                    reverse=True,
+                )
+                self.assertAlmostEqual(
+                    turn.ex_ante_balanced_choice_probability_margin,
+                    probabilities[0] - probabilities[1],
+                )
+                self.assertIn(
+                    turn.ex_ante_balanced_choice_margin_stratum,
+                    {"near_tie", "marginal", "decisive"},
+                )
 
     def test_policy_action_uses_profile_not_latent_user(self) -> None:
         policy = SoftProfileConditionedPolicy()
@@ -871,6 +1210,24 @@ class ClosedLoopTests(unittest.TestCase):
                 trajectory.profile_aligned_treatment_opportunities,
                 trajectory.reinforcement_event_count,
             )
+            self.assertGreaterEqual(
+                trajectory.cumulative_expected_information_gain,
+                0.0,
+            )
+            self.assertGreaterEqual(
+                trajectory.mean_profile_consistency_score,
+                -1.0,
+            )
+            self.assertLessEqual(
+                trajectory.mean_profile_consistency_score,
+                1.0,
+            )
+            self.assertLessEqual(
+                trajectory.disconfirmation_inversion_count,
+                trajectory.disconfirmation_opportunity_count,
+            )
+            if trajectory.disconfirmation_opportunity_count == 0:
+                self.assertIsNone(trajectory.disconfirmation_inversion_rate)
         for row in result.decompositions:
             self.assertIsNotNone(row.exploratory_trajectory_id)
             self.assertIsNotNone(
@@ -878,6 +1235,20 @@ class ClosedLoopTests(unittest.TestCase):
             )
             self.assertIsNotNone(
                 row.disconfirmation_evidence_deficit_log_odds
+            )
+            self.assertIsNotNone(
+                row.balanced_action_aware_information_gain_deficit
+            )
+            self.assertIsNotNone(
+                row.balanced_disconfirmation_evidence_deficit_log_odds
+            )
+            self.assertIsNotNone(row.exploratory_attribution_cost)
+            self.assertIsNotNone(
+                row.soft_minus_exploratory_attribution_gap
+            )
+            self.assertAlmostEqual(
+                row.soft_minus_balanced_attribution_gap,
+                row.self_confirmation_interaction,
             )
         for reported in result.reportable_self_confirming:
             self.assertTrue(all(reported.evidence.clauses().values()))
@@ -887,6 +1258,54 @@ class ClosedLoopTests(unittest.TestCase):
                 for assessment in result.self_confirmation_assessments
             )
         )
+
+    def test_disconfirmation_inversion_uses_exact_opportunities(self) -> None:
+        trajectory = run_trajectory(
+            user=user_fixture(),
+            domain=TRAVEL,
+            policy=BalancedPolicy(),
+            updater=FullContextBlindUpdater(),
+            turns=2,
+            seed=43,
+            initial_profile_condition="incorrect",
+        )
+        attribute = trajectory.initially_false_attributes[0]
+        modified_turns = []
+        for index, turn in enumerate(trajectory.turns):
+            shadow_gain = [0.0, 0.0, 0.0]
+            system_gain = [0.0, 0.0, 0.0]
+            if index == 0:
+                shadow_gain[attribute] = -0.20
+                system_gain[attribute] = 0.10
+            modified_turns.append(
+                replace(
+                    turn,
+                    shadow_false_confidence_gain=tuple(shadow_gain),
+                    system_false_confidence_gain=tuple(system_gain),
+                )
+            )
+        inverted = replace(trajectory, turns=tuple(modified_turns))
+        self.assertEqual(inverted.disconfirmation_opportunity_count, 1)
+        self.assertEqual(inverted.disconfirmation_inversion_count, 1)
+        self.assertEqual(inverted.disconfirmation_inversion_rate, 1.0)
+        self.assertEqual(
+            inverted.disconfirmation_inversion_turn_flags(),
+            (True, False),
+        )
+
+        no_opportunity = replace(
+            trajectory,
+            turns=tuple(
+                replace(
+                    turn,
+                    shadow_false_confidence_gain=(0.0, 0.0, 0.0),
+                    system_false_confidence_gain=(0.0, 0.0, 0.0),
+                )
+                for turn in trajectory.turns
+            ),
+        )
+        self.assertEqual(no_opportunity.disconfirmation_opportunity_count, 0)
+        self.assertIsNone(no_opportunity.disconfirmation_inversion_rate)
 
 
 class FixedReplayAndEvaluationTests(unittest.TestCase):

@@ -46,6 +46,7 @@ def scenario(identifier: str = "travel-scenario-lodging") -> ScenarioSpec:
         task_family="lodging",
         target_attribute=0,
         target_key="price",
+        target_half_span=0.5,
         nuisance_attribute=1,
         nuisance_key="setting",
         nuisance_direction=1,

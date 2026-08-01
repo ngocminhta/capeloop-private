@@ -24,6 +24,7 @@ from cape_loop.domains import TRAVEL
 from cape_loop.policies import BalancedPolicy, SoftProfileConditionedPolicy
 from cape_loop.response import RandomUtilityModel, RuleBasedResponseModel
 from cape_loop.runner import (
+    _profile_conditioning_manipulation,
     _run_sensitivity,
     _sensitivity_llm_request_preflight,
     run_experiment,
@@ -118,6 +119,89 @@ class SensitivityTests(unittest.TestCase):
         rows = evaluate_grid(points, lambda point: {"metric": point.decision_noise})
         self.assertEqual(len(rows), len(points))
 
+    def test_profile_conditioning_manipulation_distinguishes_control_and_dose(
+        self,
+    ) -> None:
+        negative_control = _profile_conditioning_manipulation(
+            conditioning_strength=0.0,
+            visible_action_divergence_rate=0.0,
+            treatment_exposure_rate=0.0,
+        )
+        self.assertEqual(
+            negative_control["profile_conditioning_manipulation_status"],
+            "negative_control_passed",
+        )
+        self.assertTrue(
+            negative_control[
+                "profile_conditioning_manipulation_check_passed"
+            ]
+        )
+        self.assertEqual(
+            negative_control[
+                "phase_profile_conditioning_manipulation_gate"
+            ],
+            0.0,
+        )
+
+        failed_dose = _profile_conditioning_manipulation(
+            conditioning_strength=0.33,
+            visible_action_divergence_rate=0.0,
+            treatment_exposure_rate=0.25,
+        )
+        self.assertEqual(
+            failed_dose["profile_conditioning_manipulation_status"],
+            "active_dose_failed_zero_visible_divergence",
+        )
+        self.assertFalse(
+            failed_dose[
+                "profile_conditioning_manipulation_check_passed"
+            ]
+        )
+        self.assertEqual(
+            failed_dose[
+                "phase_profile_conditioning_manipulation_gate"
+            ],
+            0.0,
+        )
+
+        activated_dose = _profile_conditioning_manipulation(
+            conditioning_strength=0.33,
+            visible_action_divergence_rate=0.25,
+            treatment_exposure_rate=0.25,
+        )
+        self.assertEqual(
+            activated_dose["profile_conditioning_manipulation_status"],
+            "active_dose_activated",
+        )
+        self.assertTrue(
+            activated_dose[
+                "profile_conditioning_manipulation_check_passed"
+            ]
+        )
+        self.assertEqual(
+            activated_dose[
+                "phase_profile_conditioning_manipulation_gate"
+            ],
+            1.0,
+        )
+        insufficient_coverage = _profile_conditioning_manipulation(
+            conditioning_strength=0.33,
+            visible_action_divergence_rate=0.25,
+            treatment_exposure_rate=0.25,
+            prospective_coverage_passed=False,
+        )
+        self.assertEqual(
+            insufficient_coverage[
+                "profile_conditioning_manipulation_status"
+            ],
+            "active_dose_failed_informative_strata_coverage",
+        )
+        self.assertFalse(
+            insufficient_coverage[
+                "profile_conditioning_manipulation_check_passed"
+            ]
+        )
+
     def test_policy_conditioning_strength_changes_visible_actions(self) -> None:
         belief = initial_profile_belief(
             (-2, -1, 1),
@@ -184,11 +268,32 @@ class SensitivityTests(unittest.TestCase):
             master_seed=7,
             trajectory_id="policy-dose",
         )
-        self.assertEqual(full_action.provenance.policy_version, "v1")
+        self.assertEqual(
+            full_action.provenance.policy_version,
+            "v2-neutral-profile-tie",
+        )
         self.assertEqual(
             intermediate_action.provenance.policy_version,
-            "v2-conditioning-strength",
+            "v3-conditioning-strength",
         )
+        uniform = PreferenceBelief.uniform()
+        for turn in range(3):
+            tied = SoftProfileConditionedPolicy().action(
+                TRAVEL,
+                uniform,
+                turn=turn,
+                master_seed=7,
+                trajectory_id="policy-tie",
+            )
+            tied_control = balanced.action(
+                TRAVEL,
+                uniform,
+                turn=turn,
+                master_seed=7,
+                trajectory_id="policy-tie",
+            )
+            self.assertFalse(tied.provenance.profile_conditioned)
+            self.assertEqual(tied.signature(), tied_control.signature())
 
     def test_one_at_a_time_grid_is_baseline_first_and_non_factorial(self) -> None:
         points = sensitivity_grid(
@@ -780,10 +885,115 @@ class SensitivityTests(unittest.TestCase):
                 phase_specification["interaction_effects_estimable"]
             )
             self.assertEqual(phase_specification["declared_points"], 1)
+            criterion_ids = {
+                row["criterion_id"]
+                for row in phase_specification["criteria"]
+            }
+            self.assertIn(
+                "visible-profile-conditioning-activated",
+                criterion_ids,
+            )
+            self.assertNotIn(
+                "wrong-profile-self-confirmation",
+                criterion_ids,
+            )
+            strict_secondary = next(
+                row
+                for row in phase_specification["secondary_endpoints"]
+                if row["endpoint_id"]
+                == "strict-wrong-profile-self-confirmation"
+            )
+            self.assertEqual(
+                strict_secondary["metric"],
+                "phase_self_confirming_profile_rate",
+            )
+            self.assertFalse(
+                strict_secondary["controls_operational_joint_region"]
+            )
             grand = json.loads(
                 (
                     run.path / "metrics" / "sensitivity-grand.jsonl"
                 ).read_text(encoding="utf-8")
+            )
+            phase = json.loads(
+                (
+                    run.path
+                    / "metrics"
+                    / "sensitivity-phase-points.jsonl"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                phase["phase_visible_action_divergence_rate"],
+                grand["phase_visible_action_divergence_rate"],
+            )
+            self.assertEqual(
+                phase[
+                    "phase_profile_conditioning_treatment_exposure_rate"
+                ],
+                grand[
+                    "phase_profile_conditioning_treatment_exposure_rate"
+                ],
+            )
+            self.assertEqual(
+                phase["profile_conditioning_manipulation_status"],
+                grand["profile_conditioning_manipulation_status"],
+            )
+            occupancy_rows = [
+                json.loads(line)
+                for line in (
+                    run.path
+                    / "metrics"
+                    / "sensitivity-prospective-strata-occupancy.jsonl"
+                )
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(
+                len(occupancy_rows),
+                summary["prospective_strata_occupancy_rows"],
+            )
+            self.assertEqual(
+                summary["prospective_strata_occupancy_artifact"],
+                "metrics/sensitivity-prospective-strata-occupancy.jsonl",
+            )
+            self.assertEqual(
+                occupancy_rows[0]["occupancy"][
+                    "strata_assignment_timing"
+                ],
+                "before_natural_response",
+            )
+            decomposition_rows = [
+                json.loads(line)
+                for line in (
+                    run.path
+                    / "metrics"
+                    / "sensitivity-decomposition.jsonl"
+                )
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            by_updater = {
+                row["updater_id"]: row for row in decomposition_rows
+            }
+            self.assertEqual(
+                grand["phase_selection_cost"],
+                by_updater["llm_full_context"]["mean_selection_cost"],
+            )
+            self.assertEqual(
+                grand["secondary_fitted_aware_selection_cost"],
+                by_updater["fitted_action_aware"]["mean_selection_cost"],
+            )
+            self.assertIn(
+                "phase_balanced_information_gain_deficit",
+                phase,
+            )
+            self.assertIn(
+                "phase_balanced_disconfirmation_evidence_deficit_log_odds",
+                phase,
+            )
+            self.assertIn(
+                "phase_self_confirming_profile_rate",
+                phase,
             )
             opportunities = grand[
                 "phase_profile_consistent_suggestion_opportunities"

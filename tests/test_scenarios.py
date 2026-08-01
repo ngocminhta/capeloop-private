@@ -23,7 +23,7 @@ from cape_loop.updaters import NoUpdateUpdater
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = REPOSITORY_ROOT / "data" / "scenarios" / "scenario-catalog-v1.json"
-CATALOG_SHA256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+CATALOG_SHA256 = "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 
 
 def _canonical_payload() -> dict[str, object]:
@@ -137,6 +137,55 @@ class CanonicalScenarioCatalogTests(unittest.TestCase):
                             get_domain(domain).attributes[target].key,
                         )
 
+    def test_target_half_spans_follow_the_prospective_calibration(self) -> None:
+        expected_test_spans = [0.10, 0.16, 0.24, 0.34, 0.46, 0.56]
+        for domain in ("travel", "writing"):
+            for target in range(3):
+                with self.subTest(domain=domain, target=target):
+                    scenarios = tuple(
+                        scenario
+                        for scenario in self.catalog.scenarios
+                        if scenario.domain == domain
+                        and scenario.target_attribute == target
+                    )
+                    self.assertEqual(
+                        [
+                            scenario.target_half_span
+                            for scenario in scenarios
+                            if scenario.split == "test"
+                        ],
+                        expected_test_spans,
+                    )
+                    self.assertTrue(
+                        all(
+                            scenario.target_half_span == 0.5
+                            for scenario in scenarios
+                            if scenario.split in {"train", "development"}
+                        )
+                    )
+                    for scenario in scenarios:
+                        span = scenario.target_half_span
+                        self.assertEqual(
+                            scenario.negative_option.features[target],
+                            -span,
+                        )
+                        self.assertEqual(
+                            scenario.negative_same_direction_option.features[
+                                target
+                            ],
+                            -span,
+                        )
+                        self.assertEqual(
+                            scenario.positive_option.features[target],
+                            span,
+                        )
+                        self.assertEqual(
+                            scenario.positive_same_direction_option.features[
+                                target
+                            ],
+                            span,
+                        )
+
     def test_cycle_selection_uses_each_scenario_before_repeating(self) -> None:
         available = self.catalog.eligible("travel", "test", 0)
         selected = tuple(
@@ -178,12 +227,13 @@ class CanonicalScenarioCatalogTests(unittest.TestCase):
     def test_materialization_preserves_treatments_and_uses_catalog_surfaces(
         self,
     ) -> None:
-        scenario = self.catalog.select(
-            domain="travel",
-            split="test",
-            target_attribute=0,
-            seed=1729,
-            selection_key="materialization",
+        scenario = next(
+            scenario
+            for scenario in self.catalog.scenarios
+            if scenario.domain == "travel"
+            and scenario.split == "test"
+            and scenario.target_attribute == 0
+            and scenario.target_half_span != 0.5
         )
         matched = build_matched_anchor_set(
             get_domain("travel"),
@@ -227,6 +277,10 @@ class CanonicalScenarioCatalogTests(unittest.TestCase):
                 self.assertEqual(
                     tuple(option.label for option in context.options),
                     tuple(option.label for option in expected_options),
+                )
+                self.assertEqual(
+                    tuple(option.features for option in context.options),
+                    tuple(option.features for option in expected_options),
                 )
                 self.assertEqual(
                     context.ranking,
@@ -428,6 +482,26 @@ class ScenarioCatalogValidationTests(unittest.TestCase):
                     "fields must be exact",
                 ):
                     ScenarioCatalog.parse(payload)
+
+    def test_target_half_span_is_required_validated_and_round_trips(self) -> None:
+        payload = _canonical_payload()
+        parsed = ScenarioCatalog.parse(payload)
+        self.assertEqual(
+            parsed.scenarios[0].to_dict(),
+            payload["scenarios"][0],
+        )
+
+        missing = deepcopy(payload)
+        del missing["scenarios"][0]["target_half_span"]
+        with self.assertRaisesRegex(ValueError, "fields must be exact"):
+            ScenarioCatalog.parse(missing)
+
+        for value in (False, 0, -0.1, 0.5600001, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                malformed = deepcopy(payload)
+                malformed["scenarios"][0]["target_half_span"] = value
+                with self.assertRaisesRegex(ValueError, "target_half_span"):
+                    ScenarioCatalog.parse(malformed)
 
     def test_duplicate_json_object_keys_are_rejected(self) -> None:
         material = b'{"schema_version":1,"schema_version":1}\n'

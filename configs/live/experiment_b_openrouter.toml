@@ -2,7 +2,7 @@ schema_version = 1
 
 [scenarios]
 catalog_file = "data/scenarios/scenario-catalog-v1.json"
-catalog_sha256 = "7b7144b3b3f75ac7284ab6153d1b6ce62cf293aec94004ee2cb3111bcc1f6cf1"
+catalog_sha256 = "96f092856ea17ea3939a769c754f5dd46299efddc6d0304c3adbf16bddbd0286"
 conversation_file = "data/scenarios/conversation-templates-v1.json"
 selection_policy = "deterministic-stratified-v1"
 
@@ -65,6 +65,20 @@ shadow_equivalence_tolerance = 0.05
 false_stability_tolerance = 0.02
 direction_tolerance = 1e-9
 ranking_tie_tolerance = 1e-6
+selection_noninferiority_margin = 0.02
+net_harm_margin = 0.02
+decomposition_tolerance = 1e-12
+
+[manipulation]
+planning_mode = "required"
+minimum_informative_active_turns = 2
+minimum_active_mechanisms = 2
+minimum_decisive_active_controls = 1
+minimum_informative_choice_divergence_probability = 0.02
+maximum_decisive_choice_divergence_probability = 0.05
+minimum_active_susceptibility_mass = 0.05
+require_counter_profile_options = true
+offline_response_seeds = 32
 
 [llm]
 mode = "openrouter"
@@ -79,7 +93,7 @@ api_key_env = "OPENROUTER_API_KEY"
 base_url = "https://openrouter.ai/api"
 allow_custom_base_url = false
 timeout_seconds = 180.0
-# 48 calibration + 576 trajectory calls; 276 attempts remain as headroom.
+# 60 calibration + 576 trajectory calls; 264 attempts remain as headroom.
 max_retries = 0
 max_output_tokens = 2048
 max_requests = 900

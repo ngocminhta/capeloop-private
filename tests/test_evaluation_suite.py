@@ -64,10 +64,13 @@ class OpenAIEvaluationSuiteTests(unittest.TestCase):
                     role["conservative_request_upper_bound"]
                     for role in index["roles"]
                 },
-                {848},
+                {580},
             )
             self.assertTrue(
-                all(role["request_headroom"] == 52 for role in index["roles"])
+                all(
+                    role["request_headroom"] == 320
+                    for role in index["roles"]
+                )
             )
             self.assertEqual(
                 len(

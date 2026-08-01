@@ -237,7 +237,13 @@ class PopulationSection:
 class ExperimentSection:
     kind: str = "provenance_audit"
     domains: tuple[str, ...] = ("travel", "writing")
-    mechanisms: tuple[str, ...] = ("balanced", "restricted", "default", "suggested")
+    mechanisms: tuple[str, ...] = (
+        "balanced",
+        "restricted",
+        "ranking",
+        "default",
+        "suggested",
+    )
     response_modes: tuple[str, ...] = ("controlled_anchor", "naturally_sampled")
     prior_strengths: tuple[float, ...] = (0.0,)
     initial_profile_conditions: tuple[str, ...] = INITIAL_PROFILE_KINDS
@@ -469,6 +475,9 @@ class ThresholdSection:
     false_stability_tolerance: float = 0.02
     direction_tolerance: float = 1e-9
     ranking_tie_tolerance: float = 1e-6
+    selection_noninferiority_margin: float = 0.02
+    net_harm_margin: float = 0.02
+    decomposition_tolerance: float = 1e-12
 
     @classmethod
     def parse(cls, raw: Mapping[str, Any]) -> "ThresholdSection":
@@ -479,6 +488,9 @@ class ThresholdSection:
             "false_stability_tolerance",
             "direction_tolerance",
             "ranking_tie_tolerance",
+            "selection_noninferiority_margin",
+            "net_harm_margin",
+            "decomposition_tolerance",
         }
         _only_keys("thresholds", raw, allowed)
         result = cls(**raw)
@@ -506,6 +518,18 @@ class ThresholdSection:
             result.ranking_tie_tolerance,
             "thresholds.ranking_tie_tolerance",
         )
+        selection_margin = _require_finite_number(
+            result.selection_noninferiority_margin,
+            "thresholds.selection_noninferiority_margin",
+        )
+        harm_margin = _require_finite_number(
+            result.net_harm_margin,
+            "thresholds.net_harm_margin",
+        )
+        decomposition = _require_finite_number(
+            result.decomposition_tolerance,
+            "thresholds.decomposition_tolerance",
+        )
         if not 0 <= wrong_mass <= 1:
             raise ConfigError("materially_wrong_mass must lie in [0, 1]")
         if lcg < 0:
@@ -520,6 +544,112 @@ class ThresholdSection:
             )
         if direction < 0 or ranking < 0:
             raise ConfigError("tolerances must be non-negative")
+        if not 0.0 <= selection_margin <= 2.0:
+            raise ConfigError(
+                "selection_noninferiority_margin must lie in [0, 2] on the "
+                "marginal-Brier scale"
+            )
+        if not 0.0 <= harm_margin <= 2.0:
+            raise ConfigError(
+                "net_harm_margin must lie in [0, 2] on the marginal-Brier scale"
+            )
+        if decomposition <= 0.0:
+            raise ConfigError("decomposition_tolerance must be positive")
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class ManipulationSection:
+    """Prospective Experiment B treatment-admission requirements.
+
+    A required plan is built from simulator inputs before any evaluated-model
+    request.  Realized choices and LLM outputs are deliberately unavailable to
+    this admission step.
+    """
+
+    planning_mode: str = "disabled"
+    minimum_informative_active_turns: int = 2
+    minimum_active_mechanisms: int = 2
+    minimum_decisive_active_controls: int = 1
+    minimum_informative_choice_divergence_probability: float = 0.02
+    maximum_decisive_choice_divergence_probability: float = 0.05
+    minimum_active_susceptibility_mass: float = 0.05
+    require_counter_profile_options: bool = True
+    offline_response_seeds: int = 32
+
+    @classmethod
+    def parse(cls, raw: Mapping[str, Any]) -> "ManipulationSection":
+        _only_keys(
+            "manipulation",
+            raw,
+            {
+                "planning_mode",
+                "minimum_informative_active_turns",
+                "minimum_active_mechanisms",
+                "minimum_decisive_active_controls",
+                "minimum_informative_choice_divergence_probability",
+                "maximum_decisive_choice_divergence_probability",
+                "minimum_active_susceptibility_mass",
+                "require_counter_profile_options",
+                "offline_response_seeds",
+            },
+        )
+        result = cls(**raw)
+        if result.planning_mode not in {"disabled", "required"}:
+            raise ConfigError(
+                "manipulation.planning_mode must be 'disabled' or 'required'"
+            )
+        for name in (
+            "minimum_informative_active_turns",
+            "minimum_active_mechanisms",
+            "minimum_decisive_active_controls",
+        ):
+            _require_integer(
+                getattr(result, name),
+                f"manipulation.{name}",
+                minimum=1,
+            )
+        _require_integer(
+            result.offline_response_seeds,
+            "manipulation.offline_response_seeds",
+            minimum=1,
+        )
+        informative_probability = _require_finite_number(
+            result.minimum_informative_choice_divergence_probability,
+            (
+                "manipulation."
+                "minimum_informative_choice_divergence_probability"
+            ),
+        )
+        decisive_probability = _require_finite_number(
+            result.maximum_decisive_choice_divergence_probability,
+            (
+                "manipulation."
+                "maximum_decisive_choice_divergence_probability"
+            ),
+        )
+        active_mass = _require_finite_number(
+            result.minimum_active_susceptibility_mass,
+            "manipulation.minimum_active_susceptibility_mass",
+        )
+        if not 0.0 <= informative_probability <= 1.0:
+            raise ConfigError(
+                "minimum informative choice-divergence probability must lie "
+                "in [0, 1]"
+            )
+        if not 0.0 <= decisive_probability <= 1.0:
+            raise ConfigError(
+                "maximum decisive choice-divergence probability must lie in "
+                "[0, 1]"
+            )
+        if active_mass < 0.0:
+            raise ConfigError(
+                "minimum_active_susceptibility_mass must be non-negative"
+            )
+        if not isinstance(result.require_counter_profile_options, bool):
+            raise ConfigError(
+                "manipulation.require_counter_profile_options must be Boolean"
+            )
         return result
 
 
@@ -539,7 +669,7 @@ class SensitivitySection:
     rule_noise_values: tuple[float, ...] = (0.15,)
     phase_min_selection_cost: float = 0.0
     phase_max_aware_ece: float = 0.10
-    phase_min_attribution_cost: float = 0.0
+    phase_min_attribution_gap: float = 0.0
     phase_min_self_confirming_rate: float = 0.0
     phase_min_suggestion_rejection_rate: float = 0.20
 
@@ -560,7 +690,7 @@ class SensitivitySection:
             "rule_noise_values",
             "phase_min_selection_cost",
             "phase_max_aware_ece",
-            "phase_min_attribution_cost",
+            "phase_min_attribution_gap",
             "phase_min_self_confirming_rate",
             "phase_min_suggestion_rejection_rate",
         }
@@ -653,7 +783,7 @@ class SensitivitySection:
         for name in (
             "phase_min_selection_cost",
             "phase_max_aware_ece",
-            "phase_min_attribution_cost",
+            "phase_min_attribution_gap",
             "phase_min_self_confirming_rate",
             "phase_min_suggestion_rejection_rate",
         ):
@@ -1012,6 +1142,7 @@ class AppConfig:
     response_model: ResponseModelSection = field(default_factory=ResponseModelSection)
     inference: InferenceSection = field(default_factory=InferenceSection)
     thresholds: ThresholdSection = field(default_factory=ThresholdSection)
+    manipulation: ManipulationSection = field(default_factory=ManipulationSection)
     sensitivity: SensitivitySection = field(default_factory=SensitivitySection)
     llm: LLMSection = field(default_factory=LLMSection)
     artifacts: ArtifactSection = field(default_factory=ArtifactSection)
@@ -1030,6 +1161,7 @@ class AppConfig:
                 "response_model",
                 "inference",
                 "thresholds",
+                "manipulation",
                 "sensitivity",
                 "llm",
                 "artifacts",
@@ -1053,6 +1185,7 @@ class AppConfig:
             "response_model": ResponseModelSection,
             "inference": InferenceSection,
             "thresholds": ThresholdSection,
+            "manipulation": ManipulationSection,
             "sensitivity": SensitivitySection,
             "llm": LLMSection,
             "artifacts": ArtifactSection,
@@ -1102,6 +1235,39 @@ class AppConfig:
         """Reject generic TOML fields that a selected runner would ignore."""
 
         experiment = self.experiment
+        if self.manipulation.planning_mode == "required":
+            if experiment.kind != "closed_loop":
+                raise ConfigError(
+                    "required prospective manipulation planning is available "
+                    "only for the closed_loop experiment"
+                )
+            if not self.scenarios.catalog_file:
+                raise ConfigError(
+                    "required prospective manipulation planning needs a "
+                    "scenario catalog"
+                )
+            if not {
+                "balanced",
+                "soft_profile_conditioned",
+            } <= set(experiment.policies):
+                raise ConfigError(
+                    "required prospective manipulation planning needs both "
+                    "balanced and soft_profile_conditioned policies"
+                )
+            required_roles = (
+                self.manipulation.minimum_informative_active_turns
+                + self.manipulation.minimum_decisive_active_controls
+            )
+            if experiment.turns < required_roles:
+                raise ConfigError(
+                    "experiment.turns is shorter than the required informative "
+                    "and decisive manipulation roles"
+                )
+            if self.manipulation.minimum_active_mechanisms > 2:
+                raise ConfigError(
+                    "the guaranteed visible scheduler currently supports two "
+                    "active mechanisms: default and suggestion"
+                )
         if (
             experiment.kind != "closed_loop"
             and experiment.initial_profile_conditions
@@ -1112,11 +1278,17 @@ class AppConfig:
                 "factor; other experiment kinds require all four defaults"
             )
         if experiment.kind == "provenance_audit":
-            allowed_mechanisms = {"balanced", "restricted", "default", "suggested"}
+            allowed_mechanisms = {
+                "balanced",
+                "restricted",
+                "ranking",
+                "default",
+                "suggested",
+            }
             if not set(experiment.mechanisms) <= allowed_mechanisms:
                 raise ConfigError(
                     "provenance_audit mechanisms must be drawn from "
-                    "balanced, restricted, default, and suggested"
+                    "balanced, restricted, ranking, default, and suggested"
                 )
             if experiment.policies != ("balanced",):
                 raise ConfigError(
@@ -1151,6 +1323,10 @@ class AppConfig:
                 "response_modes = ['naturally_sampled']"
             )
         if experiment.kind == "closed_loop":
+            # A full Experiment B comparison needs balanced and soft policy
+            # arms, but ``closed_loop`` is also used by the deliberately
+            # single-policy native-source Gate 4 check.  The inference layer
+            # reports unavailable contrasts explicitly when an arm is absent.
             return
 
         if experiment.kind == "evaluation_validity":

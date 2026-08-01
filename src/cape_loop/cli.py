@@ -151,8 +151,16 @@ from .robustness_review import (
 )
 from .scenario_calibration import (
     build_scenario_calibration_audit,
-    render_blinded_surface_review_markdown,
     render_scenario_calibration_markdown,
+)
+from .scenario_review import (
+    build_scenario_review_kit,
+    derive_reviewed_catalog,
+    derive_reviewed_conversation_bank,
+    load_evidence_directory,
+    render_review_kit_markdown,
+    verify_scenario_review_evidence,
+    write_review_promotion,
 )
 from .scenarios import load_scenario_catalog
 from .schema_export import SCHEMAS, export_schemas
@@ -1068,14 +1076,45 @@ def _scenarios_audit(args: argparse.Namespace) -> int:
         minimum_matched_probability=response.minimum_matched_probability,
     )
     researcher_markdown = render_scenario_calibration_markdown(audit)
-    blinded_surface_markdown = render_blinded_surface_review_markdown(audit)
+    review_kit = build_scenario_review_kit(
+        loaded.catalog,
+        conversation_bank,
+        audit,
+        catalog_sha256=loaded.source_sha256,
+        conversation_bank_sha256=file_sha256(Path(config.scenarios.conversation_file)),
+    )
+    bound_surface_markdown = render_review_kit_markdown(review_kit)
     output.mkdir(parents=True)
     json_path = output / "scenario-audit.json"
     researcher_path = output / "scenario-review.md"
     blinded_surface_path = output / "scenario-surface-review-blinded.md"
     _atomic_write_text(json_path, _json(audit) + "\n")
     _atomic_write_text(researcher_path, researcher_markdown)
-    _atomic_write_text(blinded_surface_path, blinded_surface_markdown)
+    _atomic_write_text(blinded_surface_path, bound_surface_markdown)
+    _atomic_write_text(
+        output / "review-protocol.json",
+        _json(review_kit["protocol"]) + "\n",
+    )
+    _atomic_write_text(
+        output / "review-item-map.json",
+        _json(review_kit["mapping"]) + "\n",
+    )
+    _atomic_write_text(
+        output / "surface-review.template.json",
+        _json(review_kit["surface_template"]) + "\n",
+    )
+    _atomic_write_text(
+        output / "scientific-review.template.json",
+        _json(review_kit["scientific_template"]) + "\n",
+    )
+    _atomic_write_text(
+        output / "neutral-choice-pretest.template.json",
+        _json(review_kit["neutral_choice_template"]) + "\n",
+    )
+    _atomic_write_text(
+        output / "masked-attractiveness-pretest.template.json",
+        _json(review_kit["attractiveness_template"]) + "\n",
+    )
     print(
         _json(
             {
@@ -1092,6 +1131,268 @@ def _scenarios_audit(args: argparse.Namespace) -> int:
                 "human_review_packet": str(researcher_path),
                 "researcher_review_packet": str(researcher_path),
                 "blinded_surface_review_packet": str(blinded_surface_path),
+                "review_protocol": str(output / "review-protocol.json"),
+                "review_item_map": str(output / "review-item-map.json"),
+                "review_response_templates": [
+                    str(output / "surface-review.template.json"),
+                    str(output / "scientific-review.template.json"),
+                    str(output / "neutral-choice-pretest.template.json"),
+                    str(output / "masked-attractiveness-pretest.template.json"),
+                ],
+            }
+        )
+    )
+    return 0
+
+
+def _scenarios_review_promote(args: argparse.Namespace) -> int:
+    """Verify external review evidence and derive a new catalog on success."""
+
+    config = load_config(args.config)
+    if not config.scenarios.catalog_file or not config.scenarios.conversation_file:
+        raise ValueError("scenario review requires catalog and conversation inputs")
+    loaded = load_scenario_catalog(
+        config.scenarios.catalog_file,
+        expected_sha256=config.scenarios.catalog_sha256,
+    )
+    bank = load_conversation_bank(config.scenarios.conversation_file)
+    audit_path = args.audit_dir / "scenario-audit.json"
+    if audit_path.is_symlink() or not audit_path.is_file():
+        raise ValueError("audit_dir must contain a regular scenario-audit.json")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    if not isinstance(audit, Mapping):
+        raise ValueError("scenario-audit.json must contain one object")
+    recorded_split = audit.get("catalog", {}).get("selected_split")
+    recorded_turns = audit.get("capacity", {}).get("planned_turns")
+    response = config.response_model
+    inverse_noise = 1.0 / response.decision_noise
+    recomputed_audit = build_scenario_calibration_audit(
+        loaded.catalog,
+        bank,
+        RandomUtilityModel(
+            beta=response.beta * inverse_noise,
+            ranking_scale=response.rank_scale * inverse_noise,
+            default_scale=response.default_scale * inverse_noise,
+            suggestion_scale=response.suggestion_scale * inverse_noise,
+        ),
+        susceptibility_levels=response.susceptibility_levels,
+        split=recorded_split,
+        planned_turns=recorded_turns,
+        domains=config.experiment.domains,
+        policies=config.experiment.policies,
+        minimum_matched_probability=response.minimum_matched_probability,
+    )
+    if audit != recomputed_audit:
+        raise ValueError(
+            "scenario-audit.json does not equal the audit recomputed from the "
+            "configured source inputs, scope, and planned turns"
+        )
+    audit = recomputed_audit
+    kit = build_scenario_review_kit(
+        loaded.catalog,
+        bank,
+        audit,
+        catalog_sha256=loaded.source_sha256,
+        conversation_bank_sha256=file_sha256(Path(config.scenarios.conversation_file)),
+    )
+    for filename, key in (
+        ("review-protocol.json", "protocol"),
+        ("review-item-map.json", "mapping"),
+    ):
+        path = args.audit_dir / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"audit_dir must contain a regular {filename}")
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+        if recorded != kit[key]:
+            raise ValueError(
+                f"{filename} does not match the exact configured source inputs"
+            )
+    evidence_files = load_evidence_directory(args.evidence_dir)
+    report = verify_scenario_review_evidence(
+        kit,
+        [payload for _, payload in evidence_files],
+        audit,
+    )
+    source_payload = json.loads(loaded.source_bytes.decode("utf-8"))
+    reviewed_catalog = None
+    reviewed_bank = None
+    if report["promotion_eligible"]:
+        reviewed_catalog = derive_reviewed_catalog(
+            source_payload,
+            report,
+            new_catalog_version=args.catalog_version,
+            frozen_on=args.frozen_on,
+        )
+        reviewed_bank = derive_reviewed_conversation_bank(
+            bank,
+            report,
+            new_catalog_version=args.catalog_version,
+        )
+    result = write_review_promotion(
+        args.output_dir,
+        kit=kit,
+        report=report,
+        evidence_files=evidence_files,
+        reviewed_catalog=reviewed_catalog,
+        reviewed_conversation_bank=reviewed_bank,
+    )
+    print(
+        _json(
+            {
+                "status": "completed",
+                "promotion_eligible": result["promotion_eligible"],
+                "source_inputs_mutated": False,
+                "reviewed_catalog_written": result["reviewed_catalog_written"],
+                "evidence_report": str(args.output_dir / "evidence-report.json"),
+                "output_dir": str(args.output_dir),
+            }
+        )
+    )
+    return 0
+
+
+def _experiment_b_model_suite(args: argparse.Namespace) -> int:
+    """Plan or explicitly execute the frozen one-model-at-a-time B suite."""
+
+    from .experiment_b_model_suite import (
+        DEFAULT_SUITE_PATH,
+        orchestrate_experiment_b_model_suite,
+    )
+
+    result = orchestrate_experiment_b_model_suite(
+        args.base_config,
+        suite_path=(DEFAULT_SUITE_PATH if args.suite is None else args.suite),
+        output_root=args.output_root,
+        allow_existing=args.allow_existing,
+        execute_live=args.execute_live,
+    )
+    print(_json(result))
+    return 0
+
+
+def _experiment_b_manipulation_audit(args: argparse.Namespace) -> int:
+    """Run the frozen simulator-only manipulation audit with zero LLM calls."""
+
+    from .domains import domain_for_split, get_domain
+    from .experiments.closed_loop_design import (
+        build_experiment_b_manipulation_plan,
+        render_manipulation_plan_markdown,
+        run_offline_manipulation_audit,
+    )
+    from .population import generate_users, susceptibility_support_for_split
+    from .splits import build_split_manifest
+    from .updaters import ExactActionAwareUpdater
+
+    config = load_config(args.config)
+    if config.experiment.kind != "closed_loop":
+        raise ValueError("manipulation audit requires an Experiment B config")
+    if config.manipulation.planning_mode != "required":
+        raise ValueError(
+            "manipulation audit requires manipulation.planning_mode = 'required'"
+        )
+    if args.response_seeds is not None and args.response_seeds < 1:
+        raise ValueError("--response-seeds must be a positive integer")
+    if not config.scenarios.catalog_file:
+        raise ValueError("manipulation audit requires a scenario catalog")
+    output = args.output_dir
+    if output.is_symlink():
+        raise ValueError("manipulation audit output cannot be a symlink")
+    if output.exists():
+        raise FileExistsError(f"manipulation audit output already exists: {output}")
+
+    loaded = load_scenario_catalog(
+        config.scenarios.catalog_file,
+        expected_sha256=config.scenarios.catalog_sha256,
+    )
+    domains = tuple(
+        domain_for_split(get_domain(domain_id), "test")
+        for domain_id in config.experiment.domains
+    )
+    manifest = build_split_manifest(
+        seed=config.run.seed,
+        theta_policy=config.population.theta_policy,
+        susceptibility_levels=config.response_model.susceptibility_levels,
+        susceptibility_policy=config.population.susceptibility_policy,
+    )
+    users = generate_users(
+        domain_id="shared",
+        count=config.experiment.users,
+        split="test",
+        manifest=manifest,
+        susceptibility_levels=config.response_model.susceptibility_levels,
+        seed=config.run.seed,
+    )
+    response = config.response_model
+    inverse_noise = 1.0 / response.decision_noise
+    model = RandomUtilityModel(
+        beta=response.beta * inverse_noise,
+        ranking_scale=response.rank_scale * inverse_noise,
+        default_scale=response.default_scale * inverse_noise,
+        suggestion_scale=response.suggestion_scale * inverse_noise,
+    )
+    plan = build_experiment_b_manipulation_plan(
+        users=users,
+        domains=domains,
+        scenario_catalog=loaded.catalog,
+        response_model=model,
+        initial_profile_conditions=(config.experiment.initial_profile_conditions),
+        turns=config.experiment.turns,
+        trajectories_per_cell=config.experiment.trajectories_per_cell,
+        requirements=config.manipulation,
+        seed=config.run.seed,
+        data_split="test",
+        fail_closed=False,
+    )
+    output.mkdir(parents=True)
+    plan_json = output / "experiment-b-manipulation-plan.json"
+    plan_markdown = output / "experiment-b-manipulation-plan.md"
+    audit_json = output / "experiment-b-offline-manipulation-audit.json"
+    _atomic_write_text(plan_json, _json(plan.to_dict()) + "\n")
+    _atomic_write_text(plan_markdown, render_manipulation_plan_markdown(plan))
+    if not plan.readiness.ready:
+        raise ValueError(
+            "prospective manipulation plan failed admission; inspect "
+            f"{plan_json} and {plan_markdown}"
+        )
+
+    support = susceptibility_support_for_split(
+        manifest,
+        split="test",
+        levels=config.response_model.susceptibility_levels,
+    )
+    response_seed_count = (
+        config.manipulation.offline_response_seeds
+        if args.response_seeds is None
+        else args.response_seeds
+    )
+    audit = run_offline_manipulation_audit(
+        plan=plan,
+        users=users,
+        domains=domains,
+        scenario_catalog=loaded.catalog,
+        response_model=model,
+        response_seed_count=response_seed_count,
+        shadow_updater=ExactActionAwareUpdater(model, support),
+        selection_noninferiority_margin=(
+            config.thresholds.selection_noninferiority_margin
+        ),
+    )
+    _atomic_write_text(audit_json, _json(audit) + "\n")
+    print(
+        _json(
+            {
+                "status": "completed",
+                "scope": "offline_experiment_b_manipulation_audit",
+                "llm_calls": 0,
+                "evaluated_model_outputs_used": False,
+                "plan_ready": plan.readiness.ready,
+                "plan_id": plan.plan_id,
+                "trajectory_count": len(plan.trajectories),
+                "response_seed_count": response_seed_count,
+                "paired_trajectory_draw_count": audit["paired_trajectory_draw_count"],
+                "plan_json": str(plan_json),
+                "plan_markdown": str(plan_markdown),
+                "audit_json": str(audit_json),
             }
         )
     )
@@ -3130,7 +3431,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     one_scenario.add_argument(
         "--mechanism",
-        choices=("balanced", "restricted", "default", "suggested"),
+        choices=("balanced", "restricted", "ranking", "default", "suggested"),
         default="balanced",
     )
     one_scenario.add_argument("--seed", type=int, default=1729)
@@ -3308,7 +3609,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit_scenarios.add_argument(
         "--split",
-        choices=("train", "development", "test"),
+        choices=("train", "development", "test", "all"),
         default="test",
     )
     audit_scenarios.add_argument(
@@ -3317,6 +3618,105 @@ def build_parser() -> argparse.ArgumentParser:
         help=("planned trajectory horizon; defaults to experiment.turns from CONFIG"),
     )
     audit_scenarios.set_defaults(handler=_scenarios_audit)
+
+    promote_scenarios = scenario_commands.add_parser(
+        "review-promote",
+        help=(
+            "verify completed outcome-blind review/pretest responses and "
+            "write a derived paper catalog only when every criterion passes"
+        ),
+    )
+    promote_scenarios.add_argument("config", type=Path)
+    promote_scenarios.add_argument(
+        "audit_dir",
+        type=Path,
+        help="fresh `scenarios audit --split all` output used for collection",
+    )
+    promote_scenarios.add_argument(
+        "evidence_dir",
+        type=Path,
+        help="directory containing exactly six completed JSON response files",
+    )
+    promote_scenarios.add_argument(
+        "output_dir",
+        type=Path,
+        help="new directory for the evidence report and optional reviewed inputs",
+    )
+    promote_scenarios.add_argument(
+        "--catalog-version",
+        required=True,
+        help="new version for a successfully promoted catalog",
+    )
+    promote_scenarios.add_argument(
+        "--frozen-on",
+        required=True,
+        help="reviewed release date in YYYY-MM-DD form",
+    )
+    promote_scenarios.set_defaults(handler=_scenarios_review_promote)
+
+    experiment_b = commands.add_parser(
+        "experiment-b",
+        help="plan the frozen model suite or audit its manipulation offline",
+    )
+    experiment_b_commands = experiment_b.add_subparsers(
+        dest="experiment_b_command",
+        required=True,
+    )
+    model_suite = experiment_b_commands.add_parser(
+        "model-suite",
+        help=(
+            "plan four isolated OpenRouter arms; execute sequential paid "
+            "runs only with --execute-live"
+        ),
+    )
+    model_suite.add_argument(
+        "base_config",
+        type=Path,
+        help="reviewed full Experiment B OpenRouter TOML",
+    )
+    model_suite.add_argument(
+        "--suite",
+        type=Path,
+        help="model-suite JSON; defaults to the frozen repository declaration",
+    )
+    model_suite.add_argument("--output-root", type=Path)
+    model_suite.add_argument(
+        "--allow-existing",
+        action="store_true",
+        help="allow the runner to reuse a completed verified arm",
+    )
+    model_suite.add_argument(
+        "--execute-live",
+        action="store_true",
+        help=(
+            "AUTHORIZE FOUR SEQUENTIAL PAID OPENROUTER RUNS; without this "
+            "flag the command only prints a credential-free plan"
+        ),
+    )
+    model_suite.set_defaults(handler=_experiment_b_model_suite)
+
+    manipulation_audit = experiment_b_commands.add_parser(
+        "manipulation-audit",
+        help=(
+            "build the prospective B schedule and stress it with the local "
+            "simulator only; never call an LLM"
+        ),
+    )
+    manipulation_audit.add_argument("config", type=Path)
+    manipulation_audit.add_argument(
+        "output_dir",
+        type=Path,
+        help="new directory for the plan and simulator-audit artifacts",
+    )
+    manipulation_audit.add_argument(
+        "--response-seeds",
+        type=int,
+        help=(
+            "offline response draws; defaults to "
+            "manipulation.offline_response_seeds from CONFIG"
+        ),
+    )
+    manipulation_audit.set_defaults(handler=_experiment_b_manipulation_audit)
 
     run = commands.add_parser("run", help="run an experiment configuration")
     run.add_argument("config", type=Path)

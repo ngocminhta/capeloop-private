@@ -29,6 +29,10 @@ DEFAULT_MARKDOWN_PREVIEW_LIMIT = 100
 _METRIC_LABELS = {
     "acue": "ACUE — excess update divergence (lower is better)",
     "exact_acue": "Exact-oracle ACUE (lower is better)",
+    "calibration_residual": (
+        "Signed exact-oracle update residual "
+        "(positive = stronger than warranted; negative = weaker)"
+    ),
     "brier": "Profile Brier error (lower is better)",
     "excess_brier": "Excess Brier error vs fitted aware reference",
     "fitted_aware_kl": "Divergence from fitted aware reference",
@@ -41,7 +45,19 @@ _METRIC_LABELS = {
         "Action-aware shadow error after this turn (lower is better)"
     ),
     "action_aware_information_gain": (
-        "Action-aware information gain (higher is better)"
+        "Realized action-aware information gain (higher is better)"
+    ),
+    "expected_action_aware_information_gain": (
+        "Ex-ante expected action-aware information gain (higher is better)"
+    ),
+    "profile_consistency_score": (
+        "Visible-action alignment with the current profile (-1 to 1)"
+    ),
+    "profile_consistency_advantage_over_balanced": (
+        "Profile-alignment advantage over the paired balanced action"
+    ),
+    "ex_ante_balanced_choice_divergence_probability": (
+        "Ex-ante probability that presentation changes the paired binary choice"
     ),
     "intrinsic_regret": "Intrinsic regret on this turn (lower is better)",
     "laundered_confidence_gain": "Laundered confidence gain by attribute",
@@ -63,10 +79,40 @@ _METRIC_LABELS = {
     "terminal_shadow_error": (
         "Terminal action-aware shadow error (lower is better)"
     ),
+    "same_history_attribution_gap": (
+        "Same-history attribution gap: system error minus exact-shadow error"
+    ),
+    "exact_shadow_error_improvement": (
+        "Exact-shadow improvement from the initial profile (higher is better)"
+    ),
     "terminal_shadow_to_system_marginal_kl": (
         "Terminal divergence from the same-history shadow"
     ),
     "cumulative_information_gain": "Cumulative information gain",
+    "cumulative_expected_information_gain": (
+        "Cumulative ex-ante expected information gain"
+    ),
+    "mean_profile_consistency_score": (
+        "Mean visible-action alignment with the current profile"
+    ),
+    "mean_profile_consistency_advantage_over_balanced": (
+        "Mean profile-alignment advantage over balanced"
+    ),
+    "mean_ex_ante_balanced_choice_divergence_probability": (
+        "Mean ex-ante paired-choice divergence probability on comparable turns"
+    ),
+    "ex_ante_balanced_choice_comparable_turn_count": (
+        "Turns with identical binary choice sets for paired probability"
+    ),
+    "ex_ante_balanced_choice_comparable_turn_rate": (
+        "Share of turns with comparable binary choice sets"
+    ),
+    "balanced_choice_set_divergence_count": (
+        "Turns exposing a different choice set than balanced"
+    ),
+    "balanced_choice_set_divergence_rate": (
+        "Share of turns exposing a different choice set than balanced"
+    ),
     "cumulative_lcg": (
         "Cumulative excess confidence (CEC/LCG) by attribute"
     ),
@@ -82,6 +128,41 @@ _METRIC_LABELS = {
     "reinforcement_event_count": "Partial-reinforcement event count",
     "reinforcement_event_rate": (
         "Partial-reinforcement events divided by all turns"
+    ),
+    "disconfirmation_opportunity_count": (
+        "Exact-shadow disconfirmation opportunities"
+    ),
+    "disconfirmation_inversion_count": (
+        "Disconfirmation opportunities read in the opposite direction"
+    ),
+    "disconfirmation_inversion_rate": (
+        "Disconfirmation Inversion Rate (inversions per opportunity)"
+    ),
+    "disconfirmation_inversion_turn": (
+        "Did this turn invert exact disconfirmation?"
+    ),
+    "ex_ante_balanced_choice_probability_comparable": (
+        "Does this turn have identical binary choice sets for paired probability?"
+    ),
+    "balanced_choice_set_diverged": (
+        "Does this turn expose a different option set than balanced?"
+    ),
+    "prospective_manipulation_role": "Predeclared manipulation role",
+    "prospective_presentation_mechanism": (
+        "Predeclared active mechanism (or adaptive observation)"
+    ),
+    "prospective_predicted_choice_divergence_probability": (
+        "Predeclared paired choice-divergence probability"
+    ),
+    "prospective_execution_matched": (
+        "Did execution satisfy the predeclared turn instruction?"
+    ),
+    "prospective_effective_profile_direction": (
+        "Profile direction actually used by the required active turn"
+    ),
+    "prospective_direction_source": (
+        "Whether the active direction came from the current profile or frozen "
+        "neutral-profile fallback"
     ),
     "total_regret": "Total intrinsic regret (lower is better)",
     "same_history_shadow": "Did the shadow consume the identical history?",
@@ -101,15 +182,49 @@ _METRIC_LABELS = {
     "evidence_selection_cost": "Evidence-selection cost",
     "profile_attribution_cost": "Profile-attribution cost",
     "balanced_attribution_cost": "Balanced-history attribution cost",
-    "self_confirmation_interaction": "Self-confirmation interaction",
+    "exploratory_attribution_cost": "Exploratory-history attribution cost",
+    "soft_minus_balanced_attribution_gap": (
+        "Soft minus balanced same-history attribution gap"
+    ),
+    "soft_minus_exploratory_attribution_gap": (
+        "Soft minus exploratory same-history attribution gap"
+    ),
+    "self_confirmation_interaction": (
+        "Legacy alias: soft minus balanced attribution gap"
+    ),
+    "soft_minus_balanced_excess_confidence_log_odds": (
+        "Soft minus balanced cumulative excess confidence"
+    ),
     "visible_action_divergence_rate": (
         "Profile-conditioned vs balanced visible-action divergence"
     ),
     "observed_choice_divergence_rate": (
         "Profile-conditioned vs balanced simulated-choice divergence"
     ),
+    "behavioral_reinforcement_event_count": (
+        "Paired behavioral-reinforcement event count"
+    ),
+    "behavioral_reinforcement_opportunity_count": (
+        "Prospectively active paired behavioral opportunities"
+    ),
+    "behavioral_reinforcement_rate": (
+        "Complete paired behavioral reinforcement per active opportunity"
+    ),
+    "soft_minus_balanced_terminal_error": (
+        "Total soft-minus-balanced terminal profile-error effect"
+    ),
+    "decomposition_residual": "Exact-shadow decomposition residual",
+    "decomposition_identity_passed": (
+        "Does selection plus attribution reconstruct the total policy effect?"
+    ),
     "action_aware_information_gain_deficit": (
-        "Exploratory minus profile-conditioned information gain"
+        "Exploratory minus profile-conditioned realized whole-state information gain"
+    ),
+    "expected_preference_information_gain_deficit": (
+        "Exploratory minus profile-conditioned expected preference information gain"
+    ),
+    "balanced_expected_preference_information_gain_deficit": (
+        "Balanced minus profile-conditioned expected preference information gain"
     ),
     "disconfirmation_evidence_deficit_log_odds": (
         "Exploratory minus profile-conditioned disconfirming evidence"
@@ -177,6 +292,9 @@ def _surface(
         context,
         provenance,
         observation.selected_option_id,
+        stable_option_names=str(
+            getattr(observation, "surface_id", "")
+        ).endswith(":stable-option-names"),
     )
     if (
         rendered.assistant_message != assistant
@@ -306,6 +424,7 @@ def build_experiment_a_records(
                 {
                     "acue": row.acue,
                     "exact_acue": row.exact_acue,
+                    "calibration_residual": row.calibration_residual,
                     "brier": row.brier,
                     "excess_brier": row.excess_brier,
                     "fitted_aware_kl": row.fitted_aware_kl,
@@ -366,8 +485,20 @@ def _comparison_view(comparison: Any) -> dict[str, Any]:
             "balanced_attribution_cost": (
                 comparison.balanced_attribution_cost
             ),
+            "exploratory_attribution_cost": (
+                comparison.exploratory_attribution_cost
+            ),
+            "soft_minus_balanced_attribution_gap": (
+                comparison.soft_minus_balanced_attribution_gap
+            ),
+            "soft_minus_exploratory_attribution_gap": (
+                comparison.soft_minus_exploratory_attribution_gap
+            ),
             "self_confirmation_interaction": (
                 comparison.self_confirmation_interaction
+            ),
+            "soft_minus_balanced_excess_confidence_log_odds": (
+                comparison.soft_minus_balanced_excess_confidence_log_odds
             ),
             "visible_action_divergence_rate": (
                 comparison.visible_action_divergence_rate
@@ -377,6 +508,13 @@ def _comparison_view(comparison: Any) -> dict[str, Any]:
             ),
             "action_aware_information_gain_deficit": (
                 comparison.action_aware_information_gain_deficit
+            ),
+            "expected_preference_information_gain_deficit": (
+                comparison.expected_preference_information_gain_deficit
+            ),
+            "balanced_expected_preference_information_gain_deficit": (
+                comparison
+                .balanced_expected_preference_information_gain_deficit
             ),
             "disconfirmation_evidence_deficit_log_odds": (
                 comparison.disconfirmation_evidence_deficit_log_odds
@@ -419,6 +557,9 @@ def build_closed_loop_records(
             trajectory.profile_aligned_treatment_flags()
         )
         reinforcement_events = trajectory.reinforcement_event_flags()
+        disconfirmation_inversions = (
+            trajectory.disconfirmation_inversion_turn_flags()
+        )
         dialogue = tuple(
             _dialogue_turn(
                 turn=turn.turn + 1,
@@ -439,6 +580,27 @@ def build_closed_loop_records(
                     "action_aware_information_gain": (
                         turn.action_aware_information_gain
                     ),
+                    "expected_action_aware_information_gain": (
+                        turn.expected_action_aware_information_gain
+                    ),
+                    "profile_consistency_score": (
+                        turn.profile_consistency_score
+                    ),
+                    "profile_consistency_advantage_over_balanced": (
+                        turn.profile_consistency_score
+                        - turn.balanced_profile_consistency_score
+                    ),
+                    "ex_ante_balanced_choice_divergence_probability": (
+                        turn.ex_ante_balanced_choice_divergence_probability
+                    ),
+                    "ex_ante_balanced_choice_probability_comparable": (
+                        turn.ex_ante_balanced_choice_divergence_probability
+                        is not None
+                    ),
+                    "balanced_choice_set_diverged": (
+                        set(turn.action_signature[0])
+                        != set(turn.balanced_action_signature[0])
+                    ),
                     "intrinsic_regret": turn.intrinsic_regret,
                     "laundered_confidence_gain": list(
                         turn.laundered_confidence_gain
@@ -450,10 +612,47 @@ def build_closed_loop_records(
                         turn.action_signature
                         != turn.balanced_action_signature
                     ),
+                    "ex_ante_target_preference_strength": (
+                        turn.ex_ante_target_preference_strength
+                    ),
+                    "ex_ante_target_preference_strength_stratum": (
+                        turn.ex_ante_target_preference_strength_stratum
+                    ),
+                    "ex_ante_balanced_target_attribute": (
+                        turn.ex_ante_balanced_target_attribute
+                    ),
+                    "ex_ante_balanced_choice_probability_margin": (
+                        turn.ex_ante_balanced_choice_probability_margin
+                    ),
+                    "ex_ante_balanced_choice_margin_stratum": (
+                        turn.ex_ante_balanced_choice_margin_stratum
+                    ),
+                    "prospective_manipulation_role": (
+                        turn.prospective_manipulation_role
+                    ),
+                    "prospective_presentation_mechanism": (
+                        turn.prospective_presentation_mechanism
+                    ),
+                    "prospective_predicted_choice_divergence_probability": (
+                        turn
+                        .prospective_predicted_choice_divergence_probability
+                    ),
+                    "prospective_execution_matched": (
+                        turn.prospective_execution_matched
+                    ),
+                    "prospective_effective_profile_direction": (
+                        turn.prospective_effective_profile_direction
+                    ),
+                    "prospective_direction_source": (
+                        turn.prospective_direction_source
+                    ),
                     "profile_aligned_treatment": (
                         profile_aligned_treatment
                     ),
                     "reinforcement_event": reinforcement_event,
+                    "disconfirmation_inversion_turn": (
+                        disconfirmation_inversion
+                    ),
                 },
             )
             for (
@@ -461,11 +660,13 @@ def build_closed_loop_records(
                 interaction,
                 profile_aligned_treatment,
                 reinforcement_event,
+                disconfirmation_inversion,
             ) in zip(
                 trajectory.turns,
                 trajectory.audit_record.interactions,
                 profile_aligned_treatments,
                 reinforcement_events,
+                disconfirmation_inversions,
             )
         )
         terminal_metrics: dict[str, Any] = {
@@ -475,11 +676,42 @@ def build_closed_loop_records(
                 trajectory.error_amplification_ratio
             ),
             "terminal_shadow_error": trajectory.terminal_shadow_error,
+            "same_history_attribution_gap": (
+                trajectory.same_history_attribution_gap
+            ),
+            "exact_shadow_error_improvement": (
+                trajectory.exact_shadow_error_improvement
+            ),
             "terminal_shadow_to_system_marginal_kl": (
                 trajectory.terminal_shadow_to_system_marginal_kl
             ),
             "cumulative_information_gain": (
                 trajectory.cumulative_information_gain
+            ),
+            "cumulative_expected_information_gain": (
+                trajectory.cumulative_expected_information_gain
+            ),
+            "mean_profile_consistency_score": (
+                trajectory.mean_profile_consistency_score
+            ),
+            "mean_profile_consistency_advantage_over_balanced": (
+                trajectory.mean_profile_consistency_advantage_over_balanced
+            ),
+            "mean_ex_ante_balanced_choice_divergence_probability": (
+                trajectory
+                .mean_ex_ante_balanced_choice_divergence_probability
+            ),
+            "ex_ante_balanced_choice_comparable_turn_count": (
+                trajectory.ex_ante_balanced_choice_comparable_turn_count
+            ),
+            "ex_ante_balanced_choice_comparable_turn_rate": (
+                trajectory.ex_ante_balanced_choice_comparable_turn_rate
+            ),
+            "balanced_choice_set_divergence_count": (
+                trajectory.balanced_choice_set_divergence_count
+            ),
+            "balanced_choice_set_divergence_rate": (
+                trajectory.balanced_choice_set_divergence_rate
             ),
             "cumulative_lcg": list(trajectory.cumulative_lcg),
             "mean_cumulative_excess_confidence_log_odds": (
@@ -495,8 +727,32 @@ def build_closed_loop_records(
                 trajectory.reinforcement_event_count
             ),
             "reinforcement_event_rate": trajectory.reinforcement_event_rate,
+            "disconfirmation_opportunity_count": (
+                trajectory.disconfirmation_opportunity_count
+            ),
+            "disconfirmation_inversion_count": (
+                trajectory.disconfirmation_inversion_count
+            ),
+            "disconfirmation_inversion_rate": (
+                trajectory.disconfirmation_inversion_rate
+            ),
             "total_regret": trajectory.total_regret,
             "same_history_shadow": trajectory.same_history_shadow,
+            "ex_ante_preference_strengths_by_attribute": list(
+                trajectory.ex_ante_preference_strengths_by_attribute
+            ),
+            "ex_ante_preference_strength_strata_by_attribute": list(
+                trajectory.ex_ante_preference_strength_strata_by_attribute
+            ),
+            "ex_ante_user_preference_strength_stratum": (
+                trajectory.ex_ante_user_preference_strength_stratum
+            ),
+            "ex_ante_balanced_choice_mean_probability_margin": (
+                trajectory.ex_ante_balanced_choice_mean_probability_margin
+            ),
+            "ex_ante_balanced_choice_margin_stratum_counts": dict(
+                trajectory.ex_ante_balanced_choice_margin_stratum_counts
+            ),
         }
         if (
             outcome_metrics_by_source_id is not None
@@ -512,8 +768,12 @@ def build_closed_loop_records(
                 else split_by_user.get(trajectory.user_id)
             ),
             "policy_id": trajectory.policy_id,
+            "schedule_group_key": trajectory.schedule_group_key,
             "initial_profile_condition": (
                 trajectory.initial_profile_condition
+            ),
+            "ex_ante_user_preference_strength_stratum": (
+                trajectory.ex_ante_user_preference_strength_stratum
             ),
         }
         if extra_conditions:

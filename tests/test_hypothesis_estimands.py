@@ -83,6 +83,7 @@ class ProposalHypothesisEstimandTests(unittest.TestCase):
                         updater_id=updater_id,
                         posterior=posterior,
                         fitted_aware_posterior=aware,
+                        exact_posterior=aware,
                         acue=action_conditioned_update_error(
                             source.prior,
                             posterior,

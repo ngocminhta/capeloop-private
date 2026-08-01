@@ -13,9 +13,15 @@ The project asks two related questions:
 2. How well do profile writers calibrate an update to the causal provenance of
    that evidence?
 
-The stable evaluation object is the updater–interaction-policy pair.
-Provenance miscalibration is the mechanism analysis; strict false-profile
-self-confirmation is a stronger, conditional downstream outcome.
+The stable evaluation object is the updater–interaction-policy pair. We call
+the central pair-level construct **policy-conditioned evidential legibility**:
+a history can remain informative to the exact action-aware updater yet be
+translated inaccurately by a particular profile writer. It is measured with
+the policy-specific same-history attribution gap, not with a new composite
+score. Controlled provenance calibration tests a candidate mechanism for that
+gap; it does not mediate or causally explain the multi-turn contrast by itself.
+Strict false-profile self-confirmation is a stronger, conditional downstream
+outcome.
 
 ```text
 current profile
@@ -107,8 +113,16 @@ completion boundary is in
   complete finite-support and physical per-order simulator probabilities,
   raw surface-length symmetry, all rendered-language combinations, lexical
   overlap/redundancy candidates, and review status, then writes a human-review
-  packet without approving anything. Capacity is policy aware, so adaptive
-  targeting does not inherit a false cyclic no-repeat guarantee.
+  packet without approving anything. With `--split all` it also writes the
+  digest-bound opaque mapping, frozen protocol, and fillable review/pretest
+  contracts consumed by `scenarios review-promote`. Promotion verifies the
+  complete independent evidence bundle and derives a new catalog only on a
+  full pass; it never changes the source inputs. Capacity is policy aware, so
+  adaptive targeting does not inherit a false cyclic no-repeat guarantee.
+- An outcome-blind Experiment B manipulation planner that fixes susceptible
+  active turns and decisive controls before any evaluated-model call, plus a
+  simulator-only multi-seed audit and a frozen OpenRouter primary/secondary
+  model-suite plan.
 - A frozen, provisional
   [conversation-template bank](data/scenarios/conversation-templates-v1.json)
   whose 48 visible bases are project-standardized over three source-neutral
@@ -123,20 +137,29 @@ completion boundary is in
   independently reviewed excerpt-based robustness bank.
 - Explicit separation between the user-visible interaction context and the
   internal policy provenance that generated it.
-- Exact action-aware Bayesian inference under the declared response model, with
-  the complete preference×susceptibility joint retained.
+- Exact action-aware Bayesian inference under the same declared response model
+  that defines simulator choices and the controlled-response likelihood, with
+  the complete preference×susceptibility joint and reference assumptions
+  retained in `models/exact-action-aware-reference.json`.
 - Fitted action-aware and four-parameter action-unaware baselines trained on
-  the same records (parameter-count matched, with different outcome classes).
-- Matched anchor-option audits that hold the selected item constant while
-  changing its causal provenance, with executable prior-concentration strata
-  and a separate content-bound six-case positive/negative control execution
-  and provider-exchange path.
+  the same records (parameter-count matched, with different outcome classes)
+  as secondary learnability and misspecification checks.
+- Matched anchor-option audits over balanced, restricted, ranking, default, and
+  suggestion contexts. The primary `controlled_anchor` track holds the selected
+  item and local user reply fixed, verifies that invariant in a same-response
+  audit, and calibrates each updater against the exact action-aware oracle.
+  Naturally sampled A rows remain a secondary robustness track.
 - Exhaustive H7 volunteered direct-statement planning plus strict
   OpenAI/OpenRouter audit binding, paired update conversion, and immutable
   source-safe recomputation; see
   [the experiment protocols](docs/experiments.md#h7-volunteered-preference-control).
 - Endogenous profile–policy–response loops with a same-history action-aware
-  shadow posterior.
+  shadow posterior, prospectively labeled weak/strong latent preferences and
+  near-tie/marginal/decisive balanced-choice probability margins, plus an
+  explicit several-informative-turn occupancy report. Each action also records
+  structural profile consistency, ex-ante expected preference information,
+  and the ex-ante probability of changing a paired binary choice; trajectories
+  separately report disconfirmation inversion.
 - Fixed-history versus closed-loop evaluation using a common exogenous terminal
   diagnostic battery.
 - Immutable offline Experiment C cross-seed review with exact agreement
@@ -153,9 +176,11 @@ completion boundary is in
   constructed, and records the result in `llm/request-preflight.json`.
 - Development-only temperature calibration for LLM probability vectors, fitted
   separately for each information view with raw and calibrated records retained.
-  B/C additionally score cached raw/calibrated terminal vectors on the same
-  realized history; multi-turn rows explicitly do not claim a recursively raw
-  counterfactual trajectory.
+  A uses raw vectors for its primary updater metrics and keeps temperature
+  scaling secondary; B/C use the configured active history and additionally
+  score cached raw/calibrated terminal vectors on that same realized history.
+  Multi-turn rows explicitly do not claim a recursively raw counterfactual
+  trajectory.
 - Deterministic human evidence-strength material packets, strict de-identified
   imports, and analysis helpers; no recruitment, hosting, or ethics approval.
 - A selected Gate 4 collection stack: OpenAI `gpt-5.6-sol` acting directly
@@ -163,9 +188,10 @@ completion boundary is in
   `anthropic/claude-sonnet-5` and `google/gemini-3.6-flash` OpenRouter slugs as
   two blinded, distinct-model-family decoder sources, using Claude `low` and
   Gemini `minimal` reasoning.
-- An optional, contract-validated R confirmatory pipeline for the proposal's
-  mixed-effects models, while the dependency-free Python CR1 analysis remains
-  available as a marginal robustness check.
+- An optional, contract-validated R mixed-effects pipeline. Its Experiment B
+  terminal-error fit is supporting and does not replace the paper-primary
+  Python clustered same-history/decomposition inference; the dependency-free
+  Python CR1 analysis remains available as a marginal robustness check.
 - Versioned JSON artifacts, semantic-keyed random streams, checksums, and
   result-free gate reports.
 - Small runner-native analysis projections for Experiments A–C. These flatten
@@ -176,7 +202,9 @@ completion boundary is in
   [leakage audit](docs/data-model.md#splits-and-leakage-controls).
 - A checked-in simulator-sensitivity design over decision noise, shared and
   mechanism-specific presentation strength, profile strength, prior
-  uncertainty, trajectory length, response-model family, and rule noise.
+  uncertainty, trajectory length, response-model family, rule noise, and a
+  visible profile-conditioning dose with explicit exposure, divergence, and
+  informative-strata manipulation checks.
 
 The standard-library-only core requires Python 3.11 or newer. Offline commands
 never require credentials. A provider call is possible only through a live
@@ -332,19 +360,37 @@ bins with one preference attribute as the forecast unit.
 
 Experiments are organized around:
 
-- **Experiment A:** one-step causal-provenance calibration;
-- **Experiment B:** policy-induced evidence quality, same-history attribution,
-  and conditional false-profile self-confirmation;
+- **Experiment A:** a primary same-response provenance test. The user response
+  is fixed while the option set, rank order, default, or suggestion changes;
+  the target writer's signed exact-oracle calibration residual under each
+  treatment is contrasted with its residual under balanced presentation.
+  Unsigned ExactACUE, fitted-reference, temperature-scaled, and naturally
+  sampled results are secondary diagnostics;
+- **Experiment B:** policy-conditioned evidential legibility and feedback under
+  natural responses. Its primary paired decomposition reports
+  `G_soft - G_balanced`, where `G_policy` is the evaluated writer's error minus
+  its exact same-history shadow error, together with SelectionCost and the total
+  soft-minus-balanced updater-error contrast. `G_soft - G_exploratory` remains
+  a supporting whole-policy comparison because exploratory chooses targets and
+  scenarios adaptively rather than forming a turn-matched branch.
+  Every row verifies that total effect equals SelectionCost plus the attribution
+  contrast. Complete-user one-sided inference separates policy-conditioned
+  legibility (SelectionCost noninferior within `0.02`) from nested net harm
+  (total error above `0.02`). Relative CEC, absolute CEC, EAR, partial
+  reinforcement, paired behavioral reinforcement, disconfirmation inversion,
+  and strict self-confirmation remain distinct outcomes;
 - **Experiment C:** logging-policy-dependent system evaluation and selection,
+  retained as the secondary version-1 evaluation-validity study,
   plus a separate
   [two-family external-decoder rescore](docs/experiments.md#experiment-c-external-decoder-rescore)
   and
   [multi-seed robustness review](docs/experiments.md#experiment-c-multi-seed-robustness);
-- **Experiment D support:** human pragmatic evidence-strength study materials.
+- **Deferred human-study support:** pragmatic evidence-strength study
+  materials; recruitment and human evidence are outside the current run plan.
 
-Correction-debt, held-out paraphrase-transfer, and broader alternative-model
-robustness code paths are implemented, but their existence is not evidence that
-the corresponding paper stages were executed or passed.
+Correction-debt, held-out paraphrase coverage/invariance, and broader
+alternative-model robustness code paths are implemented, but their existence
+is not evidence that the corresponding paper stages were executed or passed.
 [Experiments](docs/experiments.md) explains the cells, controls, and output
 contracts.
 
@@ -393,6 +439,12 @@ PYTHONPATH=src python -m cape_loop llm execute-openrouter \
   --model google/gemini-3.6-flash --execute-live
 PYTHONPATH=src python -m cape_loop run \
   configs/live/experiment_a_openrouter.toml --execute-live
+PYTHONPATH=src python -m cape_loop experiment-b manipulation-audit \
+  configs/live/experiment_b_openrouter.toml \
+  artifacts/experiment-b-manipulation-audit
+PYTHONPATH=src python -m cape_loop experiment-b model-suite \
+  configs/live/experiment_b_openrouter.toml \
+  --output-root runs/experiment-b-suite
 PYTHONPATH=src python -m cape_loop llm evaluation-suite \
   configs/live/experiment_a_openai.toml \
   configs/live/experiment_a_openai_replication.toml \
@@ -430,6 +482,14 @@ PYTHONPATH=src python -m cape_loop gate6-review verify \
   artifacts/GATE6-REVIEW --reverify-sources
 PYTHONPATH=src python -m cape_loop llm validate responses.jsonl
 ```
+
+Both Experiment B commands shown above are credential-free: the first uses
+only the mathematical simulator, and the second prints the frozen four-arm
+plan. Paid suite execution occurs only when `--execute-live` is added to the
+model-suite command. The primary panel is Gemini 3.6 Flash, GPT-5.6 Luna, and
+Mistral Large 3 (`mistralai/mistral-large-2512`); the smaller DeepSeek V4 Flash
+arm is post-pilot secondary. Every model has a separate analysis—there is no
+cross-model pooling, and DeepSeek is outside the primary analysis set.
 
 The CLI does not load `.env` automatically. If credentials are stored in a
 local ignored `.env`, load them into the current shell explicitly before a live
@@ -518,14 +578,16 @@ separately retain the submitted provider constraint/preferences and the router
 display identity, and explicitly do not treat that display label as exact
 endpoint-slug attestation.
 
-The checked-in primary and replication configurations are two-user pilot
-designs, not paper power settings or completed runs. Both compare all three LLM
-information views with one fixed model/effort setting and declare hard ceilings
-of 900 requests and 6,000,000 conservative tokens. Their default
-`calibration = "temperature"` stage first collects a fixed matched-provenance
-probe on one declared development user, fits one temperature per LLM updater
-view using development labels only, and applies those calibrators to test/run
-outputs. If an adaptive live run fails, rerunning the same configuration with
+The three checked-in Experiment A live configurations are four-user,
+two-domain controlled-response pilots, not paper power settings or completed
+runs. Each evaluates one `llm_full_context` model across five mechanisms and
+two prior strengths, with hard ceilings of 900 requests and 6,000,000
+conservative tokens. Their default `calibration = "temperature"` stage first
+collects a 60-request, five-mechanism probe on one declared development user
+and retains temperature-scaled counterparts for the 480 raw-primary test
+updates as secondary diagnostics. They do not run the naturally sampled A
+track, but they do retain 40 controlled held-out-paraphrase updates. If an
+adaptive live run fails, rerunning the same configuration with
 `--execute-live --resume-failed-live` archives the failed artifact under
 `.failed-runs/` and resumes its external journal into a fresh deterministic
 run path.
@@ -535,9 +597,9 @@ evidence workflows:
 
 | Purpose | Configurations | Exact bounded workload |
 | --- | --- | ---: |
-| A live profile writing | `configs/live/experiment_a_{openai,openrouter}.toml` | 848 physical attempts per provider |
-| B live closed loop | `configs/live/experiment_b_{openai,openrouter}.toml` | 576 trajectory + 48 calibration = 624 attempts per provider |
-| C live evaluation validity | `configs/live/experiment_c_{openai,openrouter}.toml` | 768 evaluation + 48 calibration = 816 attempts per provider |
+| A live profile writing | `configs/live/experiment_a_{openai,openrouter}.toml` | 480 controlled + 60 calibration + 40 paraphrase = 580 attempts per provider |
+| B live closed loop | `configs/live/experiment_b_{openai,openrouter}.toml` | 576 trajectory + 60 calibration = 636 attempts per provider |
+| C live evaluation validity | `configs/live/experiment_c_{openai,openrouter}.toml` | 768 evaluation + 60 calibration = 828 attempts per provider |
 | Gate 4 source generation | `configs/offline/gate4_source.toml` | Offline; 640 decoder requests per source and 80 native actions |
 | C external rescore source | `configs/offline/experiment_c_rescore_source.toml` | Offline; 360 decoder requests per source |
 | Gate 6 live OAT | `configs/live/sensitivity_{openai,openrouter}.toml` | 720-attempt upper bound per provider |
@@ -555,16 +617,18 @@ The runner retains the fitted parameters in
 `models/llm-calibration.json`, development raw responses in
 `llm/development-raw-responses.jsonl`, development raw-versus-calibrated metrics
 in `metrics/llm-development-calibration.jsonl`, and runtime/test raw responses
-in `llm/test-raw-responses.jsonl`; calibrated responses remain in the ordinary
-LLM exchange artifacts. This separation makes the no-test-label fitting
-boundary auditable.
+in `llm/test-raw-responses.jsonl`; calibrated counterparts are in
+`llm/test-calibrated-responses.jsonl`. Experiment A's ordinary response exchange
+is raw-primary, while B/C retain their configured active responses there. This
+separation makes both the no-test-label fitting boundary and A's raw-primary
+estimand auditable.
 
-`llm evaluation-suite` is the paper-facing two-role orchestrator. Without
+`llm evaluation-suite` is the matched two-role collection orchestrator. Without
 `--execute-live` it reads no credential, validates the immutable matched
 primary/replication configs, and writes a combined index containing both config
 hashes, distinct run IDs, isolated journal locations, and each role's own hard
-ceilings. The checked pilot design has a conservative upper bound of 848 calls
-per role, leaving 52 calls of headroom under the 900-request ceiling. Adding
+ceilings. The checked pilot design has a conservative upper bound of 580 calls
+per role, leaving 320 calls of headroom under the 900-request ceiling. Adding
 `--execute-live` runs both configs under separate provider ledgers and updates
 that index; it never merges their response or audit files.
 
@@ -591,8 +655,9 @@ OpenRouter workflow.
 
 The broader simulator robustness configuration is now a baseline-first,
 22-point one-at-a-time design. It varies the original robustness axes plus a
-direct policy-conditioning propensity multiplier while explicitly recording
-that interactions among axes are not estimable. The two live Gate 6 pilots
+direct policy-conditioning propensity multiplier at
+`lambda = {0, 0.33, 0.67, 1}` while explicitly recording that interactions
+among axes are not estimable. The two live Gate 6 pilots
 use smaller 14-point one-at-a-time grids and remain separate from the
 simulator-only robustness run. Their three-turn baseline establishes transport
 and visible manipulation only; a feedback-loop pilot must revisit attributes
@@ -642,10 +707,14 @@ For a newly generated run, the compact file is
 `analysis/experiment-b-turns.jsonl`, or
 `analysis/experiment-c-rows.jsonl`. A rows are one updater×trial evaluation, B
 rows are one retained trajectory turn, and C rows are one evaluation/ranking
-row. A also writes `analysis/experiment-a-exclusions.jsonl` so exclusion
-accounting remains available without the raw events. Sensitivity does not add
-another projection because its existing `metrics/` and `tables/` records are
-already compact aggregates.
+row. Experiment A compact rows use schema v2 and explicitly retain the analysis
+track, exact and fitted update errors, system/exact/fitted log-odds updates, and
+the exact-oracle calibration residual. A also writes
+`analysis/experiment-a-exclusions.jsonl`,
+`metrics/experiment-a-same-response-audit.json`, and
+`metrics/experiment-a-exact-calibration.json`. Sensitivity does not add another
+projection because its existing `metrics/` and `tables/` records are already
+compact aggregates.
 
 Runs additionally write an exhaustive, human-oriented trace and a
 Markdown preview:

@@ -95,6 +95,17 @@ _DISPLAY_NAME = re.compile(
 _GENERIC_DISPLAY_NAME_STEMS = frozenset(
     {"option", "choice", "alternative", "selection", "item"}
 )
+_ASSISTANT_PROFILE_ASSERTION = re.compile(
+    r"(?:^|[.!?]\s+|\{prompt\}\s+)"
+    r"(?:based\s+on\s+(?:your|the\s+user(?:'s)?)\s+"
+    r"(?:profile|preferences?)\s*,?\s*)?"
+    r"(?:you|the\s+user)\s+"
+    r"(?:generally\s+|always\s+|usually\s+|normally\s+)?"
+    r"(?:prefer(?:s)?|like(?:s)?|want(?:s)?|value(?:s)?|favou?r(?:s)?)\b"
+    r"|(?:^|[.!?]\s+|\{prompt\}\s+)"
+    r"(?:your|the\s+user's)\s+preference\s+is\b",
+    re.IGNORECASE,
+)
 
 
 def _contains_control(value: str) -> bool:
@@ -276,6 +287,11 @@ def _validate_frozen_authoring_contract(
 
     stem = _display_name_stem(display_names)
     neutral = presentation_templates["balanced"]
+    if _ASSISTANT_PROFILE_ASSERTION.search(neutral):
+        raise ValueError(
+            "assistant template asserts a persistent user preference; "
+            "profile-conditioned treatment may change presentation only"
+        )
     expected = expand_presentation_templates(neutral)
     if dict(presentation_templates) != expected:
         raise ValueError(
@@ -518,6 +534,8 @@ class ScenarioConversationTemplate:
         context: InteractionContext,
         provenance: PolicyProvenance,
         selected_option_id: str,
+        *,
+        stable_option_names: bool = False,
     ) -> RenderedConversation:
         """Render a context after a mathematical simulator selects an option."""
 
@@ -525,6 +543,8 @@ class ScenarioConversationTemplate:
             raise TypeError("context must be an InteractionContext")
         if not isinstance(provenance, PolicyProvenance):
             raise TypeError("provenance must be a PolicyProvenance")
+        if not isinstance(stable_option_names, bool):
+            raise TypeError("stable_option_names must be Boolean")
         selected = _text(
             selected_option_id,
             "selected_option_id",
@@ -557,15 +577,27 @@ class ScenarioConversationTemplate:
             raise ValueError(
                 "conversation template does not name every displayed option"
             )
-        stem = _display_name_stem(self.display_names)
-        # A/B are presentation-position aliases, not stable semantic labels.
-        # Reassigning them after ranking prevents a model from learning that a
-        # particular letter always means one latent preference direction.
-        ordered_names = (f"{stem} A", f"{stem} B")
-        displayed_names = {
-            option.option_id: name
-            for option, name in zip(ordered_options, ordered_names)
-        }
+        if stable_option_names:
+            # The identical-response provenance track changes rank order while
+            # holding the selected local reply literally fixed. Stable catalog
+            # names let an option move position without changing its name.
+            displayed_names = {
+                option.option_id: self.display_names[option.option_id]
+                for option in ordered_options
+            }
+            ordered_names = tuple(
+                displayed_names[option.option_id]
+                for option in ordered_options
+            )
+        else:
+            stem = _display_name_stem(self.display_names)
+            # Ordinary and natural-response runs use A/B as position aliases so
+            # a letter does not permanently reveal a latent preference direction.
+            ordered_names = (f"{stem} A", f"{stem} B")
+            displayed_names = {
+                option.option_id: name
+                for option, name in zip(ordered_options, ordered_names)
+            }
         selected_name = displayed_names[selected]
         descriptions = tuple(
             _text(
@@ -599,11 +631,16 @@ class ScenarioConversationTemplate:
             "rendered assistant message",
             maximum=4_000,
         )
+        if _ASSISTANT_PROFILE_ASSERTION.search(assistant):
+            raise ValueError(
+                "rendered assistant message asserts a persistent user preference"
+            )
         user = self.choice_template.format(selected_name=selected_name)
         _validate_local_choice(user, selected_name=selected_name)
         surface_id = (
             f"{self.scenario_id}:{presentation}:"
             f"{context.ranking[0]}>{context.ranking[1]}:{selected}"
+            + (":stable-option-names" if stable_option_names else "")
         )
         return RenderedConversation(
             surface_id=surface_id,
@@ -694,6 +731,8 @@ class ConversationTemplateBank:
         context: InteractionContext,
         provenance: PolicyProvenance,
         selected_option_id: str,
+        *,
+        stable_option_names: bool = False,
     ) -> RenderedConversation:
         """Select the scenario template and render one two-turn conversation."""
 
@@ -701,6 +740,7 @@ class ConversationTemplateBank:
             context,
             provenance,
             selected_option_id,
+            stable_option_names=stable_option_names,
         )
 
     def validate_catalog(self, catalog: Any) -> None:

@@ -46,6 +46,7 @@ DEMONSTRATION_STATUS: Mapping[str, Any] = {
 _PRESENTATION_MECHANISMS = {
     "balanced": "balanced",
     "restricted": "restriction",
+    "ranking": "ranking",
     "default": "default",
     "suggested": "suggestion",
 }
